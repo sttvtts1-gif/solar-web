@@ -18,4 +18,7 @@ window.SOLAR_CONFIG = {
   VWORLD_KEY: 'B1A0B5BA-ED9E-403C-A16B-EF74FB25BD66',
   VWORLD_DOMAIN: 'http://localhost:8080',
   VWORLD_REFERER: 'http://localhost:8080',
+
+  // 한전 전력데이터개방포털(bigdata.kepco.co.kr) Open API 인증키 — 분산전원연계정보(선로 여유용량) 조회
+  KEPCO_KEY: 'zG19u88DHCHfc1l55NBM1L8ad6APz83vqVa79ktv',
 };

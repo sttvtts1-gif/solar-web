@@ -271,9 +271,36 @@
     goTo(r.lat, r.lng, r.title);
   }
 
+  // ------------------------------------------------------------ 한전 선로
+  /** 좌표 → 법정동코드·읍면동 (카카오) → 한전 분산전원연계정보. 실패해도 배치 흐름은 막지 않는다. */
+  function loadKepco(lat, lng, addrText) {
+    const box = $('kepcoBox');
+    if (!(window.SOLAR_CONFIG || {}).KEPCO_KEY) { box.style.display = 'none'; return; }
+    box.style.display = 'block'; box.open = false;
+    $('kepcoHead').textContent = '조회 중…'; $('kepcoBody').innerHTML = '';
+    geocoder.coord2RegionCode(lng, lat, (res, status) => {
+      const b = status === kakao.maps.services.Status.OK ? res.find(x => x.region_type === 'B') : null;
+      if (!b) { $('kepcoHead').textContent = '법정동을 못 찾음'; return; }
+      const dong = b.region_3depth_name;
+      const jm = (addrText || '').match(/(\d+(?:-\d+)?)\s*$/);
+      Kepco.lines(b.code, dong, jm ? jm[1] : '')
+        .then(({ level, rows }) => {
+          if (!rows.length) { $('kepcoHead').textContent = dong + ' — 자료 없음'; return; }
+          $('kepcoHead').textContent = dong + ' (' + level + ' 기준) · 선로 ' + rows.length + '개';
+          const f = v => v === null ? '-' : v.toLocaleString('ko-KR');
+          const cls = v => v === null ? '' : v > 0 ? 'pos' : 'neg';
+          $('kepcoBody').innerHTML = '<div class="scrollx"><table class="cmp"><tr><th>변전소</th><th>변압기</th><th>배전선로(DL)</th><th>DL 여유</th><th>변압기 여유</th><th>변전소 여유</th><th>DL 누적연계</th></tr>'
+            + rows.map(r => '<tr><td>' + r.subst + '</td><td style="text-align:center">#' + r.mtr + '</td><td style="text-align:left">' + r.dl + '</td><td class="' + cls(r.dlFree) + '">' + f(r.dlFree) + '</td><td class="' + cls(r.mtrFree) + '">' + f(r.mtrFree) + '</td><td class="' + cls(r.substFree) + '">' + f(r.substFree) + '</td><td>' + f(r.dlUsed) + '</td></tr>').join('')
+            + '</table></div>';
+        })
+        .catch(e => { $('kepcoHead').textContent = dong + ' — ' + e.message; });
+    });
+  }
+
   function goTo(lat, lng, name) {
     map.setCenter(new kakao.maps.LatLng(lat, lng));
     map.setLevel(1);
+    loadKepco(lat, lng, name);
     if (!hasVWorld()) { hint(name + ' — 건물 지붕 모서리를 따라 점을 찍어 주세요.'); return; }
     autoSetup(lat, lng, name);
   }
