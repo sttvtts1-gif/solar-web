@@ -1,0 +1,340 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<title>태양광 배치분석</title>
+<style>
+  :root {
+    --bg: #0b3d2e; --fg: #e9f5ef; --muted: #9fc4b3; --accent: #ffd54a; --danger: #ff6b6b; --ok: #4ade80;
+    --panel: rgba(8, 30, 23, .94); --line: rgba(255,255,255,.12);
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { margin: 0; height: 100%; font-family: system-ui, "Malgun Gothic", sans-serif; background: var(--bg); color: var(--fg); overflow: hidden; }
+  #map { position: absolute; inset: 0; }
+
+  /* 상단 검색 */
+  #top { position: absolute; top: 0; left: 0; right: 0; padding: max(8px, env(safe-area-inset-top)) 10px 8px; display: flex; gap: 6px; z-index: 5; flex-wrap: wrap; }
+  #top input { flex: 1; min-width: 0; height: 42px; border: 0; border-radius: 10px; padding: 0 12px; font-size: 15px; background: #fff; color: #111; }
+  #results { flex-basis: 100%; background: #fff; color: #111; border-radius: 10px; max-height: 42vh; overflow-y: auto; display: none; box-shadow: 0 6px 20px rgba(0,0,0,.35); }
+  #results.on { display: block; }
+  .res { padding: 10px 12px; border-bottom: 1px solid #eee; font-size: 14px; display: flex; gap: 8px; align-items: center; }
+  .res:last-child { border-bottom: 0; }
+  .res:active { background: #fff3c4; }
+  .res .tag { font-size: 11px; padding: 2px 6px; border-radius: 6px; background: #e8f0ff; color: #1a4fd6; white-space: nowrap; }
+  .res .tag.place { background: #e9fbe9; color: #157a2a; }
+  .res .main { flex: 1; min-width: 0; }
+  .res small { display: block; color: #666; font-size: 12px; }
+
+  .btn { height: 42px; padding: 0 14px; border: 0; border-radius: 10px; background: var(--panel); color: var(--fg); font-size: 14px; font-weight: 600; white-space: nowrap; }
+  .btn.accent { background: var(--accent); color: #222; }
+  .btn.danger { background: var(--danger); color: #fff; }
+  .btn.ghost { background: rgba(255,255,255,.14); }
+  .btn.sm { height: 32px; padding: 0 10px; font-size: 12px; }
+  .btn:disabled { opacity: .4; }
+
+  /* 지도 중앙 십자선 (그리기 모드에서만) */
+  #cross { position: absolute; left: 50%; top: 50%; width: 26px; height: 26px; margin: -13px 0 0 -13px; pointer-events: none; display: none; z-index: 4; }
+  #cross:before, #cross:after { content: ""; position: absolute; background: var(--accent); box-shadow: 0 0 2px #000; }
+  #cross:before { left: 12px; top: 0; width: 2px; height: 26px; }
+  #cross:after { top: 12px; left: 0; height: 2px; width: 26px; }
+  body.drawing #cross { display: block; }
+
+  /* 하단 패널 — 접으면 탭 줄 + 합계 한 줄만 남는다 */
+  #panel { position: absolute; left: 0; right: 0; bottom: 0; z-index: 5; background: var(--panel); border-radius: 16px 16px 0 0; padding: 0 12px max(10px, env(safe-area-inset-bottom)); box-shadow: 0 -4px 20px rgba(0,0,0,.35); max-height: 72%; overflow-y: auto; transition: max-height .2s; }
+  #panel.collapsed { max-height: 92px; overflow: hidden; }
+  #panel.collapsed #body { display: none; }
+  #tabs { display: flex; gap: 0; margin: 0 -12px 8px; border-bottom: 1px solid var(--line); position: sticky; top: 0; background: var(--panel); z-index: 2; }
+  #tabs button { flex: 1; height: 44px; border: 0; background: transparent; color: var(--muted); font-size: 13px; font-weight: 700; border-bottom: 3px solid transparent; padding: 0 4px; }
+  #tabs button.on { color: var(--accent); border-bottom-color: var(--accent); }
+  #tabs button.icon { flex: 0 0 44px; font-size: 18px; }
+  #miniSummary { font-size: 13px; color: var(--muted); padding: 2px 0 8px; }
+  #miniSummary b { color: var(--fg); }
+  .row { display: flex; gap: 6px; align-items: center; margin-bottom: 8px; flex-wrap: wrap; }
+  .types { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin-bottom: 8px; }
+  .type { border: 1px solid var(--line); border-radius: 10px; padding: 8px 6px; text-align: center; font-size: 12px; line-height: 1.3; background: rgba(255,255,255,.05); }
+  .type b { display: block; font-size: 13px; margin-bottom: 2px; }
+  .type.on { border-color: var(--accent); background: rgba(255,213,74,.18); }
+  .type .pic { display: block; height: 28px; margin: 0 auto 4px; }
+
+  #summary { font-size: 13px; color: var(--muted); }
+  #summary b { color: var(--fg); font-size: 18px; }
+  #hint { font-size: 12px; color: var(--accent); min-height: 16px; padding-top: 8px; }
+
+  details { border-top: 1px solid var(--line); padding-top: 6px; margin-top: 4px; }
+  summary { cursor: pointer; font-size: 13px; color: var(--muted); }
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 10px; margin-top: 8px; }
+  .grid label, .field { font-size: 12px; color: var(--muted); display: flex; flex-direction: column; gap: 2px; }
+  .grid input, .grid select, .field input, .field select { height: 34px; border: 1px solid var(--line); border-radius: 8px; background: rgba(0,0,0,.25); color: var(--fg); padding: 0 8px; font-size: 14px; width: 100%; }
+  input[type=range] { width: 100%; }
+  .chk { display: flex; align-items: center; gap: 8px; font-size: 13px; }
+  .chk input { width: 18px; height: 18px; }
+  .small { height: 28px !important; width: 60px !important; padding: 0 6px !important; }
+
+  /* 지붕 목록 */
+  #roofs { display: flex; flex-direction: column; gap: 4px; margin-top: 6px; }
+  .roof { display: flex; align-items: center; gap: 8px; font-size: 13px; padding: 6px 8px; border-radius: 8px; background: rgba(255,255,255,.06); }
+  .roof.sel { outline: 1px solid var(--accent); }
+  .roof .nm { flex: 1; }
+  .roof .kw { font-weight: 700; }
+  .roof button { height: 28px; padding: 0 8px; font-size: 12px; }
+
+  /* 수익분석 · 자가소비 */
+  .sec h4 { margin: 10px 0 6px; font-size: 13px; color: var(--muted); border-left: 3px solid var(--ok); padding-left: 8px; }
+  .cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin: 8px 0; }
+  .cards.four { grid-template-columns: repeat(4, 1fr); }
+  .card { border-radius: 12px; padding: 10px 6px; color: #fff; text-align: center; }
+  .card small { display: block; font-size: 11px; opacity: .9; }
+  .card b { display: block; font-size: 15px; margin-top: 2px; }
+  table.cmp { width: 100%; border-collapse: collapse; font-size: 12px; }
+  table.cmp th, table.cmp td { padding: 6px 4px; border-bottom: 1px solid var(--line); text-align: right; white-space: nowrap; }
+  table.cmp th:first-child, table.cmp td:first-child { text-align: left; color: var(--muted); font-weight: 500; }
+  table.cmp tr.hl td { background: rgba(255,213,74,.12); }
+  .scrollx { overflow-x: auto; }
+  .pos { color: var(--ok); } .neg { color: var(--danger); }
+  canvas.chart { width: 100%; height: 190px; display: block; background: rgba(0,0,0,.2); border-radius: 10px; }
+  .legend { display: flex; gap: 12px; font-size: 12px; color: var(--muted); margin: 6px 0; }
+  .legend i { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 4px; vertical-align: middle; }
+  .comment { font-size: 13px; line-height: 1.5; }
+  .comment .head { background: rgba(255,255,255,.06); border-radius: 10px; padding: 8px 10px; margin-bottom: 6px; }
+  .comment ul { margin: 6px 0 0; padding-left: 16px; color: var(--muted); font-size: 12px; }
+  .gbox { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+  .gcard { border: 1px solid var(--line); border-top-width: 3px; border-radius: 10px; padding: 6px; font-size: 11px; }
+  .gcard b { display: block; margin-bottom: 4px; font-size: 12px; }
+  .gcard div { display: flex; justify-content: space-between; gap: 4px; color: var(--muted); }
+  .gcard div span:last-child { color: var(--fg); text-align: right; }
+  .loanbox { font-size: 12px; background: rgba(255,255,255,.06); border-radius: 10px; padding: 8px 10px; }
+  .loanbox div { display: flex; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
+  .badge { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 11px; color: #fff; }
+
+  /* 제도변경 문서 */
+  .drop { border: 2px dashed var(--line); border-radius: 12px; padding: 14px; text-align: center; font-size: 13px; color: var(--muted); }
+  .drop input { display: none; }
+  .doc { background: rgba(255,255,255,.06); border-radius: 10px; padding: 8px 10px; margin-top: 6px; font-size: 13px; }
+  .doc .t { display: flex; justify-content: space-between; gap: 8px; align-items: center; }
+  .doc .t b { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .doc .snip { font-size: 12px; color: var(--muted); margin-top: 4px; line-height: 1.4; }
+  .doc .pages { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; }
+  .doc .pages button { height: 26px; padding: 0 8px; font-size: 12px; }
+  mark { background: #fde68a; color: #1e293b; border-radius: 2px; padding: 0 2px; }
+
+  /* 모달 (설정, 문서 페이지 미리보기) */
+  .modal { position: absolute; inset: 0; z-index: 30; background: rgba(0,0,0,.7); display: none; align-items: flex-end; justify-content: center; }
+  .modal.on { display: flex; }
+  .modal .box { background: var(--panel); width: 100%; max-height: 90%; overflow-y: auto; border-radius: 16px 16px 0 0; padding: 12px 12px max(12px, env(safe-area-inset-bottom)); }
+  .modal h3 { margin: 0 0 8px; font-size: 15px; display: flex; justify-content: space-between; align-items: center; }
+  .modal img { width: 100%; border-radius: 8px; background: #fff; }
+
+  /* 지도 위 결과 라벨 (카카오 CustomOverlay 내용) */
+  .lbl { transform: translate(-50%, -50%); background: rgba(255,255,255,.95); border: 2px solid #1a4fd6; border-radius: 6px; padding: 4px 8px; text-align: center; color: #111; white-space: nowrap; font-family: inherit; pointer-events: none; }
+  .lbl b { display: block; color: #e02020; font-size: 16px; }
+  .lbl span { font-size: 11px; }
+  .dot { width: 14px; height: 14px; margin: -7px 0 0 -7px; border-radius: 50%; background: var(--accent); border: 2px solid #000; }
+  .dot.first { background: #ff5252; }
+
+  #nokey { position: absolute; inset: 0; z-index: 20; background: var(--bg); display: none; padding: 40px 24px; font-size: 15px; line-height: 1.6; }
+  #nokey code { background: rgba(255,255,255,.12); padding: 2px 6px; border-radius: 4px; }
+</style>
+</head>
+<body>
+<div id="map"></div>
+<div id="cross"></div>
+
+<div id="top">
+  <input id="q" type="text" placeholder="지번 · 도로명 · 동 번지 (예: 안동 161-15)" autocomplete="off" enterkeyhint="search">
+  <button class="btn accent" id="btnSearch">검색</button>
+  <div id="results"></div>
+</div>
+
+<div id="panel">
+  <div id="tabs">
+    <button id="tabLayout" class="on" data-tab="layout">배치</button>
+    <button id="tabRps" data-tab="rps">수익분석</button>
+    <button id="tabSelf" data-tab="self">자가소비</button>
+    <button id="tabPolicy" data-tab="policy">제도변경</button>
+    <button id="btnSettings" class="icon" title="설정">⚙</button>
+    <button id="btnCollapse" class="icon" title="패널 접기/펴기">▼</button>
+  </div>
+  <div id="miniSummary"></div>
+  <div id="body">
+  <div id="hint"></div>
+
+  <!-- 배치 · 보기 모드 -->
+  <div id="modeView">
+    <div class="types" id="types"></div>
+    <div class="row" style="gap:12px">
+      <label class="chk"><input id="shadeOn" type="checkbox"><span>음영 고려 (동지 9~15시, 주변 더 높은 건물)</span></label>
+    </div>
+    <div class="row">
+      <button class="btn accent" id="btnBuildings">🏢 건물 가져오기</button>
+      <button class="btn ghost" id="btnDraw">✎ 직접 그리기</button>
+      <button class="btn ghost" id="btnShare">공유</button>
+      <button class="btn ghost" id="btnClear">전체 삭제</button>
+    </div>
+    <div id="summary"></div>
+    <div id="roofs"></div>
+    <details>
+      <summary>이 형태의 상세 설정 (경사각 · 이격 · 방향)</summary>
+      <div class="grid">
+        <label>모듈 방향<select id="o_orient"><option value="portrait">세로 (짧은변이 줄방향)</option><option value="landscape">가로 (긴변이 줄방향)</option></select></label>
+        <label>단 수 (tiers)<input id="o_tiers" type="number" step="1" min="1"></label>
+        <label>전면 경사각 (°) 10~15<input id="o_tilt" type="number" step="1" min="0" max="45"></label>
+        <label>후면입사각 (°)<input id="o_shadeAngle" type="number" step="1" min="5" max="60"></label>
+        <label>어레이 이격 자동<select id="o_autoGap"><option value="true">후면입사각으로 계산</option><option value="false">아래 값 직접 입력</option></select></label>
+        <label>어레이 이격 직접 (m)<input id="o_arrayGap" type="number" step="0.1"></label>
+        <label>단 사이 틈 (m)<input id="o_tierGap" type="number" step="0.05"></label>
+        <label>모듈 사이 틈 (m)<input id="o_colGap" type="number" step="0.01"></label>
+        <label>가장자리 이격 (m)<input id="o_margin" type="number" step="0.1"></label>
+        <label>줄 방향<select id="o_align"><option value="auto">건물에 맞춤 (±한계 안)</option><option value="south">정남 고정</option></select></label>
+        <label>건물 맞춤 한계 (°)<input id="o_alignLimit" type="number" step="5"></label>
+      </div>
+      <div class="row" style="margin-top:8px"><button class="btn ghost" id="btnReset">이 형태 기본값으로</button></div>
+    </details>
+  </div>
+
+  <!-- 배치 · 그리기 모드 -->
+  <div id="modeDraw" style="display:none">
+    <div class="row">
+      <button class="btn accent" id="btnAddCenter">＋ 십자선 위치에 점</button>
+      <button class="btn ghost" id="btnUndo">점 하나 취소</button>
+    </div>
+    <div class="row">
+      <button class="btn accent" id="btnDone">✔ 완료 (배치)</button>
+      <button class="btn danger" id="btnCancel">그리기 취소</button>
+      <span id="ptCount" style="font-size:13px;color:var(--muted)"></span>
+    </div>
+  </div>
+
+  <!-- 수익분석 (RPS) — 검색어플 RPS 탭 이식 -->
+  <div id="modeRps" class="sec" style="display:none">
+    <div class="row">
+      <div class="field" style="flex:1"><span>설비용량 (kW)</span><input id="r_capacity" type="number" step="0.001"></div>
+      <button class="btn sm ghost" id="btnPullCap" style="align-self:flex-end">배치 용량 가져오기</button>
+    </div>
+    <h4>초기 투자비용</h4>
+    <div class="grid">
+      <label>kW당 공사비 (원/kW)<input id="r_costPerKw" type="number" step="10000"></label>
+      <label>1등급 공사비 (원)<input id="r_constCost" type="number" step="1000000"></label>
+      <label>한전분담금 (원)<input id="r_kepcoCost" type="number" step="1000000"></label>
+      <label>1등급 단가 (원/kWh)<input id="r_customPrice" type="number" step="1"></label>
+      <label>1→2등급 단가차 (원/Wp)<input id="r_diff12" type="number" step="5"></label>
+      <label>1→무등급 단가차 (원/Wp)<input id="r_diff1n" type="number" step="5"></label>
+    </div>
+    <label class="chk" style="margin-top:8px"><input id="r_ceilingBasis" type="checkbox"><span>상한가 기준으로 계산 <small id="r_gapNote" style="color:var(--muted)"></small></span></label>
+    <div class="scrollx"><table class="cmp" id="r_costTable" style="margin-top:8px"></table></div>
+    <h4>발전 조건</h4>
+    <div class="grid">
+      <label>경사각 <b id="r_angleV"></b>°<input id="r_moduleAngle" type="range" min="5" max="15" step="1"></label>
+      <label>발전시간 <b id="r_genV"></b>h/일<input id="r_baseGenTime" type="range" min="3.0" max="4.5" step="0.1"></label>
+    </div>
+    <h4>금융 조건</h4>
+    <label class="chk"><input id="r_loanActive" type="checkbox"><span>대출 적용 (원리금균등, 기본 총투자비의 80%)</span></label>
+    <div class="grid" id="r_loanFields">
+      <label>금리 (%)<input id="r_loanInterest" type="number" step="0.1"></label>
+      <label>대출원금 (원)<input id="r_loanPrincipal" type="number" step="1000000"></label>
+      <label>거치 (년)<input id="r_loanGrace" type="number" step="1"></label>
+      <label>상환 (년)<input id="r_loanPeriod" type="number" step="1"></label>
+    </div>
+    <div class="loanbox" id="r_loanMonthly" style="margin-top:6px;display:none"></div>
+    <h4>등급별 BEP (자기자본 회수)</h4>
+    <div class="cards" id="r_cards"></div>
+    <div class="legend" id="r_legend"></div>
+    <canvas id="chart" class="chart"></canvas>
+    <h4>등급별 수익 비교 <span class="badge" id="r_basisBadge" style="background:#334155"></span></h4>
+    <div class="scrollx"><table class="cmp" id="r_cmpTable"></table></div>
+    <h4>분석 코멘트 <span class="badge" id="r_bestBadge"></span></h4>
+    <div class="comment">
+      <div class="head" id="r_headline"></div>
+      <div class="gbox" id="r_gbox"></div>
+      <ul id="r_notes"></ul>
+    </div>
+    <h4>리포트 메일 발송 <small style="font-weight:400">— 리포트 이미지 + 명함 자동 첨부</small></h4>
+    <div class="grid">
+      <label>업체명<input id="m_company" type="text" placeholder="예: ○○산업"></label>
+      <label>받는 이메일 (선택)<input id="m_to" type="email" inputmode="email" placeholder="example@company.com"></label>
+    </div>
+    <div class="row" style="margin-top:10px">
+      <button class="btn accent" id="btnRpsMail">📧 메일로 보내기</button>
+      <button class="btn ghost" id="btnRpsShare">텍스트 공유</button>
+      <button class="btn ghost" id="btnRpsReset">기본값</button>
+    </div>
+  </div>
+
+  <!-- 자가소비 — 검색어플 자가소비 탭 이식. 용량·공사비·대출·발전조건은 수익분석 탭과 공유한다 -->
+  <div id="modeSelf" class="sec" style="display:none">
+    <p style="font-size:12px;color:var(--muted);margin:4px 0 0">설비용량·공사비·한전분담금·대출·발전시간은 「수익분석」 탭 값을 그대로 씁니다.</p>
+    <h4>전력 요금제 선택</h4>
+    <div class="grid">
+      <label>계약종류<select id="s_rateCategory"></select></label>
+      <label>계약종별<select id="s_voltageType"></select></label>
+      <label>선택요금<select id="s_selectionType"></select></label>
+      <label>계절 단가 (중간부하, 원/kWh)<div id="s_rates" style="font-size:13px;padding-top:6px"></div></label>
+    </div>
+    <h4>절감 효과</h4>
+    <div class="cards four" id="s_cards"></div>
+    <canvas id="s_chart" class="chart"></canvas>
+    <p style="font-size:11px;color:var(--muted);margin:4px 0">누적순익 vs 자기자본(점선). 교차점이 BEP.</p>
+    <h4>월별 절감 시뮬레이션 <span class="badge" id="s_planBadge" style="background:#334155"></span></h4>
+    <div class="scrollx"><table class="cmp" id="s_table"></table></div>
+    <div class="row" style="margin-top:10px">
+      <button class="btn accent" id="btnSelfMail">📧 메일로 보내기</button>
+      <button class="btn ghost" id="btnSelfShare">텍스트 공유</button>
+      <span style="font-size:11px;color:var(--muted)">업체명·받는 이메일은 수익분석 탭 아래 칸을 씁니다</span>
+    </div>
+  </div>
+
+  <!-- 제도변경 문서 저장소 — 검색어플 제도변경 탭 이식 (기기 IndexedDB, PDF 전문검색) -->
+  <div id="modePolicy" class="sec" style="display:none">
+    <label class="drop"><input id="p_file" type="file" multiple accept="application/pdf,image/*">
+      <b style="color:var(--fg)">＋ 파일 추가 (PDF · 이미지)</b><br>이 기기에만 저장됩니다. PDF 는 본문을 읽어 페이지 단위로 검색합니다.</label>
+    <div class="row" style="margin-top:8px">
+      <input id="p_q" type="text" placeholder="제도 · 단어 검색 (띄어쓰기 무관)" style="flex:1;height:38px;border:1px solid var(--line);border-radius:8px;background:rgba(0,0,0,.25);color:var(--fg);padding:0 10px;font-size:14px">
+      <select id="p_sort" class="btn ghost sm" style="height:38px"><option value="timestamp">최신순</option><option value="name">이름순</option></select>
+    </div>
+    <div id="p_status" style="font-size:12px;color:var(--accent);min-height:16px"></div>
+    <div id="p_list"></div>
+  </div>
+  </div><!-- /body -->
+</div>
+
+<!-- 설정: 모듈 규격 등 앱 전체 공통값 -->
+<div class="modal" id="settingsModal">
+  <div class="box">
+    <h3>설정 <button class="btn sm ghost" id="btnSettingsClose">닫기</button></h3>
+    <h4 style="margin:6px 0;font-size:13px;color:var(--muted)">모듈 규격 — 모든 지붕 형태에 공통</h4>
+    <div class="grid">
+      <label>모듈 출력 (W)<input id="g_moduleWp" type="number" step="5"></label>
+      <label>모듈 긴 변 (mm)<input id="g_modL" type="number" step="1"></label>
+      <label>모듈 짧은 변 (mm)<input id="g_modS" type="number" step="1"></label>
+      <label>음영 계산 층고 (m)<input id="g_floorH" type="number" step="0.5" min="2"></label>
+    </div>
+    <p style="font-size:12px;color:var(--muted)">기본값 2465 × 1134 mm, 645W. 바꾸면 모든 지붕이 다시 배치됩니다.</p>
+    <div class="row" style="margin-top:8px"><button class="btn accent" id="btnSettingsApply">적용</button><button class="btn ghost" id="btnSettingsDefault">기본값</button></div>
+  </div>
+</div>
+
+<!-- 문서 페이지 미리보기 -->
+<div class="modal" id="pageModal">
+  <div class="box">
+    <h3><span id="pm_title" style="font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"></span><button class="btn sm ghost" id="pm_close">닫기</button></h3>
+    <div id="pm_body" style="font-size:13px;color:var(--muted)"></div>
+  </div>
+</div>
+
+<div id="nokey">
+  <b>카카오 JavaScript 키가 없습니다.</b><br>
+  <code>assets/config.js</code> 의 <code>KAKAO_JS_KEY</code> 에 키를 넣고 다시 빌드하세요.<br><br>
+  콘솔 &gt; 플랫폼 &gt; Web 사이트 도메인에 <code>https://appassets.androidplatform.net</code> 도 등록해야 합니다.
+</div>
+
+<script src="config.js"></script>
+<script src="vendor/pdf.min.js"></script>
+<script src="layout.js"></script>
+<script src="vworld.js"></script>
+<script src="rps.js"></script>
+<script src="report.js"></script>
+<script src="rps_ui.js"></script>
+<script src="policy.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
