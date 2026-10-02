@@ -42,7 +42,10 @@
 
   /* 하단 패널 — 접으면 탭 줄 + 합계 한 줄만 남는다 */
   #panel { position: absolute; left: 0; right: 0; bottom: 0; z-index: 5; background: var(--panel); border-radius: 16px 16px 0 0; padding: 0 12px max(10px, env(safe-area-inset-bottom)); box-shadow: 0 -4px 20px rgba(0,0,0,.35); max-height: 72%; overflow-y: auto; transition: max-height .2s; }
+  /* 패널 3단: collapsed(탭+합계만) / 기본(72%) / full(화면 전체, 지도 숨김) */
   #panel.collapsed { max-height: 92px; overflow: hidden; }
+  #panel.full { top: 0; max-height: none; border-radius: 0; z-index: 6; padding-top: env(safe-area-inset-top); background: #082a20; }
+  #panel.full #tabs { background: #082a20; }
   #panel.collapsed #body { display: none; }
   #tabs { display: flex; gap: 0; margin: 0 -12px 8px; border-bottom: 1px solid var(--line); position: sticky; top: 0; background: var(--panel); z-index: 2; }
   #tabs button { flex: 1; height: 44px; border: 0; background: transparent; color: var(--muted); font-size: 13px; font-weight: 700; border-bottom: 3px solid transparent; padding: 0 4px; }
@@ -153,7 +156,8 @@
     <button id="tabSelf" data-tab="self">자가소비</button>
     <button id="tabPolicy" data-tab="policy">제도변경</button>
     <button id="btnSettings" class="icon" title="설정">⚙</button>
-    <button id="btnCollapse" class="icon" title="패널 접기/펴기">▼</button>
+    <button id="btnExpand" class="icon" title="패널 위로 (넓게)">▲</button>
+    <button id="btnCollapse" class="icon" title="패널 아래로 (좁게)">▼</button>
   </div>
   <div id="miniSummary"></div>
   <div id="body">
@@ -218,9 +222,9 @@
     </div>
     <h4>초기 투자비용</h4>
     <div class="grid">
-      <label>kW당 공사비 (원/kW)<input id="r_costPerKw" type="number" step="10000"></label>
-      <label>1등급 공사비 (원)<input id="r_constCost" type="number" step="1000000"></label>
-      <label>한전분담금 (원)<input id="r_kepcoCost" type="number" step="1000000"></label>
+      <label>kW당 공사비 (원/kW)<input id="r_costPerKw" type="text" inputmode="numeric" class="money"></label>
+      <label>1등급 공사비 (원)<input id="r_constCost" type="text" inputmode="numeric" class="money"></label>
+      <label>한전분담금 (원)<input id="r_kepcoCost" type="text" inputmode="numeric" class="money"></label>
       <label>1등급 단가 (원/kWh)<input id="r_customPrice" type="number" step="1"></label>
       <label>1→2등급 단가차 (원/Wp)<input id="r_diff12" type="number" step="5"></label>
       <label>1→무등급 단가차 (원/Wp)<input id="r_diff1n" type="number" step="5"></label>
@@ -229,14 +233,14 @@
     <div class="scrollx"><table class="cmp" id="r_costTable" style="margin-top:8px"></table></div>
     <h4>발전 조건</h4>
     <div class="grid">
-      <label>경사각 <b id="r_angleV"></b>°<input id="r_moduleAngle" type="range" min="5" max="15" step="1"></label>
-      <label>발전시간 <b id="r_genV"></b>h/일<input id="r_baseGenTime" type="range" min="3.0" max="4.5" step="0.1"></label>
+      <label><span>경사각 <b id="r_angleV"></b>°</span><input id="r_moduleAngle" type="range" min="5" max="15" step="1"></label>
+      <label><span>발전시간 <b id="r_genV"></b> h/일</span><input id="r_baseGenTime" type="range" min="3.0" max="4.5" step="0.1"></label>
     </div>
     <h4>금융 조건</h4>
     <label class="chk"><input id="r_loanActive" type="checkbox"><span>대출 적용 (원리금균등, 기본 총투자비의 80%)</span></label>
     <div class="grid" id="r_loanFields">
       <label>금리 (%)<input id="r_loanInterest" type="number" step="0.1"></label>
-      <label>대출원금 (원)<input id="r_loanPrincipal" type="number" step="1000000"></label>
+      <label>대출원금 (원)<input id="r_loanPrincipal" type="text" inputmode="numeric" class="money"></label>
       <label>거치 (년)<input id="r_loanGrace" type="number" step="1"></label>
       <label>상환 (년)<input id="r_loanPeriod" type="number" step="1"></label>
     </div>

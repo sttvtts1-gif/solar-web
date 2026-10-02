@@ -20,14 +20,19 @@ const RpsUI = (() => {
 
   const NUM = ['capacity', 'costPerKw', 'constCost', 'kepcoCost', 'customPrice', 'diff12', 'diff1n', 'moduleAngle', 'baseGenTime', 'loanInterest', 'loanPrincipal', 'loanGrace', 'loanPeriod'];
   const BOOL = ['ceilingBasis', 'loanActive'];
+  // 원 단위 금액 칸. type=number 는 쉼표를 못 보여줘서 text 로 두고 여기서 찍는다.
+  const MONEY = ['costPerKw', 'constCost', 'kepcoCost', 'loanPrincipal'];
+  const commas = s => { const d = String(s).replace(/[^0-9]/g, ''); return d ? Number(d).toLocaleString('ko-KR') : ''; };
   const SEL = ['rateCategory', 'voltageType', 'selectionType'];
 
   function init() {
     load();
     NUM.forEach(k => {
       const el = $('r_' + k);
+      // 금액 칸은 치는 동안에도 1,000,000 처럼 쉼표를 찍어 준다(커서는 끝으로).
+      if (MONEY.includes(k)) el.addEventListener('input', () => { el.value = commas(el.value); });
       el.addEventListener(el.type === 'range' ? 'input' : 'change', () => {
-        const v = parseFloat(el.value);
+        const v = parseFloat(String(el.value).replace(/,/g, ''));
         if (!isFinite(v)) return;
         onChange(k, v);
       });
@@ -68,7 +73,7 @@ const RpsUI = (() => {
   // ------------------------------------------------------------ RPS 그리기
   function render() {
     res = RPS.compute(st);
-    NUM.forEach(k => { const el = $('r_' + k); if (document.activeElement !== el) el.value = st[k]; });
+    NUM.forEach(k => { const el = $('r_' + k); if (document.activeElement !== el) el.value = MONEY.includes(k) ? fmt(st[k]) : st[k]; });
     BOOL.forEach(k => { $('r_' + k).checked = !!st[k]; });
     $('r_angleV').textContent = st.moduleAngle;
     $('r_genV').textContent = Number(st.baseGenTime).toFixed(1);

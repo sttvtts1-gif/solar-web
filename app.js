@@ -41,6 +41,7 @@
   const MODULE_DEFAULT = { moduleWp: 645, modLmm: 2465, modSmm: 1134 };
   let moduleCfg = Object.assign({}, MODULE_DEFAULT);
   let currentTab = 'layout';
+  let panelMode = 'normal';   // collapsed | normal | full
   const hasVWorld = () => !!(window.SOLAR_CONFIG || {}).VWORLD_KEY;
 
   // ------------------------------------------------------------ 부팅
@@ -88,10 +89,9 @@
 
     document.querySelectorAll('#tabs [data-tab]').forEach(b => { b.onclick = () => showTab(b.dataset.tab); });
     // 패널 접기: 지붕이 많아지면 목록이 지도를 다 가리므로 탭 줄 + 합계 한 줄만 남긴다.
-    $('btnCollapse').onclick = () => {
-      const col = $('panel').classList.toggle('collapsed');
-      $('btnCollapse').textContent = col ? '▲' : '▼';
-    };
+    // ▲ 한 단계 넓게, ▼ 한 단계 좁게 (접힘 ↔ 기본 ↔ 화면 전체)
+    $('btnExpand').onclick = () => setPanel(panelMode === 'collapsed' ? 'normal' : 'full');
+    $('btnCollapse').onclick = () => setPanel(panelMode === 'full' ? 'normal' : 'collapsed');
 
     // 설정 모달 (모듈 규격 · 층고)
     $('btnSettings').onclick = () => {
@@ -158,9 +158,21 @@
     $('modePolicy').style.display = t === 'policy' ? 'block' : 'none';
     $('modeView').style.display = t === 'layout' && !drawing ? 'block' : 'none';
     $('modeDraw').style.display = t === 'layout' && drawing ? 'block' : 'none';
-    $('panel').classList.remove('collapsed'); $('btnCollapse').textContent = '▼';
-    if (t === 'rps') RpsUI.render();
-    if (t === 'self') RpsUI.renderSelf();
+    // 배치는 지도를 봐야 하니 기본 높이, 나머지 탭은 표·차트가 많아 화면 전체로 연다.
+    setPanel(t === 'layout' ? 'normal' : 'full');
+  }
+
+  function setPanel(mode) {
+    panelMode = mode;
+    const p = $('panel');
+    p.classList.toggle('collapsed', mode === 'collapsed');
+    p.classList.toggle('full', mode === 'full');
+    $('btnExpand').disabled = mode === 'full';
+    $('btnCollapse').disabled = mode === 'collapsed';
+    if (mode === 'full') p.scrollTop = 0;
+    // 차트 캔버스는 폭을 그릴 때 재므로 패널 크기가 바뀌면 다시 그린다.
+    if (currentTab === 'rps') RpsUI.render();
+    if (currentTab === 'self') RpsUI.renderSelf();
   }
 
   function renderTypes() {
