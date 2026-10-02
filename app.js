@@ -575,7 +575,11 @@
     const smallest = (list, ringOf) => list.filter(x => Layout.containsGeo(ringOf(x), p))
       .sort((a, b) => Layout.area(Layout.toLocal(ringOf(a), p)) - Layout.area(Layout.toLocal(ringOf(b), p)))[0];
     const roof = smallest(roofs, r => r.points);
-    if (roof) { select(roof.id); return; }
+    if (roof) {
+      // 같은 지붕을 한 번 더 누르면 지운다(처음 누르면 선택, 선택된 걸 다시 누르면 삭제). 다시 누르면 다시 들어간다.
+      if (roof.id === selectedId) { remove(roof.id); hint(roof.name + ' 지붕을 뺐습니다. 다시 누르면 다시 들어갑니다.'); return; }
+      select(roof.id); return;
+    }
     const bd = smallest(buildings, b => b.ring);
     if (bd) { adoptBuilding(bd, curType); renderList(); save(); return; }
     if (buildings.length) hint('누른 곳에 건물 외곽선이 없습니다. 하늘색 건물 안쪽을 누르거나 「직접 그리기」를 쓰세요.');
@@ -709,12 +713,28 @@
   }
 
   // ------------------------------------------------------------ 모듈 편집 (드래그 삭제/복원)
+  /** 편집 하나가 이 점(모듈 중심)에 닿는지. 붓은 지나간 선에서 반경 r(m) 안, 상자는 안쪽. */
+  function editHits(e, lat, lng) {
+    if (!e.path) return lat >= e.s && lat <= e.n && lng >= e.w && lng <= e.e;
+    const k = 111320 * Math.cos(lat * Math.PI / 180), M = 110574;
+    const P = e.path;
+    for (let i = 0; i < P.length; i++) {
+      const ax = (P[i][1] - lng) * k, ay = (P[i][0] - lat) * M;
+      if (i === 0) { if (Math.hypot(ax, ay) <= e.r) return true; continue; }
+      const bx = (P[i - 1][1] - lng) * k, by = (P[i - 1][0] - lat) * M;
+      const dx = ax - bx, dy = ay - by, L2 = dx * dx + dy * dy || 1e-9;
+      let t = -(bx * dx + by * dy) / L2; t = Math.max(0, Math.min(1, t));
+      if (Math.hypot(bx + t * dx, by + t * dy) <= e.r) return true;
+    }
+    return false;
+  }
+
   function applyEdits(res) {
     if (!edits.length || !res.modules.length) { res.edited = 0; return; }
     const keep = res.modules.filter(c => {
       const lat = (c[0].lat + c[2].lat) / 2, lng = (c[0].lng + c[2].lng) / 2;
       let on = true;
-      edits.forEach(e => { if (e.op !== 'obs' && lat >= e.s && lat <= e.n && lng >= e.w && lng <= e.e) on = e.op === 'add'; });
+      edits.forEach(e => { if (e.op !== 'obs' && editHits(e, lat, lng)) on = e.op === 'add'; });
       return on;
     });
     res.edited = res.modules.length - keep.length;
@@ -731,8 +751,8 @@
       $('edDel').className = 'btn ' + (op === 'del' ? 'accent' : 'ghost');
       $('edAdd').className = 'btn ' + (op === 'add' ? 'accent' : 'ghost');
       $('edObs').className = 'btn ' + (op === 'obs' ? 'accent' : 'ghost');
-      hint(op === 'del' ? '지울 모듈을 사각형으로 드래그하세요 (손가락·마우스).'
-        : op === 'add' ? '되살릴 모듈을 사각형으로 드래그하세요.'
+      hint(op === 'del' ? '지울 모듈 위를 문지르듯 드래그하세요. 지나간 자리가 지워집니다 (손가락·마우스). 확대하면 붓이 가늘어집니다.'
+        : op === 'add' ? '되살릴 모듈 위를 문지르듯 드래그하세요.'
         : '타워·환기구·기설치 태양광 같은 지장물을 사각형으로 드래그하세요. 그 자리는 빠지고, 음영 고려가 켜져 있으면 그림자도 뺍니다.');
     };
     const redraw = () => { roofs.forEach(recompute); drawObstacles(); renderList(); save(); };
@@ -753,24 +773,57 @@
       const t = ev.touches ? (ev.touches[0] || ev.changedTouches[0]) : ev;
       return { x: t.clientX - r.left, y: t.clientY - r.top, cx: t.clientX, cy: t.clientY };
     };
+    // 붓(삭제·복원): 손가락이 지나간 길을 따라 반경 안의 모듈. 반경 = 화면 7px 의 실제 거리(붓 굵기 14px, 확대할수록 가늘어짐).
+    let path = null, stroke = null;
+    const toLL = q => map.getProjection().coordsFromContainerPoint(new kakao.maps.Point(q.x, q.y));
+    const brushM = q => {
+      const a = toLL(q), b = toLL({ x: q.x + 7, y: q.y });
+      return Math.max(0.4, Math.hypot((b.getLng() - a.getLng()) * 111320 * Math.cos(a.getLat() * Math.PI / 180), (b.getLat() - a.getLat()) * 110574));
+    };
+    const drawStroke = () => {
+      if (stroke) stroke.setMap(null);
+      stroke = new kakao.maps.Polyline({ path: path.map(([la, ln]) => new kakao.maps.LatLng(la, ln)), strokeWeight: 14,
+        strokeColor: editOp === 'del' ? '#ff5252' : '#4ade80', strokeOpacity: 0.45, zIndex: 30 });
+      stroke.setMap(map);
+    };
     const down = ev => {
       if (!editing) return;
       ev.preventDefault(); ev.stopPropagation();
       start = pt(ev);
-      box.className = editOp; box.style.display = 'block';
-      Object.assign(box.style, { left: start.cx + 'px', top: start.cy + 'px', width: '0px', height: '0px' });
+      if (editOp === 'obs') {
+        box.className = 'del'; box.style.display = 'block';
+        Object.assign(box.style, { left: start.cx + 'px', top: start.cy + 'px', width: '0px', height: '0px' });
+      } else {
+        const ll = toLL(start); path = [[ll.getLat(), ll.getLng()]]; start.r = brushM(start); drawStroke();
+      }
     };
     const move = ev => {
       if (!editing || !start) return;
       ev.preventDefault(); ev.stopPropagation();
       const p = pt(ev);
-      Object.assign(box.style, { left: Math.min(p.cx, start.cx) + 'px', top: Math.min(p.cy, start.cy) + 'px',
-        width: Math.abs(p.cx - start.cx) + 'px', height: Math.abs(p.cy - start.cy) + 'px' });
+      if (editOp === 'obs') {
+        Object.assign(box.style, { left: Math.min(p.cx, start.cx) + 'px', top: Math.min(p.cy, start.cy) + 'px',
+          width: Math.abs(p.cx - start.cx) + 'px', height: Math.abs(p.cy - start.cy) + 'px' });
+        return;
+      }
+      const last = path[path.length - 1], ll = toLL(p);
+      const lastPt = map.getProjection().containerPointFromCoords(new kakao.maps.LatLng(last[0], last[1]));
+      if (Math.hypot(lastPt.x - p.x, lastPt.y - p.y) < 4) return;       // 너무 촘촘한 점은 건너뛴다
+      path.push([ll.getLat(), ll.getLng()]);
+      drawStroke();
     };
     const up = ev => {
       if (!editing || !start) return;
       ev.preventDefault(); ev.stopPropagation();
       const p = pt(ev), s0 = start; start = null; box.style.display = 'none';
+      if (editOp !== 'obs') {
+        if (stroke) { stroke.setMap(null); stroke = null; }
+        const pa = path; path = null;
+        if (!pa || !pa.length) return;
+        edits.push({ op: editOp, path: pa.map(([la, ln]) => [+la.toFixed(7), +ln.toFixed(7)]), r: +s0.r.toFixed(2) });
+        redraw();
+        return;
+      }
       if (Math.abs(p.x - s0.x) < 6 && Math.abs(p.y - s0.y) < 6) return;      // 그냥 톡 누른 건 무시
       const proj = map.getProjection();
       const a = proj.coordsFromContainerPoint(new kakao.maps.Point(s0.x, s0.y));
@@ -813,9 +866,9 @@
   function recompute(r) {
     clearGfx(r);
     const opt = effectiveOpt(r.type);
-    if (r.type === 'flush') {
-      // 용마루(경간) 수: 사용자가 정한 값, 없으면 깊이로 추정
-      if (!r.spans) r.spansGuess = r.spansGuess || Layout.guessSpans(r.points, opt);
+    if (r.type === 'flush' || r.type === 'ginseng') {
+      // 용마루(동) 수: 사용자가 정한 값, 없으면 크기로 추정. 형태가 바뀌면 추정도 다시.
+      if (!r.spans && r.spansGuessType !== r.type) { r.spansGuess = Layout.guessSpans(r.points, opt); r.spansGuessType = r.type; }
       opt.spans = r.spans || r.spansGuess;
     }
     opt.vent = !!r.vent; opt.ventH = 1;
@@ -909,7 +962,8 @@
             : (res.opt.tilt > 0 ? ' (경사 ' + res.opt.tilt + '° · 이격 ' + res.arrayGap + 'm)' : ''))
           + (res.edited ? ' · <span style="color:var(--accent)">편집 −' + res.edited + '장</span>' : '')
           + (res.blocked ? ' · <span style="color:#ff9800">지장물 −' + res.blocked + '장</span>' : '')
-          + (r.vent ? ' · 벤츄레이터 1m' : '') + ' · ' + (r.floors || 1) + '층' + shadeTxt + '</small></span>'
+          + (r.vent ? ' · 벤츄레이터 ' + (res.vents ? res.vents.length : 0) + '줄(1m)' : '')
+          + (r.type === 'ginseng' ? ' · 동 ' + (r.spans || r.spansGuess || 1) + '개' + (r.spans ? '' : '(추정)') : '') + ' · ' + (r.floors || 1) + '층' + shadeTxt + '</small></span>'
         + '<span class="kw">' + (res.kw || 0).toFixed(2) + 'kW</span>';
       const fl = document.createElement('button');
       fl.className = 'btn ghost'; fl.textContent = '층수';
@@ -926,12 +980,12 @@
         vb.onclick = e => { e.stopPropagation(); r.vent = !r.vent; recompute(r); renderList(); save(); };
         d.appendChild(vb);
       }
-      if (r.type === 'flush') {
+      if (r.type === 'flush' || r.type === 'ginseng') {
         const sp = document.createElement('button');
         sp.className = 'btn ghost'; sp.textContent = '용마루';
         sp.onclick = e => {
           e.stopPropagation();
-          const v = parseInt(prompt(r.name + ' — 남북으로 이어진 지붕(경간) 수 = 용마루 개수', r.spans || r.spansGuess || 1), 10);
+          const v = parseInt(prompt(r.name + ' — 붙어 있는 동(용마루) 수 · ' + (r.type === 'ginseng' ? '동서로 나란히 붙은 동 수' : '남북으로 이어진 동 수') + ' · 벤츄레이터도 동마다 하나', r.spans || r.spansGuess || 1), 10);
           if (v > 0 && v < 30) { r.spans = v; recompute(r); renderList(); save(); }
         };
         d.appendChild(sp);

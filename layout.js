@@ -216,8 +216,12 @@ const Layout = (() => {
           vents.push([{ x: b.minX, y: y - half }, { x: b.maxX, y: y - half }, { x: b.maxX, y: y + half }, { x: b.minX, y: y + half }]);
         }
       } else if (opt.type === 'ginseng') {
-        const x = (b.minX + b.maxX) / 2;
-        vents.push([{ x: x - half, y: b.minY }, { x: x + half, y: b.minY }, { x: x + half, y: b.maxY }, { x: x - half, y: b.maxY }]);
+        // 동서지붕: 용마루가 남북으로 지난다. 여러 동이 동서로 붙어 있으면 동마다 가운데에 하나씩.
+        const n = Math.max(1, Math.round(Number(opt.spans) || 1)), W = (b.maxX - b.minX) / n;
+        for (let i = 0; i < n; i++) {
+          const x = b.minX + i * W + W / 2;
+          vents.push([{ x: x - half, y: b.minY }, { x: x + half, y: b.minY }, { x: x + half, y: b.maxY }, { x: x - half, y: b.maxY }]);
+        }
       }
       vents.forEach(v => {
         const ring = v.map(p => rotate(p, row.angle));    // 회전 전 좌표 (그림자·차단과 같은 틀)
@@ -334,6 +338,7 @@ const Layout = (() => {
       arrayH: Math.round(arrayH * 100) / 100,
       spans, blocks,
       depthM: Math.round(b.h * 10) / 10,
+      widthM: Math.round(b.w * 10) / 10,
       opt,
     };
   }
@@ -363,8 +368,10 @@ const Layout = (() => {
 
   /** 남북지붕 용마루(경간) 수 추정 — 줄 방향과 직각인 깊이 20m 당 하나. 위성사진으로는 알 수 없어 "추정" 으로만 쓴다. */
   function guessSpans(geoPoly, opt) {
-    const r = compute(geoPoly, Object.assign({}, opt || {}, { type: 'flush', spans: 1 }));
-    return Math.max(1, Math.round((r.depthM || 0) / 20));
+    // 남북지붕: 남북 깊이 / 20m,  동서지붕: 동서 폭 / 20m  (동 하나 폭을 20m 안팎으로 본다)
+    const type = (opt && opt.type) || 'flush';
+    const r = compute(geoPoly, Object.assign({}, opt || {}, { type, spans: 1, vent: false }));
+    return Math.max(1, Math.round(((type === 'ginseng' ? r.widthM : r.depthM) || 0) / 20));
   }
 
   return { compute, guessType, guessSpans, containsGeo, sunPositions, PRESETS, DEFAULTS, centroid, toLocal, area };
