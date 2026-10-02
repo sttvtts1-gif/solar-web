@@ -219,11 +219,18 @@
   .siteCard .scNote { font-size: 10.5px; color: var(--muted); margin: 4px 0 0; line-height: 1.4; }
   .siteCard .sug { margin-top: 4px; color: var(--accent); }
   .siteCard .sug button { height: 26px; padding: 0 8px; font-size: 12px; margin-left: 6px; }
+
+  /* 모듈 편집 드래그 상자 */
+  #dragBox { position: absolute; z-index: 4; display: none; pointer-events: none; border: 2px dashed #fff; border-radius: 2px; }
+  #dragBox.del { background: rgba(255,80,80,.25); border-color: #ff6b6b; }
+  #dragBox.add { background: rgba(74,222,128,.22); border-color: #4ade80; }
+  body.editing #map { cursor: crosshair; touch-action: none; }
 </style>
 </head>
 <body>
 <div id="map"></div>
 <div id="cross"></div>
+<div id="dragBox"></div>
 
 <div id="top">
   <input id="q" type="text" placeholder="지번 · 도로명 · 동 번지 (예: 안동 161-15)" autocomplete="off" enterkeyhint="search">
@@ -263,6 +270,7 @@
     <div class="row">
       <button class="btn accent" id="btnBuildings">🏢 건물 가져오기</button>
       <button class="btn ghost" id="btnDraw">✎ 직접 그리기</button>
+      <button class="btn ghost" id="btnEdit">✂ 모듈 편집</button>
       <button class="btn ghost" id="btnShare">공유</button>
       <button class="btn ghost" id="btnClear">전체 삭제</button>
     </div>
@@ -282,9 +290,25 @@
         <label>가장자리 이격 (m)<input id="o_margin" type="number" step="0.1"></label>
         <label>줄 방향<select id="o_align"><option value="auto">건물에 맞춤 (±한계 안)</option><option value="south">정남 고정</option></select></label>
         <label>건물 맞춤 한계 (°)<input id="o_alignLimit" type="number" step="5"></label>
+        <label>[원단] 처마·골 이격 (m)<input id="o_eaveSetback" type="number" step="0.1"></label>
+        <label>[원단] 용마루 이격 (m)<input id="o_ridgeSetback" type="number" step="0.1"></label>
+        <label>[원단] 북측 들어올림 (m) — 클수록 이격 줄어듦<input id="o_lift" type="number" step="0.5" min="0"></label>
       </div>
       <div class="row" style="margin-top:8px"><button class="btn ghost" id="btnReset">이 형태 기본값으로</button></div>
     </details>
+  </div>
+
+  <!-- 배치 · 모듈 편집 모드: 지도 위에 사각형을 드래그해 그 안 모듈을 지우거나 되살린다 -->
+  <div id="modeEdit" style="display:none">
+    <div class="row">
+      <button class="btn accent" id="edDel">🗑 삭제 드래그</button>
+      <button class="btn ghost" id="edAdd">↺ 복원 드래그</button>
+    </div>
+    <div class="row">
+      <button class="btn ghost" id="edUndo">되돌리기</button>
+      <button class="btn ghost" id="edReset">편집 전부 취소</button>
+      <button class="btn accent" id="edDone">✔ 완료</button>
+    </div>
   </div>
 
   <!-- 배치 · 그리기 모드 -->
@@ -444,16 +468,16 @@
   콘솔 &gt; 플랫폼 &gt; Web 사이트 도메인에 <code>https://appassets.androidplatform.net</code> 도 등록해야 합니다.
 </div>
 
-<script src="config.js?v=20261002153525"></script>
-<script src="vendor/pdf.min.js?v=20261002153525"></script>
-<script src="layout.js?v=20261002153525"></script>
-<script src="vworld.js?v=20261002153525"></script>
-<script src="kepco.js?v=20261002153525"></script>
-<script src="bld.js?v=20261002153525"></script>
-<script src="rps.js?v=20261002153525"></script>
-<script src="report.js?v=20261002153525"></script>
-<script src="rps_ui.js?v=20261002153525"></script>
-<script src="policy.js?v=20261002153525"></script>
-<script src="app.js?v=20261002153525"></script>
+<script src="config.js?v=20261002154739"></script>
+<script src="vendor/pdf.min.js?v=20261002154739"></script>
+<script src="layout.js?v=20261002154739"></script>
+<script src="vworld.js?v=20261002154739"></script>
+<script src="kepco.js?v=20261002154739"></script>
+<script src="bld.js?v=20261002154739"></script>
+<script src="rps.js?v=20261002154739"></script>
+<script src="report.js?v=20261002154739"></script>
+<script src="rps_ui.js?v=20261002154739"></script>
+<script src="policy.js?v=20261002154739"></script>
+<script src="app.js?v=20261002154739"></script>
 </body>
 </html>

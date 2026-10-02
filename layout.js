@@ -22,12 +22,16 @@ const Layout = (() => {
     // 동서지붕(남북이 긴 건물): 정남으로 세워 인삼밭처럼 2단 거치 + 음영 이격
     ginseng: { label: '동서지붕 · 인삼밭 2단', orient: 'portrait', tiers: 2, tierGap: 0.10, tilt: 15, shadeAngle: 22, autoGap: true, arrayGap: 3.0 },
     // 남북지붕(동서로 긴 건물) 또는 경사 지붕 면 전체를 덮는 원단(밀착) 배치. 지붕면에 붙으니 이격 없음.
-    flush:   { label: '남북지붕 · 원단',       orient: 'portrait', tiers: 1, tierGap: 0.05, tilt: 0,  shadeAngle: 22, autoGap: false, arrayGap: 0.05 },
+    // 남북지붕 원단: 용마루에서 끊어 면마다 남향 블록 하나, 블록 사이는 후면입사각 22° (사용자 도면 2026-10-02).
+    //   처마·골 이격 500, 용마루 이격 300, 경사 10°. 북측 블록을 들어올리면(lift) 그만큼 이격이 준다.
+    flush:   { label: '남북지붕 · 원단',       orient: 'portrait', tiers: 1, tierGap: 0.05, tilt: 10, shadeAngle: 22, autoGap: true, arrayGap: 0.05,
+               ridge: true, spans: 1, eaveSetback: 0.5, ridgeSetback: 0.3, lift: 0 },
     // 평슬라브: 정남 경사거치, 줄마다 후면입사각 이격
     slab:    { label: '평슬라브 · 경사거치',   orient: 'portrait', tiers: 1, tierGap: 0.05, tilt: 15, shadeAngle: 22, autoGap: true, arrayGap: 2.5 },
   };
 
   const DEFAULTS = {
+    ridge: false, spans: 1, eaveSetback: 0.5, ridgeSetback: 0.3, lift: 0,   // 원단(용마루 분할) 전용, 다른 형태는 안 씀
     type: 'slab',
     moduleWp: 645,        // W
     modL: 2.465,          // m, 긴 변
@@ -208,12 +212,40 @@ const Layout = (() => {
 
     // 1) 줄의 y 위치를 먼저 다 구한다. 그래야 남는 높이를 위아래로 반씩 나눠 가운데 맞출 수 있다.
     const ys = [];
-    for (let y = b.minY + m, i = 0; y + d <= b.maxY - m + 1e-9; i++) {
-      ys.push(y);
-      y += d + ((i + 1) % tiers === 0 ? arrayGap : tierGap);
+    let yOff = 0, spans = 0, blocks = [];
+    if (opt.ridge) {
+      // 용마루 분할: 남→북으로 경간 N 개, 경간마다 [남측 면 | 용마루 | 북측 면].
+      // 면 안은 모듈을 붙여 깔고(한 블록), 다음 블록은 앞 블록 꼭대기에서 그은 22° 선 밖에서 시작한다.
+      spans = Math.max(1, Math.round(Number(opt.spans) || 1));
+      const D = (b.maxY - b.minY) / spans;
+      const eave = Math.max(0, Number(opt.eaveSetback) || 0), rs = Math.max(0, Number(opt.ridgeSetback) || 0);
+      const lift = Math.max(0, Number(opt.lift) || 0);
+      const faces = [];
+      for (let i = 0; i < spans; i++) {
+        const y0 = b.minY + i * D;
+        faces.push([y0 + eave, y0 + D / 2 - rs], [y0 + D / 2 + rs, y0 + D - eave]);
+      }
+      let cursor = -Infinity, prevH = 0;
+      faces.forEach(([fs, fe]) => {
+        const gap = prevH > 0 ? Math.max(0, prevH - lift) / Math.tan(shadeA) : 0;
+        let y = Math.max(fs, cursor + gap), n = 0;
+        const first = y;
+        while (y + d <= fe + 1e-9) { ys.push(y); y += d + tierGap; n++; }
+        if (n) {
+          const slope = n * dSlope + (n - 1) * opt.tierGap;
+          prevH = slope * Math.sin(tilt);
+          cursor = ys[ys.length - 1] + d;
+          blocks.push({ rows: n, from: first, to: cursor, gap: Math.round(gap * 100) / 100 });
+        }
+      });
+    } else {
+      for (let y = b.minY + m, i = 0; y + d <= b.maxY - m + 1e-9; i++) {
+        ys.push(y);
+        y += d + ((i + 1) % tiers === 0 ? arrayGap : tierGap);
+      }
+      const stackH = ys.length ? ys[ys.length - 1] + d - ys[0] : 0;
+      yOff = ((b.maxY - m) - (b.minY + m) - stackH) / 2;
     }
-    const stackH = ys.length ? ys[ys.length - 1] + d - ys[0] : 0;
-    const yOff = ((b.maxY - m) - (b.minY + m) - stackH) / 2;
 
     // 2) 줄 안에서도 남는 폭을 좌우 반씩 나눈다. 사각형 지붕이면 딱 가운데 정렬이 된다.
     const usableW = (b.maxX - m) - (b.minX + m);
@@ -258,6 +290,8 @@ const Layout = (() => {
       pitch: Math.round((d * tiers + tierGap * (tiers - 1) + arrayGap) * 100) / 100,
       arrayGap: Math.round(arrayGap * 100) / 100,
       arrayH: Math.round(arrayH * 100) / 100,
+      spans, blocks,
+      depthM: Math.round(b.h * 10) / 10,
       opt,
     };
   }
@@ -285,5 +319,11 @@ const Layout = (() => {
     return pointIn(toLocal(geoPoly, o), toLocal([p], o)[0]);
   }
 
-  return { compute, guessType, containsGeo, sunPositions, PRESETS, DEFAULTS, centroid, toLocal, area };
+  /** 남북지붕 용마루(경간) 수 추정 — 줄 방향과 직각인 깊이 20m 당 하나. 위성사진으로는 알 수 없어 "추정" 으로만 쓴다. */
+  function guessSpans(geoPoly, opt) {
+    const r = compute(geoPoly, Object.assign({}, opt || {}, { type: 'flush', spans: 1 }));
+    return Math.max(1, Math.round((r.depthM || 0) / 20));
+  }
+
+  return { compute, guessType, guessSpans, containsGeo, sunPositions, PRESETS, DEFAULTS, centroid, toLocal, area };
 })();

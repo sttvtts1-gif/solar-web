@@ -35,8 +35,12 @@
   let preview = null;
 
   // 형태별 상세 설정 키. 모듈 규격은 형태와 무관하게 공통(moduleCfg)이라 여기 없다.
-  const OPT_KEYS = ['orient', 'tiers', 'tilt', 'shadeAngle', 'autoGap', 'arrayGap', 'tierGap', 'colGap', 'margin', 'align', 'alignLimit'];
-  const NUM_KEYS = ['tiers', 'tilt', 'shadeAngle', 'arrayGap', 'tierGap', 'colGap', 'margin', 'alignLimit'];
+  const OPT_KEYS = ['orient', 'tiers', 'tilt', 'shadeAngle', 'autoGap', 'arrayGap', 'tierGap', 'colGap', 'margin', 'align', 'alignLimit', 'eaveSetback', 'ridgeSetback', 'lift'];
+  const NUM_KEYS = ['tiers', 'tilt', 'shadeAngle', 'arrayGap', 'tierGap', 'colGap', 'margin', 'alignLimit', 'eaveSetback', 'ridgeSetback', 'lift'];
+  // 모듈 편집: 지도에서 드래그한 사각형 목록. 순서대로 적용(del=지움, add=되살림).
+  // 위도·경도 상자라서 배치 설정을 바꿔 모듈 격자가 움직여도 "그 자리" 에 그대로 먹는다.
+  let edits = [];
+  let editing = false, editOp = 'del';
   // 설정(⚙) 의 공통값. 모듈 치수는 mm 로 받아 m 로 넘긴다.
   const MODULE_DEFAULT = { moduleWp: 645, modLmm: 2465, modSmm: 1134 };
   let moduleCfg = Object.assign({}, MODULE_DEFAULT);
@@ -70,6 +74,7 @@
     kakao.maps.event.addListener(map, 'click', e => {
       closeResults();
       const p = { lat: e.latLng.getLat(), lng: e.latLng.getLng() };
+      if (editing) return;
       if (drawing) { addPoint(p); return; }
       pickAt(p);
     });
@@ -124,6 +129,7 @@
     };
 
     $('btnDraw').onclick = startDraw;
+    bindEdit();
     $('btnBuildings').onclick = () => loadBuildings();
 
     $('shadeOn').checked = shade.on;
@@ -136,7 +142,7 @@
     $('btnUndo').onclick = undoPoint;
     $('btnDone').onclick = finishDraw;
     $('btnCancel').onclick = cancelDraw;
-    $('btnClear').onclick = () => { if (roofs.length && confirm('지붕 ' + roofs.length + '개를 모두 지울까요?')) { roofs.forEach(clearGfx); roofs = []; selectedId = null; renderList(); save(); } };
+    $('btnClear').onclick = () => { if (roofs.length && confirm('지붕 ' + roofs.length + '개를 모두 지울까요?')) { roofs.forEach(clearGfx); roofs = []; edits = []; selectedId = null; renderList(); save(); } };
     $('btnShare').onclick = share;
     $('btnReset').onclick = () => { settings[curType] = {}; fillSettings(); applySettingsToSelected(); save(); };
 
@@ -157,6 +163,7 @@
       if ($('settingsModal').classList.contains('on')) { $('settingsModal').classList.remove('on'); return true; }
       if (Policy.isOpen()) { Policy.close(); return true; }
       if ($('results').classList.contains('on')) { closeResults(); return true; }
+      if (editing) { endEdit(); return true; }
       if (drawing) { cancelDraw(); return true; }
       if (currentTab !== 'layout') { showTab('layout'); return true; }
       return false;
@@ -164,6 +171,7 @@
   }
 
   function showTab(t) {
+    if (editing) endEdit();
     currentTab = t;
     document.querySelectorAll('#tabs [data-tab]').forEach(b => b.classList.toggle('on', b.dataset.tab === t));
     // '' 로 비워야 CSS(넓은 화면 2열 grid)가 먹는다. 'block' 을 박으면 인라인이 이긴다.
@@ -619,10 +627,99 @@
     return out;
   }
 
+  // ------------------------------------------------------------ 모듈 편집 (드래그 삭제/복원)
+  function applyEdits(res) {
+    if (!edits.length || !res.modules.length) { res.edited = 0; return; }
+    const keep = res.modules.filter(c => {
+      const lat = (c[0].lat + c[2].lat) / 2, lng = (c[0].lng + c[2].lng) / 2;
+      let on = true;
+      edits.forEach(e => { if (lat >= e.s && lat <= e.n && lng >= e.w && lng <= e.e) on = e.op === 'add'; });
+      return on;
+    });
+    res.edited = res.modules.length - keep.length;
+    res.modules = keep;
+    res.count = keep.length;
+    res.kw = Math.round(keep.length * res.opt.moduleWp) / 1000;
+  }
+
+  function bindEdit() {
+    const box = $('dragBox'), mapEl = $('map');
+    let start = null;
+    const setOp = op => {
+      editOp = op;
+      $('edDel').className = 'btn ' + (op === 'del' ? 'accent' : 'ghost');
+      $('edAdd').className = 'btn ' + (op === 'add' ? 'accent' : 'ghost');
+      hint(op === 'del' ? '지울 모듈을 사각형으로 드래그하세요 (손가락·마우스).' : '되살릴 모듈을 사각형으로 드래그하세요.');
+    };
+    const redraw = () => { roofs.forEach(recompute); renderList(); save(); };
+    $('btnEdit').onclick = () => {
+      if (!roofs.length) { hint('먼저 지붕을 배치하세요.'); return; }
+      editing = true; document.body.classList.add('editing'); map.setDraggable(false);
+      $('modeView').style.display = 'none'; $('modeEdit').style.display = 'block'; setOp('del');
+    };
+    $('edDel').onclick = () => setOp('del');
+    $('edAdd').onclick = () => setOp('add');
+    $('edUndo').onclick = () => { edits.pop(); redraw(); };
+    $('edReset').onclick = () => { if (!edits.length || confirm('모듈 편집 ' + edits.length + '건을 모두 취소할까요?')) { edits = []; redraw(); } };
+    $('edDone').onclick = endEdit;
+
+    const pt = ev => {
+      const r = mapEl.getBoundingClientRect();
+      const t = ev.touches ? (ev.touches[0] || ev.changedTouches[0]) : ev;
+      return { x: t.clientX - r.left, y: t.clientY - r.top, cx: t.clientX, cy: t.clientY };
+    };
+    const down = ev => {
+      if (!editing) return;
+      ev.preventDefault(); ev.stopPropagation();
+      start = pt(ev);
+      box.className = editOp; box.style.display = 'block';
+      Object.assign(box.style, { left: start.cx + 'px', top: start.cy + 'px', width: '0px', height: '0px' });
+    };
+    const move = ev => {
+      if (!editing || !start) return;
+      ev.preventDefault(); ev.stopPropagation();
+      const p = pt(ev);
+      Object.assign(box.style, { left: Math.min(p.cx, start.cx) + 'px', top: Math.min(p.cy, start.cy) + 'px',
+        width: Math.abs(p.cx - start.cx) + 'px', height: Math.abs(p.cy - start.cy) + 'px' });
+    };
+    const up = ev => {
+      if (!editing || !start) return;
+      ev.preventDefault(); ev.stopPropagation();
+      const p = pt(ev), s0 = start; start = null; box.style.display = 'none';
+      if (Math.abs(p.x - s0.x) < 6 && Math.abs(p.y - s0.y) < 6) return;      // 그냥 톡 누른 건 무시
+      const proj = map.getProjection();
+      const a = proj.coordsFromContainerPoint(new kakao.maps.Point(s0.x, s0.y));
+      const b = proj.coordsFromContainerPoint(new kakao.maps.Point(p.x, p.y));
+      edits.push({ op: editOp, s: Math.min(a.getLat(), b.getLat()), n: Math.max(a.getLat(), b.getLat()),
+                   w: Math.min(a.getLng(), b.getLng()), e: Math.max(a.getLng(), b.getLng()) });
+      redraw();
+    };
+    // 카카오 지도보다 먼저 받아야 지도가 끌려가지 않는다 → capture 단계
+    mapEl.addEventListener('mousedown', down, true);
+    window.addEventListener('mousemove', move, true);
+    window.addEventListener('mouseup', up, true);
+    mapEl.addEventListener('touchstart', down, { capture: true, passive: false });
+    window.addEventListener('touchmove', move, { capture: true, passive: false });
+    window.addEventListener('touchend', up, { capture: true, passive: false });
+  }
+  function endEdit() {
+    editing = false; document.body.classList.remove('editing'); if (map) map.setDraggable(true);
+    $('modeEdit').style.display = 'none';
+    if (currentTab === 'layout' && !drawing) $('modeView').style.display = 'block';
+    hint(edits.length ? '모듈 편집 ' + edits.length + '건 적용됨. 「✂ 모듈 편집」에서 되돌릴 수 있습니다.' : '');
+  }
+
   function recompute(r) {
     clearGfx(r);
-    r.result = Layout.compute(r.points, effectiveOpt(r.type), { on: shade.on, obstacles: obstaclesFor(r) });
+    const opt = effectiveOpt(r.type);
+    if (r.type === 'flush') {
+      // 용마루(경간) 수: 사용자가 정한 값, 없으면 깊이로 추정
+      if (!r.spans) r.spansGuess = r.spansGuess || Layout.guessSpans(r.points, opt);
+      opt.spans = r.spans || r.spansGuess;
+    }
+    r.result = Layout.compute(r.points, opt, { on: shade.on, obstacles: obstaclesFor(r) });
     const res = r.result;
+    applyEdits(res);
     const sel = r.id === selectedId;
 
     const outline = new kakao.maps.Polygon({
@@ -704,7 +801,11 @@
       const dir = res.aligned ? ('건물맞춤 ' + res.rowAngle + '°') : '정남';
       const shadeTxt = shade.on ? ' · <span style="color:' + (res.shaded ? 'var(--danger)' : 'var(--ok)') + '">음영 제외 ' + (res.shaded || 0) + '장</span>' : '';
       d.innerHTML = '<span class="nm">' + r.name + ' · ' + Layout.PRESETS[r.type].label.split(' · ')[1] + ' · ' + dir
-        + '<br><small style="color:var(--muted)">' + res.areaM2 + '㎡ · ' + res.rows + '줄 · 피치 ' + res.pitch + 'm' + (res.opt.tilt > 0 ? ' (경사 ' + res.opt.tilt + '° · 이격 ' + res.arrayGap + 'm)' : '') + ' · ' + (r.floors || 1) + '층' + shadeTxt + '</small></span>'
+        + '<br><small style="color:var(--muted)">' + res.areaM2 + '㎡ · ' + res.rows + '줄 · 피치 ' + res.pitch + 'm' + (res.opt.ridge
+            ? ' · 용마루 ' + res.spans + '개' + (r.spans ? '' : '(추정)') + ' · 블록 ' + res.blocks.length
+              + (res.blocks.some(b => b.gap) ? ' · 22° 이격 ' + res.blocks.filter(b => b.gap).map(b => b.gap + 'm').join('/') : '')
+            : (res.opt.tilt > 0 ? ' (경사 ' + res.opt.tilt + '° · 이격 ' + res.arrayGap + 'm)' : ''))
+          + (res.edited ? ' · <span style="color:var(--accent)">편집 −' + res.edited + '장</span>' : '') + ' · ' + (r.floors || 1) + '층' + shadeTxt + '</small></span>'
         + '<span class="kw">' + (res.kw || 0).toFixed(2) + 'kW</span>';
       const fl = document.createElement('button');
       fl.className = 'btn ghost'; fl.textContent = '층수';
@@ -714,6 +815,16 @@
         if (v > 0) { r.floors = v; r.floorsManual = true; roofs.forEach(recompute); renderList(); save(); }
       };
       d.appendChild(fl);
+      if (r.type === 'flush') {
+        const sp = document.createElement('button');
+        sp.className = 'btn ghost'; sp.textContent = '용마루';
+        sp.onclick = e => {
+          e.stopPropagation();
+          const v = parseInt(prompt(r.name + ' — 남북으로 이어진 지붕(경간) 수 = 용마루 개수', r.spans || r.spansGuess || 1), 10);
+          if (v > 0 && v < 30) { r.spans = v; recompute(r); renderList(); save(); }
+        };
+        d.appendChild(sp);
+      }
       const del = document.createElement('button');
       del.className = 'btn danger'; del.textContent = '삭제';
       del.onclick = e => { e.stopPropagation(); remove(r.id); };
@@ -745,8 +856,8 @@
   function save() {
     try {
       localStorage.setItem(STORE, JSON.stringify({
-        curType, settings, siteName, shade, moduleCfg,
-        roofs: roofs.map(r => ({ id: r.id, name: r.name, type: r.type, points: r.points, src: r.src, floors: r.floors, floorsManual: r.floorsManual })),
+        curType, settings, siteName, shade, moduleCfg, edits,
+        roofs: roofs.map(r => ({ id: r.id, name: r.name, type: r.type, points: r.points, src: r.src, floors: r.floors, floorsManual: r.floorsManual, spans: r.spans })),
         // 음영 장애물로 다시 쓰려고 주변 건물도 남긴다 (그림은 다시 그리지 않는다)
         buildings: buildings.map(b => ({ id: b.id, name: b.name, ring: b.ring, floors: b.floors })),
       }));
@@ -761,6 +872,7 @@
       siteName = st.siteName || '';
       shade = Object.assign({ on: false, floorH: 3.5 }, st.shade || {});
       moduleCfg = Object.assign({}, MODULE_DEFAULT, st.moduleCfg || {});
+      edits = Array.isArray(st.edits) ? st.edits : [];
       // 예전 저장본엔 형태별 설정에 모듈 치수가 들어 있다. 이제 공통값이라 걷어낸다.
       Object.values(settings).forEach(s => { delete s.moduleWp; delete s.modL; delete s.modS; });
       buildings = (st.buildings || []).map(b => ({ ...b, gfx: null }));
