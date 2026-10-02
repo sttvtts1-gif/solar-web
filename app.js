@@ -276,13 +276,27 @@
   }
 
   // 형태를 한눈에 구분하는 작은 그림
+  // 형태 아이콘: 위에서 내려다본 배치 모양(위 = 북). 건물 외곽 · 용마루(점선) · 모듈 줄(분홍).
   function typeIcon(t) {
-    const bar = (y, h) => '<rect x="4" y="' + y + '" width="40" height="' + h + '" fill="#f06" opacity=".85"/>';
+    const bar = (x, y, w, h) => '<rect x="' + x + '" y="' + y + '" width="' + w + '" height="' + h + '" rx=".6" fill="#f06" opacity=".9"/>';
+    const box = (x, y, w, h) => '<rect x="' + x + '" y="' + y + '" width="' + w + '" height="' + h + '" fill="rgba(255,255,255,.06)" stroke="#9fc4b3" stroke-width="1.2"/>';
+    const ridge = (x1, y1, x2, y2) => '<line x1="' + x1 + '" y1="' + y1 + '" x2="' + x2 + '" y2="' + y2 + '" stroke="#ffd54a" stroke-width="1.2" stroke-dasharray="2 1.5"/>';
     let inner = '';
-    if (t === 'ginseng') inner = bar(2, 7) + bar(10, 7) + bar(21, 7) + bar(29, 7);
-    else if (t === 'flush') inner = bar(2, 8) + bar(11, 8) + bar(20, 8) + bar(29, 8);
-    else inner = bar(2, 6) + bar(14, 6) + bar(26, 6);
-    return '<svg class="pic" viewBox="0 0 48 38"><rect x="1" y="1" width="46" height="36" fill="none" stroke="#9fc4b3"/>' + inner + '</svg>';
+    if (t === 'ginseng') {
+      // 동서지붕(남북으로 긴 건물, 용마루 남북) · 2줄씩 짝 + 이격 = 인삼밭
+      inner = box(13, 1, 22, 36) + ridge(24, 1, 24, 37);
+      [3, 15, 27].forEach(y => { inner += bar(15, y, 18, 3) + bar(15, y + 3.8, 18, 3); });
+    } else if (t === 'flush') {
+      // 남북지붕(동서로 긴 건물, 용마루 동서) · 용마루에서 끊고 위·아래 면에 붙여 깜
+      inner = box(1, 5, 46, 28) + ridge(1, 19, 47, 19);
+      [7, 11.2, 15.4].forEach(y => { inner += bar(3, y, 42, 3); });
+      [21, 25.2, 29.4].forEach(y => { inner += bar(3, y, 42, 3); });
+    } else {
+      // 평슬라브 · 한 줄씩 경사거치 + 이격
+      inner = box(3, 3, 42, 32);
+      [6, 15, 24].forEach(y => { inner += bar(6, y, 36, 4); });
+    }
+    return '<svg class="pic" viewBox="0 0 48 38">' + inner + '</svg>';
   }
 
   function effectiveOpt(type) {
