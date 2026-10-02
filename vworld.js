@@ -24,7 +24,8 @@ const VWorld = (() => {
       service: 'data', version: '2.0', request: 'GetFeature',
       data: data || 'LT_C_SPBD',
       key: cfg().VWORLD_KEY || '',
-      domain: cfg().VWORLD_DOMAIN || '',
+      // 웹(JSONP)은 브라우저가 실제 출처를 Referer 로 보내므로 domain 도 그 출처로 맞춘다. APK 는 등록 도메인.
+      domain: (window.Native && window.Native.fetch) ? (cfg().VWORLD_DOMAIN || '') : location.origin,
       geomFilter,
       geometry: 'true', crs: 'EPSG:4326', format: 'json', size: '1000', page: '1',
     };
