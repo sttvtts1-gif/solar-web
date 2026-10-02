@@ -17,14 +17,14 @@ const Kepco = (() => {
   // APK: 키로 직접.  웹: Apps Script 중계(KEPCO_PROXY, server/kepco_proxy.gs) — 키는 중계 쪽에만 있다.
   const available = () => (hasNative() && !!cfg().KEPCO_KEY) || !!cfg().KEPCO_PROXY;
 
-  function proxyGet(params) {
+  function proxyGet(params, timeoutMs) {
     return new Promise((resolve, reject) => {
       const cb = '__kp' + (++seq) + '_' + Date.now();
       const sc = document.createElement('script');
       const done = () => { delete window[cb]; sc.remove(); clearTimeout(t); };
       window[cb] = d => { done(); resolve(d); };
       sc.onerror = () => { done(); reject(new Error('한전 중계 서버에 닿지 못했습니다')); };
-      const t = setTimeout(() => { done(); reject(new Error('한전 중계 응답 시간 초과')); }, 20000);
+      const t = setTimeout(() => { done(); reject(new Error('한전 중계 응답 시간 초과')); }, timeoutMs || 20000);
       const q = Object.assign({ path: 'dispersedGeneration', callback: cb }, params);
       sc.src = cfg().KEPCO_PROXY + '?' + Object.keys(q).map(k => k + '=' + encodeURIComponent(q[k])).join('&');
       document.head.appendChild(sc);
@@ -54,7 +54,28 @@ const Kepco = (() => {
       ? p => nativeGet(API + '?' + Object.keys(p).map(k => k + '=' + encodeURIComponent(p[k])).join('&') + '&apiKey=' + cfg().KEPCO_KEY + '&returnType=json')
       : p => proxyGet(p);
     const rowsOf = res => (res && res.data && res.data.length) ? res.data.map(toRow) : [];
-    const atLot = lot => call(Object.assign({ addrJibun: lot }, base)).then(rowsOf).catch(() => []);
+    // 한전 API 는 요청이 겹치면 빈 응답(HTTP 200, 내용 없음)을 준다(2026-10-02 실측: 2개만 겹쳐도 섞임).
+    // 그래서 하나씩 보내고, 빈 응답·해석 실패면 잠깐 쉬었다가 두 번까지 다시 묻는다. 404 는 "자료 없음" 으로 확정.
+    // 번지 결과는 기기에 30일 기억해 같은 동네를 다시 볼 때는 묻지 않는다.
+    const cacheKey = lot => bcode + '|' + lot;
+    const cache = (() => { try { return JSON.parse(localStorage.getItem('solar.kepcoLot') || '{}'); } catch (e) { return {}; } })();
+    const saveCache = () => { try { localStorage.setItem('solar.kepcoLot', JSON.stringify(cache)); } catch (e) {} };
+    const MONTH = 30 * 864e5;
+    const atLot = async lot => {
+      const c = cache[cacheKey(lot)];
+      if (c && Date.now() - c.t < MONTH) return c.rows ? c.rows.map(toRow) : [];
+      for (let tryNo = 0; tryNo < 3; tryNo++) {
+        try {
+          const res = await call(Object.assign({ addrJibun: lot }, base));
+          if (res && (res.data || res.errCd === '404')) {
+            cache[cacheKey(lot)] = { t: Date.now(), rows: res.data && res.data.length ? res.data : null };
+            return rowsOf(res);
+          }
+        } catch (e) { /* 빈 응답 → 다시 */ }
+        await new Promise(r => setTimeout(r, 400 + tryNo * 600));
+      }
+      return [];                                          // 세 번 다 실패: 이번엔 모름(기억하지 않음)
+    };
 
     if (jibun) {
       // 1) 그 번지
@@ -77,24 +98,37 @@ const Kepco = (() => {
       const hits = [];
       const useBatch = !(hasNative() && cfg().KEPCO_KEY);
       let batchOk = useBatch;
-      const step = hasNative() && cfg().KEPCO_KEY ? 12 : 50;
+      const step = useBatch ? 25 : 1;                      // 앱: 하나씩 직접 / 웹: 중계가 하나씩 25개 묶어서
       let firstHitAt = -1;
       for (let i = 0; i < cand.length; ) {
-        const part = cand.slice(i, i + (batchOk ? step : 6));
-        if (onProgress) onProgress('자료 있는 번지 찾는 중… ' + (part[0].d != null ? '반경 ' + part[0].d + 'm' : part[0].lot) + ' (' + (i + part.length) + '/' + cand.length + ')');
+        // 기억해 둔 번지는 묶음에 넣지 않고 바로 쓴다
+        const cachedHere = cand[i] && cache[cacheKey(cand[i].lot)];
+        // 묶음은 i 부터 기억 안 된 번지가 이어지는 데까지만(최대 step). 기억된 번지는 아래 하나씩 경로에서 캐시로 바로 나온다.
+        const part = [];
+        if (batchOk && !cachedHere) { for (let k = i; k < cand.length && part.length < step && !cache[cacheKey(cand[k].lot)]; k++) part.push(cand[k]); }
+        else part.push(cand[i]);
+        if (!part.length) { i++; continue; }
+        if (onProgress) onProgress('자료 있는 번지 찾는 중… ' + (part[0].d != null ? '반경 ' + part[0].d + 'm' : part[0].lot) + ' (' + Math.min(cand.length, i + 1) + '/' + cand.length + ')');
         let got;
-        if (batchOk) {
-          const res = await proxyGet(Object.assign({ path: 'batch', lots: part.map(x => x.lot).join(',') }, base)).catch(() => null);
+        if (batchOk && !cachedHere) {
+          const res = await proxyGet(Object.assign({ path: 'batch', lots: part.map(x => x.lot).join(',') }, base), 60000).catch(() => null);
           if (!res || !res.results) { batchOk = false; cand = cand.slice(0, i + 60); continue; }   // 예전 중계(묶음 없음) → 하나씩, 60개까지만
-          got = res.results.map(r => (r.data ? r.data.map(toRow) : []));
+          got = res.results.map((r, k) => {
+            if (r.known) cache[cacheKey(part[k].lot)] = { t: Date.now(), rows: r.data || null };
+            return r.data ? r.data.map(toRow) : [];
+          });
+          part.forEach((x, n) => { if (got[n].length) hits.push({ lot: x.lot, d: x.d, rows: got[n] }); });
+          i += part.length;
         } else {
-          got = await Promise.all(part.map(x => atLot(x.lot)));
+          got = [await atLot(part[0].lot)];
+          if (got[0].length) hits.push({ lot: part[0].lot, d: part[0].d, rows: got[0] });
+          i += 1;
         }
-        part.forEach((x, k) => { if (got[k].length) hits.push({ lot: x.lot, d: x.d, rows: got[k] }); });
-        i += part.length;
+        saveCache();
         if (hits.length && firstHitAt < 0) firstHitAt = i;
+        const part0 = cand[Math.min(i, cand.length) - 1] || {};
         // 3곳 모이면 멈춘다. 아니면 첫 자료 번지에서 300m 더 넓힌 데까지만 본다(거리를 모르면 한 묶음 더).
-        const lastD = part[part.length - 1].d, firstD = hits.length ? hits[0].d : null;
+        const lastD = part0.d, firstD = hits.length ? hits[0].d : null;
         if (hits.length >= 3) break;
         if (firstHitAt >= 0 && (firstD != null && lastD != null ? lastD > firstD + 300 : i >= firstHitAt + step)) break;
       }

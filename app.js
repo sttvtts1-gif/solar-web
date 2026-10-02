@@ -410,6 +410,9 @@
           const near = ps.map(p => {
             const pnu = (p.props || {}).pnu || '';
             if (pnu.slice(0, 10) !== b.code) return null;
+            // 도로·구거·하천·제방·유지·묘지·공원 필지에는 발전소가 붙지 않으니 묻지 않는다(지목은 jibun 끝 글자)
+            const jm = ((p.props || {}).jibun || '').match(/[가-힣]+$/);
+            if (jm && /^(도|구|천|제|유|묘|공|철|수)$/.test(jm[0])) return null;
             const bn = +pnu.slice(11, 15), jn = +pnu.slice(15, 19), san = pnu[10] === '2';
             return { lot: (san ? '산' : '') + bn + (jn ? '-' + jn : ''), d: Math.round(distM({ lat, lng }, Layout.centroid(p.ring))) };
           }).filter(Boolean).sort((x, y) => x.d - y.d);
@@ -505,7 +508,15 @@
           };
         });
       })
-      .catch(e => { if (reqKey === siteKey) $('kepcoHead').textContent = dong + ' — ' + e.message; });
+      .catch(e => {
+        if (reqKey !== siteKey) return;
+        // 한전 서버가 빈 응답·오류 페이지를 줄 때가 있다. 그 내용을 그대로 띄우지 않고 한글로 안내한다.
+        const m = String(e && e.message || '');
+        const why = /키/.test(m) ? m : /중계/.test(m) ? '한전 중계 서버에 닿지 못했습니다' : '한전 서버 응답이 불안정합니다';
+        $('kepcoHead').textContent = why;
+        $('kepcoBody').innerHTML = '<p class="scNote">' + why + '. 잠시 후 다시 조회해 주세요. <a href="#" id="kepcoRetry" style="color:var(--accent);font-weight:700">↻ 다시 조회</a></p>';
+        $('kepcoRetry').onclick = ev => { ev.preventDefault(); loadKepcoLines(bcode, dong, jibun, nearLots); };
+      });
   }
 
   function goTo(lat, lng, name) {
