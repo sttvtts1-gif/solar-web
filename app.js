@@ -463,7 +463,7 @@
           $('kepcoHead').textContent = '인근 번지 ' + basis[0] + ' 기준' + (rows.length > 1 ? ' (후보 ' + rows.length + ')' : '');
           note = '<p class="scNote">' + jibun + ' 번지 자체 자료가 없어 가까운 번지(' + basis.join(', ') + ')의 선로입니다. 맨 위가 가장 가까운 번지입니다. 이웃 번지끼리도 DL 이 다를 수 있어 실제 선로는 한전 확인이 필요합니다.</p>';
         } else {
-          $('kepcoHead').textContent = dong + ' 전체 ' + rows.length + '개 (번지·인근 자료 없음)';
+          $('kepcoHead').textContent = '후보 ' + rows.length + '개 — 한전ON에서 확인 후 선택';
           note = '<p class="scNote">한전 자료는 이미 발전소가 연결된 번지에만 있습니다. 이 번지와 주변 필지·가까운 부번 어디에도 자료가 없어 ' + dong + ' 을 지나는 선로 전체(중복 제외)를 보여 드립니다. 이 경우 API 로는 하나로 좁힐 수 없어 한전ON·한전 확인이 필요합니다.</p>';
           list = rows.slice().sort((x, y) => (y.dlFree || 0) - (x.dlFree || 0));
         }
@@ -481,7 +481,11 @@
           $('dlUnpick').onclick = ev => { ev.preventDefault(); delete picks[pickKey]; try { localStorage.setItem('solar.dlpick', JSON.stringify(picks)); } catch (e) {} loadKepcoLines(bcode, dong, jibun, nearLots); };
           return;
         }
-        $('kepcoBody').innerHTML = '<div class="scrollx"><table class="cmp">' + head + list.map(row).join('') + '</table></div>' + note
+        const table = '<div class="scrollx"><table class="cmp">' + head + list.map(row).join('') + '</table></div>';
+        $('kepcoBody').innerHTML = (level === '읍면동' && list.length > 1
+            ? '<p class="scNote" style="font-size:12px;color:var(--fg)">이 번지는 한전 공개 자료로 선로를 하나로 정할 수 없습니다. ' + kepcoLink + ' 에서 선로를 확인한 뒤, 아래 후보에서 같은 줄을 누르세요.</p>'
+              + '<details><summary>' + dong + ' 후보 선로 ' + list.length + '개 보기</summary>' + table + '</details>'
+            : table) + note
           + (list.length > 1 ? '<p class="scNote" style="color:var(--accent)">한전ON·한전에서 확인한 선로 줄을 누르면 이 번지는 그 선로 하나만 표시합니다. ' + kepcoLink + '</p>' : '<p class="scNote">' + kepcoLink + '</p>');
         if (list.length > 1) $('kepcoBody').querySelectorAll('tr').forEach((tr, i) => {
           if (!i) return;                               // 머리줄
