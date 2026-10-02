@@ -983,7 +983,7 @@
               + (res.blocks.some(b => b.gap) ? ' · 22° 이격 ' + res.blocks.filter(b => b.gap).map(b => b.gap + 'm').join('/') : '')
             : (res.opt.tilt > 0 ? ' (경사 ' + res.opt.tilt + '° · 이격 ' + res.arrayGap + 'm)' : ''))
           + (res.edited ? ' · <span style="color:var(--accent)">편집 −' + res.edited + '장</span>' : '')
-          + (res.blocked ? ' · <span style="color:#ff9800">지장물 −' + res.blocked + '장</span>' : '')
+          + (res.blocked ? ' · <span style="color:#ff9800">지장물·벤츄 −' + res.blocked + '장</span>' : '')
           + (r.vent ? ' · 벤츄레이터 ' + (res.vents ? res.vents.length : 0) + '줄(1m)' : '')
           + (r.type === 'ginseng' ? ' · 동 ' + (r.spans || r.spansGuess || 1) + '개' + (r.spans ? '' : '(추정)') : '') + ' · ' + (r.floors || 1) + '층' + shadeTxt + '</small></span>'
         + '<span class="kw">' + (res.kw || 0).toFixed(2) + 'kW</span>';
