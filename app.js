@@ -472,7 +472,8 @@
         const rk = r => r.substCd + '/' + r.mtr + '/' + r.dlCd;
         const picks = (() => { try { return JSON.parse(localStorage.getItem('solar.dlpick') || '{}'); } catch (e) { return {}; } })();
         const picked = list.find(r => rk(r) === picks[pickKey]);
-        const kepcoLink = '<a href="https://cyber.kepco.co.kr/ckepco/front/jsp/CO/H/E/COHEPP00105.jsp" target="_blank" style="color:var(--accent)">한전 접속가능용량조회 열기</a>';
+        // 한전ON 배전선로 여유용량: 주소 → 상세번지 목록(자료 있는 번지만, "가장 근접한 지번 선택") 으로 선로 하나를 보여 준다.
+        const kepcoLink = '<a href="https://online.kepco.co.kr/EWM092D00" target="_blank" style="color:var(--accent);font-weight:700">⚡ 한전ON에서 확인</a>';
         if (picked) {
           $('kepcoHead').textContent = '선택한 선로: ' + picked.subst + ' #' + picked.mtr + ' ' + picked.dl;
           $('kepcoBody').innerHTML = '<div class="scrollx"><table class="cmp">' + head + row(picked) + '</table></div>'
@@ -481,7 +482,7 @@
           return;
         }
         $('kepcoBody').innerHTML = '<div class="scrollx"><table class="cmp">' + head + list.map(row).join('') + '</table></div>' + note
-          + (list.length > 1 ? '<p class="scNote" style="color:var(--accent)">한전ON·한전에서 확인한 선로 줄을 누르면 이 번지는 그 선로 하나만 표시합니다. ' + kepcoLink + '</p>' : '');
+          + (list.length > 1 ? '<p class="scNote" style="color:var(--accent)">한전ON·한전에서 확인한 선로 줄을 누르면 이 번지는 그 선로 하나만 표시합니다. ' + kepcoLink + '</p>' : '<p class="scNote">' + kepcoLink + '</p>');
         if (list.length > 1) $('kepcoBody').querySelectorAll('tr').forEach((tr, i) => {
           if (!i) return;                               // 머리줄
           const r = list[i - 1];
@@ -994,7 +995,7 @@
       d.innerHTML = '<span class="nm">' + r.name + ' · ' + Layout.PRESETS[r.type].label.split(' · ')[1] + ' · ' + dir
         + '<br><small style="color:var(--muted)">' + res.areaM2 + '㎡ · ' + res.rows + '줄 · 피치 ' + res.pitch + 'm' + (res.opt.ridge
             ? ' · 용마루 ' + res.spans + '개' + (r.spans ? '' : '(추정)') + ' · 블록 ' + res.blocks.length
-              + (res.blocks.some(b => b.gap) ? ' · 22° 이격 ' + res.blocks.filter(b => b.gap).map(b => b.gap + 'm').join('/') : '')
+              + (res.blocks.some(b => b.gap) ? ' · 22° 이격 ' + [...new Set(res.blocks.filter(b => b.gap).map(b => b.gap))].map(g => g + 'm').join('/') : '')
             : (res.opt.tilt > 0 ? ' (경사 ' + res.opt.tilt + '° · 이격 ' + res.arrayGap + 'm)' : ''))
           + (res.edited ? ' · <span style="color:var(--accent)">편집 −' + res.edited + '장</span>' : '')
           + (res.blocked ? ' · <span style="color:#ff9800">지장물·벤츄 −' + res.blocked + '장</span>' : '')

@@ -41,7 +41,7 @@
   body.drawing #cross { display: block; }
 
   /* 하단 패널 — 접으면 탭 줄 + 합계 한 줄만 남는다 */
-  #panel { position: absolute; left: 0; right: 0; bottom: 0; z-index: 5; background: var(--panel); border-radius: 16px 16px 0 0; padding: 0 12px max(10px, env(safe-area-inset-bottom)); box-shadow: 0 -4px 20px rgba(0,0,0,.35); max-height: 72%; overflow-y: auto; transition: max-height .2s; }
+  #panel { position: absolute; left: 0; right: 0; bottom: 0; z-index: 5; background: var(--panel); border-radius: 16px 16px 0 0; padding: 0 12px max(10px, env(safe-area-inset-bottom)); box-shadow: 0 -4px 20px rgba(0,0,0,.35); max-height: 72%; overflow-y: auto; overflow-x: hidden; transition: max-height .2s; }
   /* 패널 3단: collapsed(탭+합계만) / 기본(72%) / full(화면 전체, 지도 숨김) */
   #panel.collapsed { max-height: 92px; overflow: hidden; }
   #panel.full { top: 0; max-height: none; border-radius: 0; z-index: 6; padding-top: env(safe-area-inset-top); background: #082a20; }
@@ -76,9 +76,10 @@
 
   /* 지붕 목록 */
   #roofs { display: flex; flex-direction: column; gap: 4px; margin-top: 6px; }
-  .roof { display: flex; align-items: center; gap: 8px; font-size: 13px; padding: 6px 8px; border-radius: 8px; background: rgba(255,255,255,.06); }
+  .roof { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; font-size: 13px; padding: 6px 8px; border-radius: 8px; background: rgba(255,255,255,.06); }
   .roof.sel { outline: 1px solid var(--accent); }
-  .roof .nm { flex: 1; }
+  .roof .nm { flex: 1 1 100%; min-width: 0; overflow-wrap: anywhere; }
+  .roof .kw { margin-right: auto; }
   .roof .kw { font-weight: 700; }
   .roof button { height: 28px; padding: 0 8px; font-size: 12px; }
 
@@ -474,16 +475,16 @@
   콘솔 &gt; 플랫폼 &gt; Web 사이트 도메인에 <code>https://appassets.androidplatform.net</code> 도 등록해야 합니다.
 </div>
 
-<script src="config.js?v=20261002164216"></script>
-<script src="vendor/pdf.min.js?v=20261002164216"></script>
-<script src="layout.js?v=20261002164216"></script>
-<script src="vworld.js?v=20261002164216"></script>
-<script src="kepco.js?v=20261002164216"></script>
-<script src="bld.js?v=20261002164216"></script>
-<script src="rps.js?v=20261002164216"></script>
-<script src="report.js?v=20261002164216"></script>
-<script src="rps_ui.js?v=20261002164216"></script>
-<script src="policy.js?v=20261002164216"></script>
-<script src="app.js?v=20261002164216"></script>
+<script src="config.js?v=20261002165858"></script>
+<script src="vendor/pdf.min.js?v=20261002165858"></script>
+<script src="layout.js?v=20261002165858"></script>
+<script src="vworld.js?v=20261002165858"></script>
+<script src="kepco.js?v=20261002165858"></script>
+<script src="bld.js?v=20261002165858"></script>
+<script src="rps.js?v=20261002165858"></script>
+<script src="report.js?v=20261002165858"></script>
+<script src="rps_ui.js?v=20261002165858"></script>
+<script src="policy.js?v=20261002165858"></script>
+<script src="app.js?v=20261002165858"></script>
 </body>
 </html>
