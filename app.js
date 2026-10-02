@@ -453,7 +453,32 @@
           note = '<p class="scNote">한전 자료는 이미 발전소가 연결된 번지에만 있습니다. 이 번지와 주변 필지·가까운 부번 어디에도 자료가 없어 ' + dong + ' 을 지나는 선로 전체(중복 제외)를 보여 드립니다. 이 경우 API 로는 하나로 좁힐 수 없어 한전ON·한전 확인이 필요합니다.</p>';
           list = rows.slice().sort((x, y) => (y.dlFree || 0) - (x.dlFree || 0));
         }
-        $('kepcoBody').innerHTML = '<div class="scrollx"><table class="cmp">' + head + list.map(row).join('') + '</table></div>' + note;
+        // 후보가 여럿이면 사용자가 한전ON·한전에서 확인한 선로를 한 번 눌러 고정한다(번지별로 기억).
+        const pickKey = bcode + '|' + (jibun || dong);
+        const rk = r => r.substCd + '/' + r.mtr + '/' + r.dlCd;
+        const picks = (() => { try { return JSON.parse(localStorage.getItem('solar.dlpick') || '{}'); } catch (e) { return {}; } })();
+        const picked = list.find(r => rk(r) === picks[pickKey]);
+        const kepcoLink = '<a href="https://cyber.kepco.co.kr/ckepco/front/jsp/CO/H/E/COHEPP00105.jsp" target="_blank" style="color:var(--accent)">한전 접속가능용량조회 열기</a>';
+        if (picked) {
+          $('kepcoHead').textContent = '선택한 선로: ' + picked.subst + ' #' + picked.mtr + ' ' + picked.dl;
+          $('kepcoBody').innerHTML = '<div class="scrollx"><table class="cmp">' + head + row(picked) + '</table></div>'
+            + '<p class="scNote">직접 고른 선로입니다. <a href="#" id="dlUnpick" style="color:var(--accent)">다시 고르기</a> · ' + kepcoLink + '</p>';
+          $('dlUnpick').onclick = ev => { ev.preventDefault(); delete picks[pickKey]; try { localStorage.setItem('solar.dlpick', JSON.stringify(picks)); } catch (e) {} loadKepcoLines(bcode, dong, jibun, nearLots); };
+          return;
+        }
+        $('kepcoBody').innerHTML = '<div class="scrollx"><table class="cmp">' + head + list.map(row).join('') + '</table></div>' + note
+          + (list.length > 1 ? '<p class="scNote" style="color:var(--accent)">한전ON·한전에서 확인한 선로 줄을 누르면 이 번지는 그 선로 하나만 표시합니다. ' + kepcoLink + '</p>' : '');
+        if (list.length > 1) $('kepcoBody').querySelectorAll('tr').forEach((tr, i) => {
+          if (!i) return;                               // 머리줄
+          const r = list[i - 1];
+          tr.style.cursor = 'pointer';
+          tr.onclick = () => {
+            if (!confirm(r.subst + ' 변전소 · MTR #' + r.mtr + ' · ' + r.dl + ' DL 로 고정할까요?')) return;
+            picks[pickKey] = rk(r);
+            try { localStorage.setItem('solar.dlpick', JSON.stringify(picks)); } catch (e) {}
+            loadKepcoLines(bcode, dong, jibun, nearLots);
+          };
+        });
       })
       .catch(e => { if (reqKey === siteKey) $('kepcoHead').textContent = dong + ' — ' + e.message; });
   }
