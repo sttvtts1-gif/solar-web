@@ -746,8 +746,12 @@
   function bindEdit() {
     const box = $('dragBox'), mapEl = $('map');
     let start = null;
+    const cur = $('brushCur');
     const setOp = op => {
       editOp = op;
+      document.body.classList.toggle('brush', op !== 'obs');
+      cur.className = op === 'add' ? 'add' : '';
+      if (op === 'obs') cur.style.display = 'none';
       $('edDel').className = 'btn ' + (op === 'del' ? 'accent' : 'ghost');
       $('edAdd').className = 'btn ' + (op === 'add' ? 'accent' : 'ghost');
       $('edObs').className = 'btn ' + (op === 'obs' ? 'accent' : 'ghost');
@@ -797,6 +801,12 @@
         const ll = toLL(start); path = [[ll.getLat(), ll.getLng()]]; start.r = brushM(start); drawStroke();
       }
     };
+    // 마우스가 지도 위에 있으면 붓 동그라미를 따라 붙인다 (누르지 않아도)
+    mapEl.addEventListener('mousemove', ev => {
+      if (!editing || editOp === 'obs') { cur.style.display = 'none'; return; }
+      cur.style.display = 'block'; cur.style.left = ev.clientX + 'px'; cur.style.top = ev.clientY + 'px';
+    });
+    mapEl.addEventListener('mouseleave', () => { cur.style.display = 'none'; });
     const move = ev => {
       if (!editing || !start) return;
       ev.preventDefault(); ev.stopPropagation();
@@ -857,7 +867,8 @@
     });
   }
   function endEdit() {
-    editing = false; document.body.classList.remove('editing'); if (map) map.setDraggable(true);
+    editing = false; document.body.classList.remove('editing', 'brush'); if (map) map.setDraggable(true);
+    $('brushCur').style.display = 'none';
     $('modeEdit').style.display = 'none';
     if (currentTab === 'layout' && !drawing) $('modeView').style.display = 'block';
     hint(edits.length ? '모듈 편집 ' + edits.length + '건 적용됨. 「✂ 모듈 편집」에서 되돌릴 수 있습니다.' : '');
@@ -894,6 +905,16 @@
       return pg;
     });
 
+    // 벤츄레이터·모니터 띠 (동마다 용마루 가운데, 폭 1m) — 어디가 빠졌는지 보이게
+    const vents = (res.vents || []).map(v => {
+      const pg = new kakao.maps.Polygon({
+        path: v.map(p => new kakao.maps.LatLng(p.lat, p.lng)),
+        strokeWeight: 1, strokeColor: '#ff9800', strokeStyle: 'shortdash', fillColor: '#ff9800', fillOpacity: 0.5, zIndex: 3,
+      });
+      pg.setMap(map);
+      return pg;
+    });
+
     const c = Layout.centroid(r.points);
     const el = document.createElement('div');
     el.className = 'lbl';
@@ -901,13 +922,14 @@
     const label = new kakao.maps.CustomOverlay({ position: new kakao.maps.LatLng(c.lat, c.lng), content: el, zIndex: 20 });
     label.setMap(map);
 
-    r.gfx = { outline, mods, label };
+    r.gfx = { outline, mods, label, vents };
   }
   function clearGfx(r) {
     if (!r.gfx) return;
     r.gfx.outline.setMap(null);
     r.gfx.mods.forEach(m => m.setMap(null));
     r.gfx.label.setMap(null);
+    (r.gfx.vents || []).forEach(v => v.setMap(null));
     r.gfx = null;
   }
   function select(id) {
@@ -977,7 +999,16 @@
         const vb = document.createElement('button');
         vb.className = 'btn ' + (r.vent ? 'accent' : 'ghost'); vb.textContent = r.vent ? '벤츄 O' : '벤츄 X';
         vb.title = '용마루 벤츄레이터·모니터 (높이 1m)';
-        vb.onclick = e => { e.stopPropagation(); r.vent = !r.vent; recompute(r); renderList(); save(); };
+        vb.onclick = e => {
+          e.stopPropagation();
+          if (!r.vent && !r.spans) {
+            const v = parseInt(prompt(r.name + ' — 붙어 있는 동 수 (벤츄레이터가 동마다 하나씩 빠집니다)', r.spansGuess || 1), 10);
+            if (!(v > 0 && v < 30)) return;
+            r.spans = v;
+          }
+          r.vent = !r.vent; recompute(r); renderList(); save();
+          if (r.vent) hint(r.name + ' — 벤츄레이터 ' + (r.result.vents || []).length + '줄(주황 띠)을 뺐습니다. 동 수는 「용마루」로 바꿀 수 있습니다.');
+        };
         d.appendChild(vb);
       }
       if (r.type === 'flush' || r.type === 'ginseng') {

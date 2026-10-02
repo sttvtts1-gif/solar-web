@@ -225,12 +225,17 @@
   #dragBox.del { background: rgba(255,80,80,.25); border-color: #ff6b6b; }
   #dragBox.add { background: rgba(74,222,128,.22); border-color: #4ade80; }
   body.editing #map { cursor: crosshair; touch-action: none; }
+  /* 붓 커서: 삭제·복원 모드에서 마우스를 따라다니는 동그라미 = 지워지는 굵기 */
+  #brushCur { position: absolute; z-index: 6; display: none; pointer-events: none; width: 14px; height: 14px; margin: -7px 0 0 -7px; border-radius: 50%; border: 2px solid #ff5252; background: rgba(255,82,82,.25); }
+  #brushCur.add { border-color: #4ade80; background: rgba(74,222,128,.25); }
+  body.editing.brush #map { cursor: none; }
 </style>
 </head>
 <body>
 <div id="map"></div>
 <div id="cross"></div>
 <div id="dragBox"></div>
+<div id="brushCur"></div>
 
 <div id="top">
   <input id="q" type="text" placeholder="지번 · 도로명 · 동 번지 (예: 안동 161-15)" autocomplete="off" enterkeyhint="search">
@@ -469,16 +474,16 @@
   콘솔 &gt; 플랫폼 &gt; Web 사이트 도메인에 <code>https://appassets.androidplatform.net</code> 도 등록해야 합니다.
 </div>
 
-<script src="config.js?v=20261002163215"></script>
-<script src="vendor/pdf.min.js?v=20261002163215"></script>
-<script src="layout.js?v=20261002163215"></script>
-<script src="vworld.js?v=20261002163215"></script>
-<script src="kepco.js?v=20261002163215"></script>
-<script src="bld.js?v=20261002163215"></script>
-<script src="rps.js?v=20261002163215"></script>
-<script src="report.js?v=20261002163215"></script>
-<script src="rps_ui.js?v=20261002163215"></script>
-<script src="policy.js?v=20261002163215"></script>
-<script src="app.js?v=20261002163215"></script>
+<script src="config.js?v=20261002163855"></script>
+<script src="vendor/pdf.min.js?v=20261002163855"></script>
+<script src="layout.js?v=20261002163855"></script>
+<script src="vworld.js?v=20261002163855"></script>
+<script src="kepco.js?v=20261002163855"></script>
+<script src="bld.js?v=20261002163855"></script>
+<script src="rps.js?v=20261002163855"></script>
+<script src="report.js?v=20261002163855"></script>
+<script src="rps_ui.js?v=20261002163855"></script>
+<script src="policy.js?v=20261002163855"></script>
+<script src="app.js?v=20261002163855"></script>
 </body>
 </html>
