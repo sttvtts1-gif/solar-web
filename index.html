@@ -147,15 +147,63 @@
     #panel.collapsed { top: auto; max-height: 92px; border-radius: 12px 0 0 0; }
     #top { right: 460px; }
     body.wide-full #top { right: 0; }
-    #panel.full #body { max-width: 1280px; margin: 0 auto; }
+    #panel.full #body { max-width: 1600px; margin: 0 auto; }
     #panel.full .sec { display: grid; grid-template-columns: 1fr 1fr; gap: 14px 18px; align-items: start; }
     #panel.full .sec > p { grid-column: 1 / -1; }
     #panel.full .grp { background: rgba(255,255,255,.04); border: 1px solid var(--line); border-radius: 12px; padding: 4px 12px 12px; }
     #panel.full .grp.span2 { grid-column: 1 / -1; }
-    #panel.full #modePolicy { display: block; max-width: 900px; margin: 0 auto; }
+    #panel.full #modePolicy { display: block; }
     canvas.chart { height: 240px; }
   }
   #tabs button.icon:disabled { opacity: .3; }
+
+  /* ---------------------------------------------------------- 제도변경 (검색어플 디자인: 밝은 배경 · 인디고 포인트) */
+  .policy { background: #f1f5f9; color: #1e293b; margin: 0 -12px; padding: 16px 14px 24px; min-height: calc(100vh - 100px); }
+  .policy .pTitle { font-size: 20px; font-weight: 900; margin: 0 0 14px; color: #0f172a; border-left: 6px solid #4f46e5; padding-left: 10px; }
+  .policy .pTop { display: grid; grid-template-columns: 1fr; gap: 12px; }
+  .policy .pCard { background: #fff; border-radius: 22px; padding: 16px; box-shadow: 0 10px 25px -10px rgba(15,23,42,.15); }
+  .policy h3 { margin: 0 0 10px; font-size: 14px; font-weight: 900; color: #334155; }
+  .policy .pDrop { display: flex; align-items: center; justify-content: center; gap: 10px; height: 120px; border: 3px dashed #cbd5e1; border-radius: 20px; background: #fcfcfc; cursor: pointer; white-space: nowrap; }
+  .policy .pDrop:active, .policy .pDrop:hover { border-color: #4f46e5; background: #f5f3ff; }
+  .policy .pDrop input { display: none; }
+  .policy .pIcon { font-size: 28px; color: #4f46e5; }
+  .policy .pDropTxt { font-size: 16px; font-weight: 900; color: #4f46e5; overflow: hidden; text-overflow: ellipsis; }
+  .policy .pSub { font-size: 12px; color: #64748b; margin: 8px 0 0; }
+  .policy .pSearch { position: relative; }
+  .policy .pSearch input { width: 100%; height: 54px; border: 3px solid #e2e8f0; border-radius: 18px; padding: 0 48px 0 18px; font-size: 16px; font-weight: 700; color: #0f172a; background: #fff; outline: none; }
+  .policy .pSearch input:focus { border-color: #4f46e5; box-shadow: 0 10px 25px -8px rgba(79,70,229,.25); }
+  .policy .pSearch span { position: absolute; right: 16px; top: 50%; transform: translateY(-50%); font-size: 18px; color: #94a3b8; }
+  .policy .pGuide { background: #f8fafc; border: 2px solid #f1f5f9; border-radius: 18px; padding: 12px 14px; margin-top: 10px; }
+  .policy .pGuide h4 { margin: 0 0 6px; font-size: 11px; letter-spacing: .08em; color: #4f46e5; border: 0; padding: 0; }
+  .policy .pGuide ul { margin: 0; padding: 0; list-style: none; font-size: 12px; color: #475569; line-height: 1.7; }
+  .policy .pGuide b { color: #1e293b; }
+  .policy .pList { background: #fff; border-radius: 22px; margin-top: 12px; padding: 14px; box-shadow: 0 10px 25px -10px rgba(15,23,42,.15); }
+  .policy .pListHead { display: flex; justify-content: space-between; align-items: center; font-size: 13px; font-weight: 900; color: #334155; margin-bottom: 6px; }
+  .policy .pListHead i { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: #4f46e5; margin-right: 6px; }
+  .policy #p_count { font-size: 11px; color: #94a3b8; letter-spacing: .05em; }
+  .policy #p_status { font-size: 12px; color: #4f46e5; min-height: 16px; }
+  .policy .pTable { width: 100%; border-collapse: collapse; font-size: 13px; }
+  .policy .pTable th { text-align: left; font-size: 12px; color: #64748b; padding: 8px 6px; border-bottom: 2px solid #e2e8f0; white-space: nowrap; }
+  .policy .pTable th[data-sort] { cursor: pointer; color: #4f46e5; }
+  .policy .pTable td { padding: 10px 6px; border-bottom: 1px solid #f1f5f9; vertical-align: top; color: #1e293b; }
+  .policy .pTable td.nm { font-weight: 800; max-width: 260px; word-break: break-all; }
+  .policy .pTable td.dt { white-space: nowrap; color: #64748b; font-size: 12px; }
+  .policy .pTable td.ctx { font-size: 12px; color: #475569; line-height: 1.5; min-width: 220px; }
+  .policy .pTable .pages { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 4px; }
+  .policy .pTable .pages button { height: 24px; padding: 0 8px; border: 0; border-radius: 8px; background: #fee2e2; color: #e11d48; font-size: 11px; font-weight: 900; }
+  .policy .pTable .acts { white-space: nowrap; }
+  .policy .pTable .acts button { width: 34px; height: 34px; border: 0; border-radius: 10px; background: #eef2ff; color: #4f46e5; font-size: 15px; margin-right: 4px; }
+  .policy .pTable .acts button.del { background: #fff1f2; color: #e11d48; }
+  .policy mark { background: #fde68a; color: #1e293b; }
+  @media (min-width: 900px) {
+    .policy .pTop { grid-template-columns: 1fr 1fr; }
+    .policy .pTitle { font-size: 24px; }
+  }
+  /* 자가소비 월별 표: 열 8개라 글자를 줄여 좌우 끌기 없이 들어가게 */
+  #s_table { font-size: 11px; }
+  #s_table th, #s_table td { padding: 5px 3px; }
+  /* 전체화면 대체(브라우저가 거절할 때): 검색줄을 감추고 패널을 화면 끝까지 */
+  body.pseudo-fs #top { display: none; }
 </style>
 </head>
 <body>
@@ -313,15 +361,37 @@
   </div>
 
   <!-- 제도변경 문서 저장소 — 검색어플 제도변경 탭 이식 (기기 IndexedDB, PDF 전문검색) -->
-  <div id="modePolicy" class="sec" style="display:none">
-    <label class="drop"><input id="p_file" type="file" multiple accept="application/pdf,image/*">
-      <b style="color:var(--fg)">＋ 파일 추가 (PDF · 이미지)</b><br>이 기기에만 저장됩니다. PDF 는 본문을 읽어 페이지 단위로 검색합니다.</label>
-    <div class="row" style="margin-top:8px">
-      <input id="p_q" type="text" placeholder="제도 · 단어 검색 (띄어쓰기 무관)" style="flex:1;height:38px;border:1px solid var(--line);border-radius:8px;background:rgba(0,0,0,.25);color:var(--fg);padding:0 10px;font-size:14px">
-      <select id="p_sort" class="btn ghost sm" style="height:38px"><option value="timestamp">최신순</option><option value="name">이름순</option></select>
+  <!-- 제도변경 문서 저장소 — 검색어플 제도변경 탭과 같은 밝은 카드 디자인 -->
+  <div id="modePolicy" class="sec policy" style="display:none">
+    <h2 class="pTitle">제도변경 및 업데이트 문서 통합 저장소</h2>
+    <div class="pTop">
+      <div class="pCard">
+        <h3>업데이트 파일 추가</h3>
+        <label class="pDrop"><input id="p_file" type="file" multiple accept="application/pdf,image/*">
+          <span class="pIcon">☁</span><span class="pDropTxt">파일 업로드하기 (PDF · 이미지)</span></label>
+        <p class="pSub">본인 기기에 문서를 보관 및 조회합니다. PDF 는 페이지 단위로 검색됩니다.</p>
+      </div>
+      <div class="pCard">
+        <h3>통합 단어 검색 (페이지 검색 포함)</h3>
+        <div class="pSearch"><input id="p_q" type="text" placeholder="검색할 제도나 단어를 입력하세요... (띄어쓰기 무관)"><span>🔍</span></div>
+        <div class="pGuide">
+          <h4>STORAGE &amp; SEARCH GUIDE</h4>
+          <ul>
+            <li>• <b>Per-Device Storage</b>: 각 기기별 DB 에 원하는 문서를 저장하고 관리하세요.</li>
+            <li>• <b>Deep Search</b>: 검색 시 단어가 포함된 [P. 1, 3, 5] 모든 페이지를 출력합니다.</li>
+            <li>• <b>Space-Insensitive</b>: "국산 인버터"와 "국산인버터"처럼 띄어쓰기가 달라도 같게 검색됩니다.</li>
+          </ul>
+        </div>
+      </div>
     </div>
-    <div id="p_status" style="font-size:12px;color:var(--accent);min-height:16px"></div>
-    <div id="p_list"></div>
+    <div class="pList">
+      <div class="pListHead"><span><i></i>Shared Document List</span><span id="p_count"></span></div>
+      <div id="p_status"></div>
+      <div class="scrollx"><table class="pTable">
+        <thead><tr><th data-sort="name">파일명 <em></em></th><th data-sort="timestamp">업로드 일자 <em></em></th><th>검색 문맥 / 모든 발견 위치(페이지)</th><th>관리</th></tr></thead>
+        <tbody id="p_list"></tbody>
+      </table></div>
+    </div>
   </div>
   </div><!-- /body -->
 </div>

@@ -94,7 +94,9 @@
 
     // ⛶ 전체화면: 웹은 브라우저 Fullscreen API, 앱은 상태바·내비바 숨김(Native.setImmersive)
     $('btnFullscreen').onclick = toggleFullscreen;
-    document.addEventListener('fullscreenchange', () => { $('btnFullscreen').textContent = document.fullscreenElement ? '🗗' : '⛶'; });
+    const fsSync = () => { if (!document.body.classList.contains('pseudo-fs')) $('btnFullscreen').textContent = (document.fullscreenElement || document.webkitFullscreenElement) ? '🗗' : '⛶'; };
+    document.addEventListener('fullscreenchange', fsSync);
+    document.addEventListener('webkitfullscreenchange', fsSync);
 
     // ▲ 한 단계 넓게, ▼ 한 단계 좁게 (접힘 ↔ 기본 ↔ 화면 전체)
     $('btnExpand').onclick = () => setPanel(panelMode === 'collapsed' ? 'normal' : 'full');
@@ -200,9 +202,23 @@
       return;
     }
     const d = document;
-    if (d.fullscreenElement) { d.exitFullscreen && d.exitFullscreen(); return; }
+    // 대체 모드(브라우저가 진짜 전체화면을 거절했을 때) 해제
+    if (document.body.classList.contains('pseudo-fs')) { setPseudoFs(false); return; }
+    if (d.fullscreenElement || d.webkitFullscreenElement) { (d.exitFullscreen || d.webkitExitFullscreen).call(d); return; }
     const el = d.documentElement;
-    (el.requestFullscreen || el.webkitRequestFullscreen || (() => hint('이 브라우저는 전체화면을 지원하지 않습니다.'))).call(el);
+    const req = el.requestFullscreen || el.webkitRequestFullscreen;
+    // 브라우저가 조용히 거절하는 경우가 있다(설정·내장 브라우저·iOS 등). 그땐 검색줄을 숨기고 패널을 화면 끝까지 펴는 대체 모드로.
+    if (!req) { setPseudoFs(true); return; }
+    let p;
+    try { p = req.call(el); } catch (e) { setPseudoFs(true); return; }
+    if (p && p.catch) p.catch(() => setPseudoFs(true));
+    setTimeout(() => { if (!d.fullscreenElement && !d.webkitFullscreenElement) setPseudoFs(true); }, 400);
+  }
+  function setPseudoFs(on) {
+    document.body.classList.toggle('pseudo-fs', on);
+    $('btnFullscreen').textContent = on ? '🗗' : '⛶';
+    if (on) { setPanel('full'); hint('브라우저가 전체화면을 막아 앱 안에서 최대화했습니다. ⛶ 를 다시 누르면 돌아갑니다. (F11 로 브라우저 전체화면도 됩니다)'); }
+    else setPanel(currentTab === 'layout' ? 'normal' : 'full');
   }
 
   function setPanel(mode) {

@@ -58,7 +58,10 @@ const Policy = (() => {
     } catch (e) { status('저장소를 열 수 없습니다: ' + e.message); }
     $('p_file').addEventListener('change', e => addFiles(Array.from(e.target.files || [])));
     $('p_q').addEventListener('input', () => { keyword = $('p_q').value; render(); });
-    $('p_sort').addEventListener('change', () => { sortKey = $('p_sort').value; render(); });
+    document.querySelectorAll('.pTable th[data-sort]').forEach(th => th.onclick = () => {
+      if (sortKey === th.dataset.sort) sortDir = sortDir === 'desc' ? 'asc' : 'desc'; else { sortKey = th.dataset.sort; sortDir = 'desc'; }
+      render();
+    });
     $('pm_close').onclick = () => $('pageModal').classList.remove('on');
     if (window.pdfjsLib) pdfjsLib.GlobalWorkerOptions.workerSrc = 'vendor/pdf.worker.min.js';
     render();
@@ -103,29 +106,31 @@ const Policy = (() => {
     render();
   }
 
-  // ------------------------------------------------------------ 목록
+  // ------------------------------------------------------------ 목록 (검색어플과 같은 표: 파일명 · 일자 · 검색 문맥/페이지 · 관리)
+  let sortDir = "desc";
   function render() {
     const kw = keyword.trim();
     let list = kw ? docs.filter(d => fuzzyIncludes(d.name, kw) || fuzzyIncludes(d.content, kw)) : docs.slice();
-    list.sort((a, b) => sortKey === 'name' ? String(a.name).localeCompare(String(b.name)) : (b.timestamp || 0) - (a.timestamp || 0));
-    const box = $('p_list');
-    box.innerHTML = '';
-    if (!list.length) { box.innerHTML = '<p style="font-size:13px;color:var(--muted)">' + (docs.length ? '검색 결과가 없습니다.' : '저장된 문서가 없습니다.') + '</p>'; return; }
+    const dir = sortDir === "asc" ? 1 : -1;
+    list.sort((a, b) => sortKey === "name" ? dir * String(a.name).localeCompare(String(b.name)) : dir * ((a.timestamp || 0) - (b.timestamp || 0)));
+    $("p_count").textContent = list.length + " DOCUMENTS LOADED";
+    document.querySelectorAll(".pTable th[data-sort] em").forEach(e => { e.textContent = e.parentNode.dataset.sort === sortKey ? (sortDir === "desc" ? "▼" : "▲") : ""; });
+    const box = $("p_list");
+    box.innerHTML = "";
+    if (!list.length) { box.innerHTML = "<tr><td colspan=\"4\" style=\"text-align:center;color:#94a3b8;padding:24px\">" + (docs.length ? "검색 결과가 없습니다." : "표시할 문서가 없습니다.") + "</td></tr>"; return; }
     list.forEach(d => {
-      let snippetSrc = d.content || '', pages = [];
+      let snippetSrc = d.content || "", pages = [];
       if (kw && d.isPdf && d.pages.length) { pages = d.pages.filter(p => fuzzyIncludes(p.text, kw)); if (pages.length) snippetSrc = pages[0].text; }
       const r = kw ? matchRanges(snippetSrc, kw, 1)[0] : null;
-      const snippet = r ? '…' + snippetSrc.slice(Math.max(0, r.start - 50), r.start + 80) + '…' : snippetSrc.slice(0, 100) + (snippetSrc.length > 100 ? '…' : '');
-      const el = document.createElement('div');
-      el.className = 'doc';
-      el.innerHTML = '<div class="t"><b>' + highlight(d.name, kw) + '</b><small style="color:var(--muted)">' + d.date + '</small></div>'
-        + '<div class="snip">' + highlight(snippet, kw) + '</div>'
-        + (pages.length ? '<div class="pages">' + pages.map(p => '<button class="btn ghost" data-p="' + p.page + '">P.' + p.page + '</button>').join('') + '</div>' : '')
-        + '<div class="row" style="margin:6px 0 0"><button class="btn sm ghost" data-act="open">열기</button><button class="btn sm danger" data-act="del">삭제</button></div>';
-      el.querySelectorAll('[data-p]').forEach(b => b.onclick = () => showPage(d, +b.dataset.p, kw));
-      el.querySelector('[data-act=open]').onclick = () => openFile(d);
-      el.querySelector('[data-act=del]').onclick = () => remove(d.id);
-      box.appendChild(el);
+      const snippet = r ? "…" + snippetSrc.slice(Math.max(0, r.start - 50), r.start + 80) + "…" : snippetSrc.slice(0, 100) + (snippetSrc.length > 100 ? "…" : "");
+      const tr = document.createElement("tr");
+      tr.innerHTML = "<td class=\"nm\">" + highlight(d.name, kw) + "</td><td class=\"dt\">" + d.date + "</td>"
+        + "<td class=\"ctx\">" + (pages.length ? "<div class=\"pages\">" + pages.map(p => "<button data-p=\"" + p.page + "\">P." + p.page + "</button>").join("") + "</div>" : "") + highlight(snippet, kw) + "</td>"
+        + "<td class=\"acts\"><button data-act=\"open\" title=\"보기\">👁</button><button data-act=\"del\" class=\"del\" title=\"삭제\">🗑</button></td>";
+      tr.querySelectorAll("[data-p]").forEach(btn => btn.onclick = () => showPage(d, +btn.dataset.p, kw));
+      tr.querySelector("[data-act=open]").onclick = () => openFile(d);
+      tr.querySelector("[data-act=del]").onclick = () => remove(d.id);
+      box.appendChild(tr);
     });
   }
 
