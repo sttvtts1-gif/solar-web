@@ -410,17 +410,29 @@
 
   function loadKepcoLines(bcode, dong, jibun) {
     if (!Kepco.available()) { $('kepcoHead').textContent = window.Native ? '한전 키 미등록' : '웹은 한전 중계 설치 필요'; return; }
-    Kepco.lines(bcode, dong, jibun)
-      .then(({ level, rows }) => {
+    const reqKey = siteKey;   // 그 사이 다른 지붕을 고르면 늦게 온 결과는 버린다
+    Kepco.lines(bcode, dong, jibun, msg => { if (reqKey === siteKey) $('kepcoHead').textContent = msg; })
+      .then(({ level, basis, rows }) => {
+        if (reqKey !== siteKey) return;
         if (!rows.length) { $('kepcoHead').textContent = dong + ' — 자료 없음'; return; }
-        $('kepcoHead').textContent = dong + ' (' + level + ' 기준) · 선로 ' + rows.length + '개';
         const f = v => v === null ? '-' : v.toLocaleString('ko-KR');
         const cls = v => v === null ? '' : v > 0 ? 'pos' : 'neg';
-        $('kepcoBody').innerHTML = '<div class="scrollx"><table class="cmp"><tr><th>변전소</th><th>변압기</th><th>배전선로</th><th>DL 여유</th><th>변압기 여유</th><th>변전소 여유</th></tr>'
-          + rows.map(r => '<tr><td>' + r.subst + '</td><td style="text-align:center">#' + r.mtr + '</td><td style="text-align:left">' + r.dl + '</td><td class="' + cls(r.dlFree) + '">' + f(r.dlFree) + '</td><td class="' + cls(r.mtrFree) + '">' + f(r.mtrFree) + '</td><td class="' + cls(r.substFree) + '">' + f(r.substFree) + '</td></tr>').join('')
-          + '</table></div>';
+        const row = r => '<tr><td>' + r.subst + '</td><td style="text-align:center">#' + r.mtr + '</td><td style="text-align:left">' + r.dl + '</td><td class="' + cls(r.dlFree) + '">' + f(r.dlFree) + '</td><td class="' + cls(r.mtrFree) + '">' + f(r.mtrFree) + '</td><td class="' + cls(r.substFree) + '">' + f(r.substFree) + '</td>'
+          + (level === '인근' ? '<td style="text-align:left;color:var(--muted)">' + r.lots.join(', ') + '</td>' : '') + '</tr>';
+        const head = '<tr><th>변전소</th><th>MTR</th><th>DL</th><th>DL 여유</th><th>MTR 여유</th><th>변전소 여유</th>' + (level === '인근' ? '<th>기준 번지</th>' : '') + '</tr>';
+        let note = '', list = rows;
+        if (level === '번지') $('kepcoHead').textContent = jibun + ' 번지 기준';
+        else if (level === '인근') {
+          $('kepcoHead').textContent = '인근 번지 ' + basis[0] + ' 기준' + (rows.length > 1 ? ' (후보 ' + rows.length + ')' : '');
+          note = '<p class="scNote">' + jibun + ' 번지 자체 자료가 없어 가까운 번지(' + basis.join(', ') + ')의 선로입니다. 맨 위가 가장 가까운 번지입니다. 이웃 번지끼리도 DL 이 다를 수 있어 실제 선로는 한전 확인이 필요합니다.</p>';
+        } else {
+          $('kepcoHead').textContent = dong + ' 전체 ' + rows.length + '개 (번지·인근 자료 없음)';
+          note = '<p class="scNote">이 번지와 인근 번지에 자료가 없어 ' + dong + ' 을 지나는 선로 전체입니다. 어느 선로에 붙는지는 한전 확인이 필요합니다.</p>';
+          list = rows.slice().sort((x, y) => (y.dlFree || 0) - (x.dlFree || 0));
+        }
+        $('kepcoBody').innerHTML = '<div class="scrollx"><table class="cmp">' + head + list.map(row).join('') + '</table></div>' + note;
       })
-      .catch(e => { $('kepcoHead').textContent = dong + ' — ' + e.message; });
+      .catch(e => { if (reqKey === siteKey) $('kepcoHead').textContent = dong + ' — ' + e.message; });
   }
 
   function goTo(lat, lng, name) {
