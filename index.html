@@ -137,6 +137,25 @@
 
   #nokey { position: absolute; inset: 0; z-index: 20; background: var(--bg); display: none; padding: 40px 24px; font-size: 15px; line-height: 1.6; }
   #nokey code { background: rgba(255,255,255,.12); padding: 2px 6px; border-radius: 4px; }
+
+  /* ---------------------------------------------------------- 넓은 화면 (PC · 태블릿 가로)
+     배치: 왼쪽 지도 + 오른쪽 패널(460px). 분석 탭(full): 화면 전체, 내용은 2열 카드.
+     좁은 화면은 위의 위아래 배치 그대로. */
+  .grp { min-width: 0; }
+  @media (min-width: 900px) {
+    #panel:not(.full) { left: auto; top: 0; width: 460px; max-height: none; border-radius: 0; box-shadow: -4px 0 20px rgba(0,0,0,.35); }
+    #panel.collapsed { top: auto; max-height: 92px; border-radius: 12px 0 0 0; }
+    #top { right: 460px; }
+    body.wide-full #top { right: 0; }
+    #panel.full #body { max-width: 1280px; margin: 0 auto; }
+    #panel.full .sec { display: grid; grid-template-columns: 1fr 1fr; gap: 14px 18px; align-items: start; }
+    #panel.full .sec > p { grid-column: 1 / -1; }
+    #panel.full .grp { background: rgba(255,255,255,.04); border: 1px solid var(--line); border-radius: 12px; padding: 4px 12px 12px; }
+    #panel.full .grp.span2 { grid-column: 1 / -1; }
+    #panel.full #modePolicy { display: block; max-width: 900px; margin: 0 auto; }
+    canvas.chart { height: 240px; }
+  }
+  #tabs button.icon:disabled { opacity: .3; }
 </style>
 </head>
 <body>
@@ -156,6 +175,7 @@
     <button id="tabSelf" data-tab="self">자가소비</button>
     <button id="tabPolicy" data-tab="policy">제도변경</button>
     <button id="btnSettings" class="icon" title="설정">⚙</button>
+    <button id="btnFullscreen" class="icon" title="전체화면">⛶</button>
     <button id="btnExpand" class="icon" title="패널 위로 (넓게)">▲</button>
     <button id="btnCollapse" class="icon" title="패널 아래로 (좁게)">▼</button>
   </div>

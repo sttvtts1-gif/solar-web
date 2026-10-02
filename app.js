@@ -42,6 +42,7 @@
   let moduleCfg = Object.assign({}, MODULE_DEFAULT);
   let currentTab = 'layout';
   let panelMode = 'normal';   // collapsed | normal | full
+  let immersive = false;      // 앱 전체화면(시스템 바 숨김) 상태
   const hasVWorld = () => !!(window.SOLAR_CONFIG || {}).VWORLD_KEY;
 
   // ------------------------------------------------------------ 부팅
@@ -89,6 +90,12 @@
 
     document.querySelectorAll('#tabs [data-tab]').forEach(b => { b.onclick = () => showTab(b.dataset.tab); });
     // 패널 접기: 지붕이 많아지면 목록이 지도를 다 가리므로 탭 줄 + 합계 한 줄만 남긴다.
+    groupSections();
+
+    // ⛶ 전체화면: 웹은 브라우저 Fullscreen API, 앱은 상태바·내비바 숨김(Native.setImmersive)
+    $('btnFullscreen').onclick = toggleFullscreen;
+    document.addEventListener('fullscreenchange', () => { $('btnFullscreen').textContent = document.fullscreenElement ? '🗗' : '⛶'; });
+
     // ▲ 한 단계 넓게, ▼ 한 단계 좁게 (접힘 ↔ 기본 ↔ 화면 전체)
     $('btnExpand').onclick = () => setPanel(panelMode === 'collapsed' ? 'normal' : 'full');
     $('btnCollapse').onclick = () => setPanel(panelMode === 'full' ? 'normal' : 'collapsed');
@@ -153,13 +160,49 @@
   function showTab(t) {
     currentTab = t;
     document.querySelectorAll('#tabs [data-tab]').forEach(b => b.classList.toggle('on', b.dataset.tab === t));
-    $('modeRps').style.display = t === 'rps' ? 'block' : 'none';
-    $('modeSelf').style.display = t === 'self' ? 'block' : 'none';
-    $('modePolicy').style.display = t === 'policy' ? 'block' : 'none';
+    // '' 로 비워야 CSS(넓은 화면 2열 grid)가 먹는다. 'block' 을 박으면 인라인이 이긴다.
+    $('modeRps').style.display = t === 'rps' ? '' : 'none';
+    $('modeSelf').style.display = t === 'self' ? '' : 'none';
+    $('modePolicy').style.display = t === 'policy' ? '' : 'none';
     $('modeView').style.display = t === 'layout' && !drawing ? 'block' : 'none';
     $('modeDraw').style.display = t === 'layout' && drawing ? 'block' : 'none';
     // 배치는 지도를 봐야 하니 기본 높이, 나머지 탭은 표·차트가 많아 화면 전체로 연다.
     setPanel(t === 'layout' ? 'normal' : 'full');
+  }
+
+  /**
+   * 분석 탭의 "h4 제목 + 그 아래 내용" 을 한 묶음(.grp)으로 감싼다. 넓은 화면에서 이 묶음이 2열 카드가 된다.
+   * 표·차트처럼 넓어야 읽히는 묶음은 span2 로 한 줄을 다 쓴다.
+   */
+  function groupSections() {
+    ['modeRps', 'modeSelf'].forEach(id => {
+      const sec = $(id);
+      const kids = Array.from(sec.children);
+      let grp = null;
+      kids.forEach(el => {
+        if (el.tagName === 'H4') { grp = document.createElement('div'); grp.className = 'grp'; sec.insertBefore(grp, el); }
+        if (grp) grp.appendChild(el);
+        else if (el.tagName !== 'P') { // 첫 h4 앞(설비용량 줄)도 카드로
+          grp = document.createElement('div'); grp.className = 'grp span2'; sec.insertBefore(grp, el); grp.appendChild(el); grp = null;
+        }
+      });
+      sec.querySelectorAll('.grp').forEach(g => {
+        if (g.querySelector('#r_cmpTable, #s_table, .comment')) g.classList.add('span2');
+      });
+    });
+  }
+
+  function toggleFullscreen() {
+    if (window.Native && window.Native.setImmersive) {
+      immersive = !immersive;
+      window.Native.setImmersive(immersive);
+      $('btnFullscreen').textContent = immersive ? '🗗' : '⛶';
+      return;
+    }
+    const d = document;
+    if (d.fullscreenElement) { d.exitFullscreen && d.exitFullscreen(); return; }
+    const el = d.documentElement;
+    (el.requestFullscreen || el.webkitRequestFullscreen || (() => hint('이 브라우저는 전체화면을 지원하지 않습니다.'))).call(el);
   }
 
   function setPanel(mode) {
@@ -167,6 +210,9 @@
     const p = $('panel');
     p.classList.toggle('collapsed', mode === 'collapsed');
     p.classList.toggle('full', mode === 'full');
+    document.body.classList.toggle('wide-full', mode === 'full');
+    // 지도 컨테이너 크기가 바뀌면(넓은 화면에서 패널이 옆으로 붙고 떨어질 때) 카카오에 알려야 타일이 맞게 깔린다
+    if (map) setTimeout(() => map.relayout(), 50);
     $('btnExpand').disabled = mode === 'full';
     $('btnCollapse').disabled = mode === 'collapsed';
     if (mode === 'full') p.scrollTop = 0;
