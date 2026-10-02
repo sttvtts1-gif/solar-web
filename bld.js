@@ -59,5 +59,24 @@ const Bld = (() => {
     return null;
   }
 
-  return { title, suggestType, available: () => !!cfg().BLD_KEY };
+  /**
+   * V-World 건물(건물관리번호 bd_mgt_sn)의 높이(m). 같은 필지에 건물이 여럿이면 지상층수가 같은 건물의 높이,
+   * 없으면 그 필지에서 가장 높은 건물. 대장에 높이가 비어 있으면 null.
+   * 건물관리번호 앞 19자리 = 법정동코드10 + 대지구분1(1 대지 / 2 산) + 본번4 + 부번4.
+   */
+  const lotCache = {};
+  async function heightOf(bdMgtSn, floors) {
+    if (!bdMgtSn || bdMgtSn.length < 19) return null;
+    const key = bdMgtSn.slice(0, 19);
+    if (!(key in lotCache)) {
+      lotCache[key] = title(key.slice(0, 10), key[10] === '2', key.slice(11, 15), key.slice(15, 19)).catch(() => []);
+    }
+    const list = await lotCache[key];
+    const hs = list.filter(x => x.height > 0);
+    if (!hs.length) return null;
+    const same = hs.find(x => floors && x.floors === floors);
+    return (same || hs.reduce((a, b) => (b.height > a.height ? b : a))).height;
+  }
+
+  return { title, suggestType, heightOf, available: () => !!cfg().BLD_KEY };
 })();

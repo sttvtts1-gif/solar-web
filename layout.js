@@ -179,15 +179,23 @@ const Layout = (() => {
     const areaM2 = area(local);
 
     // 음영 조각은 지붕과 같은 원점의 미터 평면에서 만든다(회전 전 좌표).
+    //   shade.obstacles : 주변 더 높은 건물 { ring, dh } — 그림자만
+    //   shade.blockers  : 이 지붕 위 물체(타워·기설치 태양광·지장물) { ring, dh } — 그 자리는 항상 빼고, 음영 고려면 그림자도
+    const shadeOn = !!(shade && shade.on);
+    const suns = sunPositions(o.lat, (shade && shade.hours) || [9, 10, 11, 12, 13, 14, 15]);
     let shadow = [];
-    if (shade && shade.on && shade.obstacles && shade.obstacles.length) {
-      const suns = sunPositions(o.lat, shade.hours || [9, 10, 11, 12, 13, 14, 15]);
-      shade.obstacles.forEach(ob => {
-        if (!(ob.dh > 0) || !ob.ring || ob.ring.length < 3) return;
-        const ring = toLocal(ob.ring, o);
-        suns.forEach(s => { shadow = shadow.concat(shadowPieces(ring, ob.dh, s)); });
-      });
-    }
+    const blockRings = [];
+    const addShadow = (ring, dh) => { if (shadeOn && dh > 0) suns.forEach(sp => { shadow = shadow.concat(shadowPieces(ring, dh, sp)); }); };
+    ((shade && shade.obstacles) || []).forEach(ob => {
+      if (!(ob.dh > 0) || !ob.ring || ob.ring.length < 3) return;
+      addShadow(toLocal(ob.ring, o), ob.dh);
+    });
+    ((shade && shade.blockers) || []).forEach(ob => {
+      if (!ob.ring || ob.ring.length < 3) return;
+      const ring = toLocal(ob.ring, o);
+      blockRings.push(ring);
+      addShadow(ring, ob.dh || 0);
+    });
 
     const rect = minRect(local);
     const row = pickRowAngle(rect, opt);
@@ -195,6 +203,28 @@ const Layout = (() => {
     // 줄이 x축과 나란해지도록 돌린다. 계산이 끝나면 다시 되돌린다.
     const poly = local.map(p => rotate(p, -row.angle));
     const b = bbox(poly);
+
+    // 용마루 벤츄레이터/모니터 (있을 때만): 폭 1m 띠, 높이 opt.ventH(기본 1m). 자리 차단 + 그림자.
+    //   원단(남북지붕): 경간마다 남북 깊이 가운데를 동서로 지나는 띠.  인삼밭(동서지붕): 동서 폭 가운데를 남북으로 지나는 띠.
+    const vents = [];
+    if (opt.vent) {
+      const half = 0.5, vh = Number(opt.ventH) || 1;
+      if (opt.ridge) {
+        const n = Math.max(1, Math.round(Number(opt.spans) || 1)), D = (b.maxY - b.minY) / n;
+        for (let i = 0; i < n; i++) {
+          const y = b.minY + i * D + D / 2;
+          vents.push([{ x: b.minX, y: y - half }, { x: b.maxX, y: y - half }, { x: b.maxX, y: y + half }, { x: b.minX, y: y + half }]);
+        }
+      } else if (opt.type === 'ginseng') {
+        const x = (b.minX + b.maxX) / 2;
+        vents.push([{ x: x - half, y: b.minY }, { x: x + half, y: b.minY }, { x: x + half, y: b.maxY }, { x: x - half, y: b.maxY }]);
+      }
+      vents.forEach(v => {
+        const ring = v.map(p => rotate(p, row.angle));    // 회전 전 좌표 (그림자·차단과 같은 틀)
+        blockRings.push(ring);
+        addShadow(ring, vh);
+      });
+    }
 
     const w = opt.orient === 'portrait' ? opt.modS : opt.modL;   // 줄 방향 폭
     const dSlope = opt.orient === 'portrait' ? opt.modL : opt.modS;   // 모듈 경사길이
@@ -218,7 +248,9 @@ const Layout = (() => {
       // 면 안은 모듈을 붙여 깔고(한 블록), 다음 블록은 앞 블록 꼭대기에서 그은 22° 선 밖에서 시작한다.
       spans = Math.max(1, Math.round(Number(opt.spans) || 1));
       const D = (b.maxY - b.minY) / spans;
-      const eave = Math.max(0, Number(opt.eaveSetback) || 0), rs = Math.max(0, Number(opt.ridgeSetback) || 0);
+      const eave = Math.max(0, Number(opt.eaveSetback) || 0);
+      // 벤츄레이터 띠(폭 1m)가 있으면 용마루 이격을 띠 바깥 + 10cm 로 넓힌다 — 20cm 걸친다고 한 줄을 통째로 버리지 않게
+      const rs = Math.max(0, Number(opt.ridgeSetback) || 0, opt.vent ? 0.6 : 0);
       const lift = Math.max(0, Number(opt.lift) || 0);
       const faces = [];
       for (let i = 0; i < spans; i++) {
@@ -255,6 +287,13 @@ const Layout = (() => {
     const modules = [];
     let rows = 0, shaded = 0;
     // 모듈 모서리·중심 중 하나라도 그림자 조각 안에 들면 음영. 조각은 회전 전 좌표라 되돌려서 본다.
+    // 지붕 위 물체 자리에 걸치는 모듈은 음영 고려와 상관없이 뺀다.
+    let blocked = 0;
+    const onBlocker = c => {
+      if (!blockRings.length) return false;
+      const pts = c.concat([{ x: (c[0].x + c[2].x) / 2, y: (c[0].y + c[2].y) / 2 }]).map(p => rotate(p, row.angle));
+      return pts.some(p => blockRings.some(r => pointIn(r, p)));
+    };
     const inShadow = c => {
       if (!shadow.length) return false;
       const pts = c.concat([{ x: (c[0].x + c[2].x) / 2, y: (c[0].y + c[2].y) / 2 }]).map(p => rotate(p, row.angle));
@@ -267,6 +306,7 @@ const Layout = (() => {
         const x = b.minX + m + xOff + k * (w + opt.colGap);
         const c = [{ x, y }, { x: x + w, y }, { x: x + w, y: y + d }, { x, y: y + d }];
         if (c.every(p => pointIn(poly, p) && (m === 0 || distToEdges(poly, p) >= m - 1e-9))) {
+          if (onBlocker(c)) { blocked++; continue; }
           if (inShadow(c)) { shaded++; continue; }
           modules.push(c);
           placedInRow++;
@@ -281,6 +321,8 @@ const Layout = (() => {
       modules: geoModules,
       count,
       shaded,
+      blocked,
+      vents: vents.map(v => toGeo(v.map(p => rotate(p, row.angle)), o)),
       kw: Math.round(count * opt.moduleWp) / 1000,
       areaM2: Math.round(areaM2 * 10) / 10,
       rowAngle: Math.round(row.angle * 10) / 10,
@@ -297,7 +339,7 @@ const Layout = (() => {
   }
 
   function empty(opt) {
-    return { modules: [], count: 0, shaded: 0, kw: 0, areaM2: 0, rowAngle: 0, buildingAngle: 0, aligned: false, rows: 0, pitch: 0, opt };
+    return { modules: [], count: 0, shaded: 0, blocked: 0, vents: [], kw: 0, areaM2: 0, rowAngle: 0, buildingAngle: 0, aligned: false, rows: 0, pitch: 0, opt };
   }
 
   /**

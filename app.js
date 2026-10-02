@@ -41,6 +41,9 @@
   // 위도·경도 상자라서 배치 설정을 바꿔 모듈 격자가 움직여도 "그 자리" 에 그대로 먹는다.
   let edits = [];
   let editing = false, editOp = 'del';
+  let obsGfx = [];               // 지도에 그린 장애물 상자
+  const heights = {};            // 건물 id → 대장 높이(m) (음영용, 앱을 켤 때마다 다시 받음)
+  let heightJob = null;
   // 설정(⚙) 의 공통값. 모듈 치수는 mm 로 받아 m 로 넘긴다.
   const MODULE_DEFAULT = { moduleWp: 645, modLmm: 2465, modSmm: 1134 };
   let moduleCfg = Object.assign({}, MODULE_DEFAULT);
@@ -88,6 +91,7 @@
     RpsUI.setSite(siteName);
     Policy.init();
     roofs.forEach(r => { recompute(r); });
+    drawObstacles();
     if (roofs.length) { fitAll(); const r = roofs.find(x => x.id === selectedId) || roofs[roofs.length - 1]; const c = Layout.centroid(r.points); siteInfoAt(c.lat, c.lng); }
     renderList();
   }
@@ -137,6 +141,7 @@
       shade.on = $('shadeOn').checked;
       if (shade.on && !buildings.length) hint('주변 건물 정보가 없어 음영을 계산할 수 없습니다. 「건물 가져오기」를 먼저 누르세요.');
       roofs.forEach(recompute); renderList(); save();
+      ensureHeights();
     };
     $('btnAddCenter').onclick = () => { const c = map.getCenter(); addPoint({ lat: c.getLat(), lng: c.getLng() }); };
     $('btnUndo').onclick = undoPoint;
@@ -384,7 +389,17 @@
         const bun = ad ? ad.main_address_no : '', ji = ad ? ad.sub_address_no : '', mountain = ad && ad.mountain_yn === 'Y';
         const jibun = bun ? bun + (ji && ji !== '0' ? '-' + ji : '') : '';
         loadBld(b.code, mountain, bun, ji);
-        loadKepcoLines(b.code, b.region_3depth_name, jibun);
+        // 한전 인근 번지: 지도상 실제 주변 필지(같은 법정동, 가까운 순)
+        const d = 0.0015;
+        VWorld.parcelsInBox({ lat: lat - d, lng: lng - d }, { lat: lat + d, lng: lng + d }).then(ps => {
+          const near = ps.map(p => {
+            const pnu = (p.props || {}).pnu || '';
+            if (pnu.slice(0, 10) !== b.code) return null;
+            const bn = +pnu.slice(11, 15), jn = +pnu.slice(15, 19);
+            return { lot: bn + (jn ? '-' + jn : ''), d: distM({ lat, lng }, Layout.centroid(p.ring)) };
+          }).filter(Boolean).sort((x, y) => x.d - y.d).map(x => x.lot);
+          loadKepcoLines(b.code, b.region_3depth_name, jibun, near);
+        }).catch(() => loadKepcoLines(b.code, b.region_3depth_name, jibun, []));
       });
     });
   }
@@ -416,10 +431,10 @@
     }).catch(e => { $('bldHead').textContent = e.message; });
   }
 
-  function loadKepcoLines(bcode, dong, jibun) {
+  function loadKepcoLines(bcode, dong, jibun, nearLots) {
     if (!Kepco.available()) { $('kepcoHead').textContent = window.Native ? '한전 키 미등록' : '웹은 한전 중계 설치 필요'; return; }
     const reqKey = siteKey;   // 그 사이 다른 지붕을 고르면 늦게 온 결과는 버린다
-    Kepco.lines(bcode, dong, jibun, msg => { if (reqKey === siteKey) $('kepcoHead').textContent = msg; })
+    Kepco.lines(bcode, dong, jibun, msg => { if (reqKey === siteKey) $('kepcoHead').textContent = msg; }, nearLots)
       .then(({ level, basis, rows }) => {
         if (reqKey !== siteKey) return;
         if (!rows.length) { $('kepcoHead').textContent = dong + ' — 자료 없음'; return; }
@@ -435,7 +450,7 @@
           note = '<p class="scNote">' + jibun + ' 번지 자체 자료가 없어 가까운 번지(' + basis.join(', ') + ')의 선로입니다. 맨 위가 가장 가까운 번지입니다. 이웃 번지끼리도 DL 이 다를 수 있어 실제 선로는 한전 확인이 필요합니다.</p>';
         } else {
           $('kepcoHead').textContent = dong + ' 전체 ' + rows.length + '개 (번지·인근 자료 없음)';
-          note = '<p class="scNote">이 번지와 인근 번지에 자료가 없어 ' + dong + ' 을 지나는 선로 전체입니다. 어느 선로에 붙는지는 한전 확인이 필요합니다.</p>';
+          note = '<p class="scNote">한전 자료는 이미 발전소가 연결된 번지에만 있습니다. 이 번지와 주변 필지·가까운 부번 어디에도 자료가 없어 ' + dong + ' 을 지나는 선로 전체(중복 제외)를 보여 드립니다. 이 경우 API 로는 하나로 좁힐 수 없어 한전ON·한전 확인이 필요합니다.</p>';
           list = rows.slice().sort((x, y) => (y.dlFree || 0) - (x.dlFree || 0));
         }
         $('kepcoBody').innerHTML = '<div class="scrollx"><table class="cmp">' + head + list.map(row).join('') + '</table></div>' + note;
@@ -510,6 +525,7 @@
         });
         if (shade.on) { roofs.forEach(recompute); renderList(); }
         save();
+        setTimeout(ensureHeights, 0);
         if (!quiet) hint(list.length ? '건물 ' + list.length + '개. 하늘색 건물을 누르면 지붕으로 들어갑니다 (현재 형태: ' + Layout.PRESETS[curType].label + ')' : '이 화면 안에 건물 정보가 없습니다. 직접 그려 주세요.');
         return list;
       })
@@ -548,6 +564,7 @@
     selectedId = roof.id;
     recompute(roof);
     if (!batch) { curType = roof.type; renderTypes(); fillSettings(); const c = Layout.centroid(roof.points); siteInfoAt(c.lat, c.lng); }
+    setTimeout(ensureHeights, 0);
   }
 
   // ------------------------------------------------------------ 그리기
@@ -612,19 +629,58 @@
    * 이 지붕보다 높은 주변 건물 → 음영 장애물. 높이차 = (층수차) × 층고.
    * 층수를 모르는 건물(0)은 뺀다. 지붕 중심에서 120m 안만 본다(동지 정오 고도 ~31° 면 10층 차이도 60m 안쪽).
    */
+  // 건물 높이: 건축물대장 높이(heights) 우선, 없으면 층수 × 층고
+  const bldH = bd => (heights[bd.id] > 0 ? heights[bd.id] : (bd.floors || 1) * shade.floorH);
+  function roofH(r) {
+    const own = r.src && buildings.find(b => b.id === r.src);
+    if (own && heights[own.id] > 0) return heights[own.id];
+    return (r.floors || 1) * shade.floorH;
+  }
+  const distM = (a, b) => Math.hypot((b.lng - a.lng) * 111320 * Math.cos(a.lat * Math.PI / 180), (b.lat - a.lat) * 110574);
   function obstaclesFor(r) {
     if (!shade.on) return [];
-    const c = Layout.centroid(r.points);
-    const mine = r.floors || 1;
+    const c = Layout.centroid(r.points), mine = roofH(r);
     const out = [];
     buildings.forEach(bd => {
-      if (bd.id === r.src || !(bd.floors > mine)) return;
-      const bc = Layout.centroid(bd.ring);
-      const dist = Math.hypot((bc.lng - c.lng) * 111320 * Math.cos(c.lat * Math.PI / 180), (bc.lat - c.lat) * 110574);
-      if (dist > 120) return;
-      out.push({ ring: bd.ring, dh: (bd.floors - mine) * shade.floorH });
+      if (bd.id === r.src) return;
+      if (distM(c, Layout.centroid(bd.ring)) > 120) return;
+      const dh = bldH(bd) - mine;
+      if (dh > 0.3) out.push({ ring: bd.ring, dh });
     });
     return out;
+  }
+  /** 사용자가 그린 장애물(타워·기설치 태양광·지장물). 높이는 지붕면 기준. */
+  function blockersFor(r) {
+    const c = Layout.centroid(r.points);
+    return edits.filter(e => e.op === 'obs').map(e => ({
+      ring: [{ lat: e.s, lng: e.w }, { lat: e.s, lng: e.e }, { lat: e.n, lng: e.e }, { lat: e.n, lng: e.w }], dh: e.h || 1,
+    })).filter(o => distM(c, Layout.centroid(o.ring)) < 150);
+  }
+  /** 음영 고려가 켜져 있으면 지붕 주변 건물 높이를 건축물대장에서 받아 둔다(4개씩 동시). */
+  function ensureHeights() {
+    if (!shade.on || !Bld.available() || heightJob) return;
+    const need = [];
+    roofs.forEach(r => {
+      const c = Layout.centroid(r.points);
+      buildings.forEach(bd => {
+        if (bd.id in heights || need.indexOf(bd) >= 0) return;
+        if (distM(c, Layout.centroid(bd.ring)) <= 120 || bd.id === r.src) need.push(bd);
+      });
+    });
+    if (!need.length) return;
+    need.splice(60);
+    hint('음영 계산용 주변 건물 높이 받는 중… (' + need.length + '동)');
+    heightJob = (async () => {
+      for (let i = 0; i < need.length; i += 4) {
+        await Promise.all(need.slice(i, i + 4).map(bd =>
+          Bld.heightOf((bd.props || {}).bd_mgt_sn, bd.floors).then(h => { heights[bd.id] = h || 0; }).catch(() => { heights[bd.id] = 0; })));
+      }
+    })().finally(() => {
+      heightJob = null;
+      const got = need.filter(bd => heights[bd.id] > 0).length;
+      roofs.forEach(recompute); renderList();
+      hint('주변 건물 ' + need.length + '동 중 ' + got + '동은 건축물대장 높이, 나머지는 층수×' + shade.floorH + 'm 로 음영 계산.');
+    });
   }
 
   // ------------------------------------------------------------ 모듈 편집 (드래그 삭제/복원)
@@ -633,7 +689,7 @@
     const keep = res.modules.filter(c => {
       const lat = (c[0].lat + c[2].lat) / 2, lng = (c[0].lng + c[2].lng) / 2;
       let on = true;
-      edits.forEach(e => { if (lat >= e.s && lat <= e.n && lng >= e.w && lng <= e.e) on = e.op === 'add'; });
+      edits.forEach(e => { if (e.op !== 'obs' && lat >= e.s && lat <= e.n && lng >= e.w && lng <= e.e) on = e.op === 'add'; });
       return on;
     });
     res.edited = res.modules.length - keep.length;
@@ -649,9 +705,12 @@
       editOp = op;
       $('edDel').className = 'btn ' + (op === 'del' ? 'accent' : 'ghost');
       $('edAdd').className = 'btn ' + (op === 'add' ? 'accent' : 'ghost');
-      hint(op === 'del' ? '지울 모듈을 사각형으로 드래그하세요 (손가락·마우스).' : '되살릴 모듈을 사각형으로 드래그하세요.');
+      $('edObs').className = 'btn ' + (op === 'obs' ? 'accent' : 'ghost');
+      hint(op === 'del' ? '지울 모듈을 사각형으로 드래그하세요 (손가락·마우스).'
+        : op === 'add' ? '되살릴 모듈을 사각형으로 드래그하세요.'
+        : '타워·환기구·기설치 태양광 같은 지장물을 사각형으로 드래그하세요. 그 자리는 빠지고, 음영 고려가 켜져 있으면 그림자도 뺍니다.');
     };
-    const redraw = () => { roofs.forEach(recompute); renderList(); save(); };
+    const redraw = () => { roofs.forEach(recompute); drawObstacles(); renderList(); save(); };
     $('btnEdit').onclick = () => {
       if (!roofs.length) { hint('먼저 지붕을 배치하세요.'); return; }
       editing = true; document.body.classList.add('editing'); map.setDraggable(false);
@@ -659,6 +718,7 @@
     };
     $('edDel').onclick = () => setOp('del');
     $('edAdd').onclick = () => setOp('add');
+    $('edObs').onclick = () => setOp('obs');
     $('edUndo').onclick = () => { edits.pop(); redraw(); };
     $('edReset').onclick = () => { if (!edits.length || confirm('모듈 편집 ' + edits.length + '건을 모두 취소할까요?')) { edits = []; redraw(); } };
     $('edDone').onclick = endEdit;
@@ -690,8 +750,14 @@
       const proj = map.getProjection();
       const a = proj.coordsFromContainerPoint(new kakao.maps.Point(s0.x, s0.y));
       const b = proj.coordsFromContainerPoint(new kakao.maps.Point(p.x, p.y));
-      edits.push({ op: editOp, s: Math.min(a.getLat(), b.getLat()), n: Math.max(a.getLat(), b.getLat()),
-                   w: Math.min(a.getLng(), b.getLng()), e: Math.max(a.getLng(), b.getLng()) });
+      const ed = { op: editOp, s: Math.min(a.getLat(), b.getLat()), n: Math.max(a.getLat(), b.getLat()),
+                   w: Math.min(a.getLng(), b.getLng()), e: Math.max(a.getLng(), b.getLng()) };
+      if (editOp === 'obs') {
+        const h = parseFloat(prompt('지장물 높이 (m, 지붕면 기준)\n타워·설비는 실제 높이, 기설치 태양광은 약 1.5', '1'));
+        if (!(h >= 0)) return;
+        ed.h = h;
+      }
+      edits.push(ed);
       redraw();
     };
     // 카카오 지도보다 먼저 받아야 지도가 끌려가지 않는다 → capture 단계
@@ -701,6 +767,16 @@
     mapEl.addEventListener('touchstart', down, { capture: true, passive: false });
     window.addEventListener('touchmove', move, { capture: true, passive: false });
     window.addEventListener('touchend', up, { capture: true, passive: false });
+  }
+  function drawObstacles() {
+    obsGfx.forEach(g => g.setMap(null)); obsGfx = [];
+    edits.filter(e => e.op === 'obs').forEach(e => {
+      const pg = new kakao.maps.Polygon({
+        path: [[e.s, e.w], [e.s, e.e], [e.n, e.e], [e.n, e.w]].map(([la, ln]) => new kakao.maps.LatLng(la, ln)),
+        strokeWeight: 2, strokeColor: '#ff9800', strokeStyle: 'dash', fillColor: '#ff9800', fillOpacity: 0.35, zIndex: 3,
+      });
+      pg.setMap(map); obsGfx.push(pg);
+    });
   }
   function endEdit() {
     editing = false; document.body.classList.remove('editing'); if (map) map.setDraggable(true);
@@ -717,7 +793,8 @@
       if (!r.spans) r.spansGuess = r.spansGuess || Layout.guessSpans(r.points, opt);
       opt.spans = r.spans || r.spansGuess;
     }
-    r.result = Layout.compute(r.points, opt, { on: shade.on, obstacles: obstaclesFor(r) });
+    opt.vent = !!r.vent; opt.ventH = 1;
+    r.result = Layout.compute(r.points, opt, { on: shade.on, obstacles: obstaclesFor(r), blockers: blockersFor(r) });
     const res = r.result;
     applyEdits(res);
     const sel = r.id === selectedId;
@@ -805,7 +882,9 @@
             ? ' · 용마루 ' + res.spans + '개' + (r.spans ? '' : '(추정)') + ' · 블록 ' + res.blocks.length
               + (res.blocks.some(b => b.gap) ? ' · 22° 이격 ' + res.blocks.filter(b => b.gap).map(b => b.gap + 'm').join('/') : '')
             : (res.opt.tilt > 0 ? ' (경사 ' + res.opt.tilt + '° · 이격 ' + res.arrayGap + 'm)' : ''))
-          + (res.edited ? ' · <span style="color:var(--accent)">편집 −' + res.edited + '장</span>' : '') + ' · ' + (r.floors || 1) + '층' + shadeTxt + '</small></span>'
+          + (res.edited ? ' · <span style="color:var(--accent)">편집 −' + res.edited + '장</span>' : '')
+          + (res.blocked ? ' · <span style="color:#ff9800">지장물 −' + res.blocked + '장</span>' : '')
+          + (r.vent ? ' · 벤츄레이터 1m' : '') + ' · ' + (r.floors || 1) + '층' + shadeTxt + '</small></span>'
         + '<span class="kw">' + (res.kw || 0).toFixed(2) + 'kW</span>';
       const fl = document.createElement('button');
       fl.className = 'btn ghost'; fl.textContent = '층수';
@@ -815,6 +894,13 @@
         if (v > 0) { r.floors = v; r.floorsManual = true; roofs.forEach(recompute); renderList(); save(); }
       };
       d.appendChild(fl);
+      if (r.type === 'flush' || r.type === 'ginseng') {
+        const vb = document.createElement('button');
+        vb.className = 'btn ' + (r.vent ? 'accent' : 'ghost'); vb.textContent = r.vent ? '벤츄 O' : '벤츄 X';
+        vb.title = '용마루 벤츄레이터·모니터 (높이 1m)';
+        vb.onclick = e => { e.stopPropagation(); r.vent = !r.vent; recompute(r); renderList(); save(); };
+        d.appendChild(vb);
+      }
       if (r.type === 'flush') {
         const sp = document.createElement('button');
         sp.className = 'btn ghost'; sp.textContent = '용마루';
@@ -857,7 +943,7 @@
     try {
       localStorage.setItem(STORE, JSON.stringify({
         curType, settings, siteName, shade, moduleCfg, edits,
-        roofs: roofs.map(r => ({ id: r.id, name: r.name, type: r.type, points: r.points, src: r.src, floors: r.floors, floorsManual: r.floorsManual, spans: r.spans })),
+        roofs: roofs.map(r => ({ id: r.id, name: r.name, type: r.type, points: r.points, src: r.src, floors: r.floors, floorsManual: r.floorsManual, spans: r.spans, vent: r.vent })),
         // 음영 장애물로 다시 쓰려고 주변 건물도 남긴다 (그림은 다시 그리지 않는다)
         buildings: buildings.map(b => ({ id: b.id, name: b.name, ring: b.ring, floors: b.floors })),
       }));

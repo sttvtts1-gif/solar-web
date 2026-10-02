@@ -47,7 +47,7 @@ const Kepco = (() => {
    *   3) 읍면동 전체 — 최후 수단.
    * @returns { level: '번지'|'인근'|'읍면동', basis: ['161-11', …], rows: [...] }
    */
-  async function lines(bcode, dong, jibun, onProgress) {
+  async function lines(bcode, dong, jibun, onProgress, nearLots) {
     if (!available()) throw new Error(hasNative() ? '한전 API 키가 없습니다.' : '웹에서는 한전 중계 설치가 필요합니다 (server/한전프록시_설치안내.md).');
     const base = { metroCd: bcode.slice(0, 2), cityCd: bcode.slice(2, 5), addrLidong: dong };
     const call = hasNative() && cfg().KEPCO_KEY
@@ -62,13 +62,15 @@ const Kepco = (() => {
       if (exact.length) return { level: '번지', basis: [jibun], rows: exact };
 
       // 2) 가까운 부번. 본번만 있는 번지(161)면 161-1, 161-2 … 를 본다.
+      //    지도에서 실제로 둘러싼 필지(nearLots, 가까운 순)를 먼저 보고, 그다음 번호가 가까운 부번.
       const [bun, ji] = String(jibun).split('-').map(Number);
       const cand = [];
+      (nearLots || []).slice(0, 24).forEach(l => { if (l !== jibun && cand.indexOf(l) < 0) cand.push(l); });
       if (ji) cand.push(String(bun));
-      for (let d = 1; d <= 20; d++) {
+      for (let d = 1; d <= 12; d++) {
         const lo = (ji || 0) - d, hi = (ji || 0) + d;
-        if (lo > 0) cand.push(bun + '-' + lo);
-        cand.push(bun + '-' + hi);
+        if (lo > 0 && cand.indexOf(bun + '-' + lo) < 0) cand.push(bun + '-' + lo);
+        if (cand.indexOf(bun + '-' + hi) < 0) cand.push(bun + '-' + hi);
       }
       const hits = [];
       for (let i = 0; i < cand.length && !hits.length; i += 6) {      // 6개씩 동시에, 가까운 순. 처음 찾은 묶음에서 멈춘다
@@ -93,7 +95,10 @@ const Kepco = (() => {
     let res = await call(base);
     if (!rowsOf(res).length) { await new Promise(r => setTimeout(r, 800)); res = await call(base); }   // 중계가 처음 깨어날 때 빈 응답이 한 번 온 적이 있다
     if (res && res.errCd && res.errCd !== '404') throw new Error('한전 API 오류 ' + res.errCd + ' ' + (res.errMsg || ''));
-    return { level: '읍면동', basis: [], rows: rowsOf(res) };
+    // 같은 변전소·MTR·DL 이 두 번 오는 경우가 있어 하나로 합친다
+    const seen = {};
+    const rows = rowsOf(res).filter(r => { const k = r.substCd + '/' + r.mtr + '/' + r.dlCd; if (seen[k]) return false; seen[k] = 1; return true; });
+    return { level: '읍면동', basis: [], rows };
   }
 
   function toRow(r) {
