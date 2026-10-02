@@ -48,6 +48,8 @@ const Kepco = (() => {
     let res = jibun ? await call(Object.assign({ addrJibun: jibun }, base)) : null;
     let level = '번지';
     if (!res || !res.data || !res.data.length) { res = await call(base); level = '읍면동'; }
+    // 중계(Apps Script)가 한동안 안 쓰이다 처음 깨어날 때 빈 응답이 한 번 온 적이 있어 한 번만 다시 묻는다
+    if (!res || !res.data || !res.data.length) { await new Promise(r => setTimeout(r, 800)); res = await call(base); }
     if (res && res.errCd) { if (res.errCd === '404') return { level, rows: [] }; throw new Error('한전 API 오류 ' + res.errCd + ' ' + (res.errMsg || '')); }
     const rows = (res.data || []).map(r => ({
       subst: r.substNm, substCd: r.substCd, mtr: r.mtrNo, dl: r.dlNm, dlCd: r.dlCd,
