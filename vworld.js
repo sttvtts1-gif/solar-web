@@ -47,14 +47,19 @@ const VWorld = (() => {
     if (!ok) return p.reject(new Error(body || '네트워크 오류'));
     try { p.resolve(JSON.parse(body)); } catch (e) { p.reject(new Error('응답이 JSON 이 아닙니다: ' + String(body).slice(0, 120))); }
   };
-  function nativeFetch(url) {
+  function nativeFetch(url) { return nativeFetchRef(url, cfg().VWORLD_REFERER || ''); }
+  function nativeFetchRef(url, referer) {
     return new Promise((resolve, reject) => {
       const id = 'vw' + (++seq);
       pending[id] = { resolve, reject };
-      window.Native.fetch(url, cfg().VWORLD_REFERER || '', id);
+      window.Native.fetch(url, referer || '', id);
       setTimeout(() => { if (pending[id]) { delete pending[id]; reject(new Error('응답 시간 초과')); } }, 15000);
     });
   }
+
+  // Native.fetch 응답 창구(onNativeFetch)는 하나뿐이라 여기 한 곳에서 reqId 로 나눠 준다.
+  // kepco.js · bld.js 도 이걸 쓴다 — 각자 onNativeFetch 를 갈아끼우면 먼저 끝난 쪽이 다른 쪽 콜백을 떼어 버린다.
+  window.NativeHttp = { get: (url, referer) => nativeFetchRef(url, referer) };
 
   function jsonp(params) {
     return new Promise((resolve, reject) => {

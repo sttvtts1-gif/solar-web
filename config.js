@@ -20,5 +20,10 @@ window.SOLAR_CONFIG = {
   VWORLD_REFERER: 'https://sttvtts1-gif.github.io/solar-web/',
 
   // 한전 전력데이터개방포털(bigdata.kepco.co.kr) Open API 인증키 — 분산전원연계정보(선로 여유용량) 조회
-  KEPCO_KEY: 'zG19u88DHCHfc1l55NBM1L8ad6APz83vqVa79ktv',
+  KEPCO_KEY: '',
+  // 웹 버전용 한전 중계(Apps Script 웹앱 URL). 웹 동기화 때 KEPCO_KEY 는 지워지고 이것만 남는다.
+  KEPCO_PROXY: '',
+
+  // 공공데이터포털 건축HUB 건축물대장정보 서비스 — 일반 인증키(Decoding)
+  BLD_KEY: '',
 };

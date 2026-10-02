@@ -42,7 +42,8 @@
   let moduleCfg = Object.assign({}, MODULE_DEFAULT);
   let currentTab = 'layout';
   let panelMode = 'normal';   // collapsed | normal | full
-  let immersive = false;      // 앱 전체화면(시스템 바 숨김) 상태
+  let immersive = false;
+  let siteFloors = null;      // 건축물대장 지상층수(최대). 검색한 필지의 지붕에 음영 계산용으로 쓴다      // 앱 전체화면(시스템 바 숨김) 상태
   const hasVWorld = () => !!(window.SOLAR_CONFIG || {}).VWORLD_KEY;
 
   // ------------------------------------------------------------ 부팅
@@ -347,34 +348,74 @@
 
   // ------------------------------------------------------------ 한전 선로
   /** 좌표 → 법정동코드·읍면동 (카카오) → 한전 분산전원연계정보. 실패해도 배치 흐름은 막지 않는다. */
-  function loadKepco(lat, lng, addrText) {
-    const box = $('kepcoBox');
-    if (!(window.SOLAR_CONFIG || {}).KEPCO_KEY) { box.style.display = 'none'; return; }
-    box.style.display = 'block'; box.open = false;
+  /**
+   * 입지 정보: 좌표 → (카카오) 법정동코드 + 지번 → 건축물대장 표제부 · 한전 선로. 둘 다 실패해도 배치는 계속된다.
+   * 지번은 coord2Address 로 다시 받는다(키워드 검색 결과엔 본번·부번이 따로 없어서).
+   */
+  function loadSiteInfo(lat, lng) {
+    siteFloors = null;
+    $('siteCard').style.display = 'block';
+    $('bldHead').textContent = '조회 중…'; $('bldBody').innerHTML = '';
     $('kepcoHead').textContent = '조회 중…'; $('kepcoBody').innerHTML = '';
     geocoder.coord2RegionCode(lng, lat, (res, status) => {
       const b = status === kakao.maps.services.Status.OK ? res.find(x => x.region_type === 'B') : null;
-      if (!b) { $('kepcoHead').textContent = '법정동을 못 찾음'; return; }
-      const dong = b.region_3depth_name;
-      const jm = (addrText || '').match(/(\d+(?:-\d+)?)\s*$/);
-      Kepco.lines(b.code, dong, jm ? jm[1] : '')
-        .then(({ level, rows }) => {
-          if (!rows.length) { $('kepcoHead').textContent = dong + ' — 자료 없음'; return; }
-          $('kepcoHead').textContent = dong + ' (' + level + ' 기준) · 선로 ' + rows.length + '개';
-          const f = v => v === null ? '-' : v.toLocaleString('ko-KR');
-          const cls = v => v === null ? '' : v > 0 ? 'pos' : 'neg';
-          $('kepcoBody').innerHTML = '<div class="scrollx"><table class="cmp"><tr><th>변전소</th><th>변압기</th><th>배전선로(DL)</th><th>DL 여유</th><th>변압기 여유</th><th>변전소 여유</th><th>DL 누적연계</th></tr>'
-            + rows.map(r => '<tr><td>' + r.subst + '</td><td style="text-align:center">#' + r.mtr + '</td><td style="text-align:left">' + r.dl + '</td><td class="' + cls(r.dlFree) + '">' + f(r.dlFree) + '</td><td class="' + cls(r.mtrFree) + '">' + f(r.mtrFree) + '</td><td class="' + cls(r.substFree) + '">' + f(r.substFree) + '</td><td>' + f(r.dlUsed) + '</td></tr>').join('')
-            + '</table></div>';
-        })
-        .catch(e => { $('kepcoHead').textContent = dong + ' — ' + e.message; });
+      if (!b) { $('bldHead').textContent = $('kepcoHead').textContent = '법정동을 못 찾음'; return; }
+      geocoder.coord2Address(lng, lat, (ar, st) => {
+        const ad = st === kakao.maps.services.Status.OK && ar[0] && ar[0].address;
+        const bun = ad ? ad.main_address_no : '', ji = ad ? ad.sub_address_no : '', mountain = ad && ad.mountain_yn === 'Y';
+        const jibun = bun ? bun + (ji && ji !== '0' ? '-' + ji : '') : '';
+        loadBld(b.code, mountain, bun, ji);
+        loadKepcoLines(b.code, b.region_3depth_name, jibun);
+      });
     });
+  }
+
+  function loadBld(bcode, mountain, bun, ji) {
+    if (!Bld.available()) { $('bldHead').textContent = '키 미등록 (공공데이터포털 건축HUB)'; return; }
+    if (!bun) { $('bldHead').textContent = '지번을 못 찾음'; return; }
+    Bld.title(bcode, mountain, bun, ji).then(list => {
+      if (!list.length) { $('bldHead').textContent = '대장 없음 (미등재·무허가일 수 있음)'; return; }
+      $('bldHead').textContent = list.length + '동' + (list[0].addr ? ' · ' + list[0].addr : '');
+      const f = (v, u) => v === null || v === undefined || v === '' ? '-' : (typeof v === 'number' ? v.toLocaleString('ko-KR') : v) + (u || '');
+      const day = d => d && d.length === 8 ? d.slice(0, 4) + '.' + d.slice(4, 6) + '.' + d.slice(6) : (d || '-');
+      $('bldBody').innerHTML = list.slice(0, 6).map(x => {
+        const sug = Bld.suggestType(x);
+        return '<div style="margin-bottom:6px"><b>' + (x.dong || x.name || x.kind || '건물') + '</b> <span style="color:var(--muted)">' + (x.name && x.dong ? x.name : '') + '</span><div class="kv">'
+          + [['주용도', f(x.purpose)], ['구조', f(x.structure)], ['지붕', f(x.roof || x.roofEtc)], ['층수', '지상 ' + f(x.floors) + ' / 지하 ' + f(x.basement)],
+             ['높이', f(x.height, 'm')], ['건축면적', f(x.archArea, '㎡')], ['연면적', f(x.totArea, '㎡')], ['사용승인', day(x.approved)]]
+            .map(([k, v]) => '<div><span>' + k + '</span><span>' + v + '</span></div>').join('') + '</div>'
+          + (sug ? '<div class="sug">지붕이 ' + x.roof + ' → 평슬라브 배치 추천<button class="btn ghost" data-sug="' + sug + '">적용</button></div>' : '') + '</div>';
+      }).join('');
+      $('bldBody').querySelectorAll('[data-sug]').forEach(btn => btn.onclick = () => {
+        const t = btn.dataset.sug;
+        roofs.forEach(r => { r.type = t; }); curType = t; renderTypes(); fillSettings(); roofs.forEach(recompute); renderList(); save();
+        hint('모든 지붕을 ' + Layout.PRESETS[t].label + ' 로 바꿨습니다.');
+      });
+      // 대장의 지상층수를 음영 계산용 층수로 쓴다(V-World 층수보다 정확)
+      const fl = list.map(x => x.floors).filter(v => v > 0);
+      if (fl.length) { siteFloors = Math.max.apply(null, fl); roofs.forEach(r => { if (!r.floorsManual) r.floors = siteFloors; }); renderList(); save(); }
+    }).catch(e => { $('bldHead').textContent = e.message; });
+  }
+
+  function loadKepcoLines(bcode, dong, jibun) {
+    if (!Kepco.available()) { $('kepcoHead').textContent = window.Native ? '한전 키 미등록' : '웹은 한전 중계 설치 필요'; return; }
+    Kepco.lines(bcode, dong, jibun)
+      .then(({ level, rows }) => {
+        if (!rows.length) { $('kepcoHead').textContent = dong + ' — 자료 없음'; return; }
+        $('kepcoHead').textContent = dong + ' (' + level + ' 기준) · 선로 ' + rows.length + '개';
+        const f = v => v === null ? '-' : v.toLocaleString('ko-KR');
+        const cls = v => v === null ? '' : v > 0 ? 'pos' : 'neg';
+        $('kepcoBody').innerHTML = '<div class="scrollx"><table class="cmp"><tr><th>변전소</th><th>변압기</th><th>배전선로</th><th>DL 여유</th><th>변압기 여유</th><th>변전소 여유</th></tr>'
+          + rows.map(r => '<tr><td>' + r.subst + '</td><td style="text-align:center">#' + r.mtr + '</td><td style="text-align:left">' + r.dl + '</td><td class="' + cls(r.dlFree) + '">' + f(r.dlFree) + '</td><td class="' + cls(r.mtrFree) + '">' + f(r.mtrFree) + '</td><td class="' + cls(r.substFree) + '">' + f(r.substFree) + '</td></tr>').join('')
+          + '</table></div>';
+      })
+      .catch(e => { $('kepcoHead').textContent = dong + ' — ' + e.message; });
   }
 
   function goTo(lat, lng, name) {
     map.setCenter(new kakao.maps.LatLng(lat, lng));
     map.setLevel(1);
-    loadKepco(lat, lng, name);
+    loadSiteInfo(lat, lng);
     if (!hasVWorld()) { hint(name + ' — 건물 지붕 모서리를 따라 점을 찍어 주세요.'); return; }
     autoSetup(lat, lng, name);
   }
@@ -407,6 +448,7 @@
           return;
         }
         inside.forEach(bd => adoptBuilding(bd, Layout.guessType(bd.ring), true));
+        if (siteFloors) roofs.forEach(r => { if (!r.floorsManual) r.floors = siteFloors; });
         renderList();
         save();
         hint(name + ' — 건물 ' + inside.length + '개 자동 배치. 형태가 다르면 지붕을 선택하고 위에서 바꾸세요.');
@@ -625,7 +667,7 @@
       fl.onclick = e => {
         e.stopPropagation();
         const v = parseInt(prompt(r.name + ' 지상 층수 (음영 계산용)', r.floors || 1), 10);
-        if (v > 0) { r.floors = v; roofs.forEach(recompute); renderList(); save(); }
+        if (v > 0) { r.floors = v; r.floorsManual = true; roofs.forEach(recompute); renderList(); save(); }
       };
       d.appendChild(fl);
       const del = document.createElement('button');
@@ -660,7 +702,7 @@
     try {
       localStorage.setItem(STORE, JSON.stringify({
         curType, settings, siteName, shade, moduleCfg,
-        roofs: roofs.map(r => ({ id: r.id, name: r.name, type: r.type, points: r.points, src: r.src, floors: r.floors })),
+        roofs: roofs.map(r => ({ id: r.id, name: r.name, type: r.type, points: r.points, src: r.src, floors: r.floors, floorsManual: r.floorsManual })),
         // 음영 장애물로 다시 쓰려고 주변 건물도 남긴다 (그림은 다시 그리지 않는다)
         buildings: buildings.map(b => ({ id: b.id, name: b.name, ring: b.ring, floors: b.floors })),
       }));
