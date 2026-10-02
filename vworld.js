@@ -139,7 +139,7 @@ const VWorld = (() => {
   /** 상자 안 필지들 (한전 인근 번지 찾기용). pnu = 법정동10 + 산1 + 본번4 + 부번4 */
   function parcelsInBox(sw, ne) {
     const f = 'BOX(' + [sw.lng, sw.lat, ne.lng, ne.lat].map(v => v.toFixed(6)).join(',') + ')';
-    return request(Object.assign(baseParams(f, 'LP_PA_CBND_BUBUN'), { size: '300' })).then(parse).catch(() => []);
+    return request(Object.assign(baseParams(f, 'LP_PA_CBND_BUBUN'), { size: '1000' })).then(parse).catch(() => []);
   }
 
   return { buildingsInBox, buildingAt, parcelAt, parcelsInBox };

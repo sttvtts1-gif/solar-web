@@ -61,33 +61,58 @@ const Kepco = (() => {
       const exact = await atLot(jibun);
       if (exact.length) return { level: '번지', basis: [jibun], rows: exact };
 
-      // 2) 가까운 부번. 본번만 있는 번지(161)면 161-1, 161-2 … 를 본다.
-      //    지도에서 실제로 둘러싼 필지(nearLots, 가까운 순)를 먼저 보고, 그다음 번호가 가까운 부번.
-      const [bun, ji] = String(jibun).split('-').map(Number);
-      const cand = [];
-      (nearLots || []).slice(0, 24).forEach(l => { if (l !== jibun && cand.indexOf(l) < 0) cand.push(l); });
-      if (ji) cand.push(String(bun));
-      for (let d = 1; d <= 12; d++) {
-        const lo = (ji || 0) - d, hi = (ji || 0) + d;
-        if (lo > 0 && cand.indexOf(bun + '-' + lo) < 0) cand.push(bun + '-' + lo);
-        if (cand.indexOf(bun + '-' + hi) < 0) cand.push(bun + '-' + hi);
+      // 2) 자료 있는 번지 중 지도상 가장 가까운 곳 (한전ON 의 "가장 근접한 지번 선택" 과 같은 원리)
+      //    nearLots = [{ lot, d(m) }] 가까운 순, 약 1km 안 같은 법정동 필지. 자료가 있는 번지는 드물어서
+      //    (생곡동 1585-1 → 가장 가까운 자료 번지 135-166 이 692m) 수백 개를 물어야 할 수 있다.
+      //    가까운 자료 번지 3곳을 모아 같은 선로가 많은 쪽(동률이면 더 가까운 쪽)을 하나 고른다.
+      let cand = (nearLots || []).filter(x => x.lot !== jibun);
+      if (!cand.length) {                                  // 주변 필지를 못 받았으면 번호가 가까운 부번이라도
+        const [bun, ji] = String(jibun).split('-').map(Number);
+        for (let d = 1; d <= 12; d++) {
+          if ((ji || 0) - d > 0) cand.push({ lot: bun + '-' + ((ji || 0) - d), d: null });
+          cand.push({ lot: bun + '-' + ((ji || 0) + d), d: null });
+        }
       }
+      cand = cand.slice(0, 900);
       const hits = [];
-      for (let i = 0; i < cand.length && !hits.length; i += 6) {      // 6개씩 동시에, 가까운 순. 처음 찾은 묶음에서 멈춘다
-        if (onProgress) onProgress('인근 번지 확인 중… (' + cand[i] + '~)');
-        const part = cand.slice(i, i + 6);
-        const got = await Promise.all(part.map(atLot));
-        part.forEach((lot, k) => { if (got[k].length) hits.push({ lot, rows: got[k] }); });
+      const useBatch = !(hasNative() && cfg().KEPCO_KEY);
+      let batchOk = useBatch;
+      const step = hasNative() && cfg().KEPCO_KEY ? 12 : 50;
+      let firstHitAt = -1;
+      for (let i = 0; i < cand.length; ) {
+        const part = cand.slice(i, i + (batchOk ? step : 6));
+        if (onProgress) onProgress('자료 있는 번지 찾는 중… ' + (part[0].d != null ? '반경 ' + part[0].d + 'm' : part[0].lot) + ' (' + (i + part.length) + '/' + cand.length + ')');
+        let got;
+        if (batchOk) {
+          const res = await proxyGet(Object.assign({ path: 'batch', lots: part.map(x => x.lot).join(',') }, base)).catch(() => null);
+          if (!res || !res.results) { batchOk = false; cand = cand.slice(0, i + 60); continue; }   // 예전 중계(묶음 없음) → 하나씩, 60개까지만
+          got = res.results.map(r => (r.data ? r.data.map(toRow) : []));
+        } else {
+          got = await Promise.all(part.map(x => atLot(x.lot)));
+        }
+        part.forEach((x, k) => { if (got[k].length) hits.push({ lot: x.lot, d: x.d, rows: got[k] }); });
+        i += part.length;
+        if (hits.length && firstHitAt < 0) firstHitAt = i;
+        // 3곳 모이면 멈춘다. 아니면 첫 자료 번지에서 300m 더 넓힌 데까지만 본다(거리를 모르면 한 묶음 더).
+        const lastD = part[part.length - 1].d, firstD = hits.length ? hits[0].d : null;
+        if (hits.length >= 3) break;
+        if (firstHitAt >= 0 && (firstD != null && lastD != null ? lastD > firstD + 300 : i >= firstHitAt + step)) break;
       }
       if (hits.length) {
-        // 가장 가까운 번지의 선로를 위에, 다른 인근 번지에서만 나온 선로는 아래에 (중복 제거)
-        const seen = {}, rows = [];
-        hits.forEach(h => h.rows.forEach(r => {
-          const k = r.substCd + '/' + r.mtr + '/' + r.dlCd;
-          if (seen[k]) { seen[k].lots.push(h.lot); return; }
-          r.lots = [h.lot]; seen[k] = r; rows.push(r);
-        }));
-        return { level: '인근', basis: hits.map(h => h.lot), rows };
+        const top = hits.slice(0, 3);
+        const votes = {};
+        top.forEach((h, rank) => {
+          const seenHere = {};
+          h.rows.forEach(r => {
+            const k = r.substCd + '/' + r.mtr + '/' + r.dlCd;
+            if (seenHere[k]) return; seenHere[k] = 1;
+            if (!votes[k]) votes[k] = { row: r, n: 0, best: rank, lots: [] };
+            votes[k].n++; votes[k].lots.push(h.lot + (h.d != null ? '(' + h.d + 'm)' : ''));
+          });
+        });
+        const ranked = Object.values(votes).sort((a, b) => b.n - a.n || a.best - b.best);
+        const rows = ranked.map(v => Object.assign(v.row, { lots: v.lots, votes: v.n }));
+        return { level: '인근', basis: top.map(h => h.lot + (h.d != null ? '(' + h.d + 'm)' : '')), rows, of: top.length };
       }
     }
 

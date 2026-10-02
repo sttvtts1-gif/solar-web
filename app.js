@@ -404,14 +404,15 @@
         const jibun = bun ? bun + (ji && ji !== '0' ? '-' + ji : '') : '';
         loadBld(b.code, mountain, bun, ji);
         // 한전 인근 번지: 지도상 실제 주변 필지(같은 법정동, 가까운 순)
-        const d = 0.0015;
-        VWorld.parcelsInBox({ lat: lat - d, lng: lng - d }, { lat: lat + d, lng: lng + d }).then(ps => {
+        // 약 1km × 0.9km 상자 (V-World 한 번에 1000필지까지)
+        const dLat = 0.008, dLng = 0.0105;
+        VWorld.parcelsInBox({ lat: lat - dLat, lng: lng - dLng }, { lat: lat + dLat, lng: lng + dLng }).then(ps => {
           const near = ps.map(p => {
             const pnu = (p.props || {}).pnu || '';
             if (pnu.slice(0, 10) !== b.code) return null;
-            const bn = +pnu.slice(11, 15), jn = +pnu.slice(15, 19);
-            return { lot: bn + (jn ? '-' + jn : ''), d: distM({ lat, lng }, Layout.centroid(p.ring)) };
-          }).filter(Boolean).sort((x, y) => x.d - y.d).map(x => x.lot);
+            const bn = +pnu.slice(11, 15), jn = +pnu.slice(15, 19), san = pnu[10] === '2';
+            return { lot: (san ? '산' : '') + bn + (jn ? '-' + jn : ''), d: Math.round(distM({ lat, lng }, Layout.centroid(p.ring))) };
+          }).filter(Boolean).sort((x, y) => x.d - y.d);
           loadKepcoLines(b.code, b.region_3depth_name, jibun, near);
         }).catch(() => loadKepcoLines(b.code, b.region_3depth_name, jibun, []));
       });
@@ -449,7 +450,8 @@
     if (!Kepco.available()) { $('kepcoHead').textContent = window.Native ? '한전 키 미등록' : '웹은 한전 중계 설치 필요'; return; }
     const reqKey = siteKey;   // 그 사이 다른 지붕을 고르면 늦게 온 결과는 버린다
     Kepco.lines(bcode, dong, jibun, msg => { if (reqKey === siteKey) $('kepcoHead').textContent = msg; }, nearLots)
-      .then(({ level, basis, rows }) => {
+      .then(res => {
+        const { level, basis, rows } = res;
         if (reqKey !== siteKey) return;
         if (!rows.length) { $('kepcoHead').textContent = dong + ' — 자료 없음'; return; }
         const f = v => v === null ? '-' : v.toLocaleString('ko-KR');
@@ -460,8 +462,12 @@
         let note = '', list = rows;
         if (level === '번지') $('kepcoHead').textContent = jibun + ' 번지 기준';
         else if (level === '인근') {
-          $('kepcoHead').textContent = '인근 번지 ' + basis[0] + ' 기준' + (rows.length > 1 ? ' (후보 ' + rows.length + ')' : '');
-          note = '<p class="scNote">' + jibun + ' 번지 자체 자료가 없어 가까운 번지(' + basis.join(', ') + ')의 선로입니다. 맨 위가 가장 가까운 번지입니다. 이웃 번지끼리도 DL 이 다를 수 있어 실제 선로는 한전 확인이 필요합니다.</p>';
+          const top = rows[0];
+          $('kepcoHead').textContent = '가까운 자료 번지 ' + top.lots[0] + ' 기준' + (res.of > 1 ? ' · ' + res.of + '곳 중 ' + top.votes + '곳 일치' : '');
+          note = '<p class="scNote">' + jibun + ' 번지는 한전 자료가 없어(발전소가 연결된 번지에만 자료가 있음) 지도상 가장 가까운 자료 번지 '
+            + basis.join(', ') + ' 의 선로로 정했습니다. 한전ON 의 "가장 근접한 지번 선택" 과 같은 방식입니다.</p>'
+            + (rows.length > 1 ? '<details><summary>다른 후보 ' + (rows.length - 1) + '개</summary><div class="scrollx"><table class="cmp">' + head + rows.slice(1).map(row).join('') + '</table></div></details>' : '');
+          list = [top];
         } else {
           $('kepcoHead').textContent = '후보 ' + rows.length + '개 — 한전ON에서 확인 후 선택';
           note = '<p class="scNote">한전 자료는 이미 발전소가 연결된 번지에만 있습니다. 이 번지와 주변 필지·가까운 부번 어디에도 자료가 없어 ' + dong + ' 을 지나는 선로 전체(중복 제외)를 보여 드립니다. 이 경우 API 로는 하나로 좁힐 수 없어 한전ON·한전 확인이 필요합니다.</p>';
