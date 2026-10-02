@@ -80,7 +80,7 @@
     RpsUI.setSite(siteName);
     Policy.init();
     roofs.forEach(r => { recompute(r); });
-    if (roofs.length) fitAll();
+    if (roofs.length) { fitAll(); const r = roofs.find(x => x.id === selectedId) || roofs[roofs.length - 1]; const c = Layout.centroid(r.points); siteInfoAt(c.lat, c.lng); }
     renderList();
   }
 
@@ -352,7 +352,15 @@
    * 입지 정보: 좌표 → (카카오) 법정동코드 + 지번 → 건축물대장 표제부 · 한전 선로. 둘 다 실패해도 배치는 계속된다.
    * 지번은 coord2Address 로 다시 받는다(키워드 검색 결과엔 본번·부번이 따로 없어서).
    */
+  let siteKey = '';
+  /** 지붕(또는 좌표) 위치의 입지 정보. 같은 필지를 또 부르지 않게 소수 4자리(약 10m)로 묶는다. */
+  function siteInfoAt(lat, lng) {
+    const k = lat.toFixed(4) + ',' + lng.toFixed(4);
+    if (k === siteKey) return;
+    loadSiteInfo(lat, lng);
+  }
   function loadSiteInfo(lat, lng) {
+    siteKey = lat.toFixed(4) + ',' + lng.toFixed(4);
     siteFloors = null;
     $('siteCard').style.display = 'block';
     $('bldHead').textContent = '조회 중…'; $('bldBody').innerHTML = '';
@@ -496,7 +504,7 @@
     roofs.push(roof);
     selectedId = roof.id;
     recompute(roof);
-    if (!batch) { curType = roof.type; renderTypes(); fillSettings(); }
+    if (!batch) { curType = roof.type; renderTypes(); fillSettings(); const c = Layout.centroid(roof.points); siteInfoAt(c.lat, c.lng); }
   }
 
   // ------------------------------------------------------------ 그리기
@@ -553,6 +561,7 @@
     recompute(roof);
     renderList();
     save();
+    const c = Layout.centroid(roof.points); siteInfoAt(c.lat, c.lng);
   }
 
   // ------------------------------------------------------------ 계산 · 그리기
@@ -617,7 +626,7 @@
   function select(id) {
     selectedId = id;
     const r = roofs.find(x => x.id === id);
-    if (r) { curType = r.type; renderTypes(); fillSettings(); }
+    if (r) { curType = r.type; renderTypes(); fillSettings(); const c = Layout.centroid(r.points); siteInfoAt(c.lat, c.lng); }
     roofs.forEach(recompute);
     renderList();
   }
