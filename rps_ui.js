@@ -148,9 +148,9 @@ const RpsUI = (() => {
       + '<div class="card" style="background:#334155;grid-column:1/-1"><small>BEP (자기자본 ' + fmt(r.equity) + '원 회수)</small><b>' + pay(r.payback) + '</b></div>';
 
     const sum = k => r.monthly.reduce((a, b) => a + b[k], 0);
-    $('s_table').innerHTML = '<tr><th>월</th><th>기후환경</th><th>전력량</th><th>연료비</th><th>합계</th><th>발전량(kWh)</th><th>1년 절감(원)</th><th>20년 절감(원)</th></tr>'
-      + r.monthly.map(m => '<tr><td>' + m.month + '월</td><td>9.0</td><td>' + m.energyCharge.toFixed(1) + '</td><td>5.0</td><td>' + m.totalUnitRate.toFixed(1) + '</td><td>' + fmt(m.gen) + '</td><td>' + fmt(m.saving1Y) + '</td><td>' + fmt(m.saving20Y) + '</td></tr>').join('')
-      + '<tr class="hl"><td>합계/평균</td><td>9.0</td><td>' + (sum('energyCharge') / 12).toFixed(1) + '</td><td>5.0</td><td>' + (sum('totalUnitRate') / 12).toFixed(1) + '</td><td>' + fmt(sum('gen')) + '</td><td>' + fmt(sum('saving1Y')) + '</td><td>' + fmt(sum('saving20Y')) + '</td></tr>';
+    $('s_table').innerHTML = '<tr><th>월</th><th class="opt">기후환경</th><th>전력량</th><th class="opt">연료비</th><th>합계</th><th>발전량(kWh)</th><th>1년 절감(원)</th><th>20년 절감(원)</th></tr>'
+      + r.monthly.map(m => '<tr><td>' + m.month + '월</td><td class="opt">9.0</td><td>' + m.energyCharge.toFixed(1) + '</td><td class="opt">5.0</td><td>' + m.totalUnitRate.toFixed(1) + '</td><td>' + fmt(m.gen) + '</td><td>' + fmt(m.saving1Y) + '</td><td>' + fmt(m.saving20Y) + '</td></tr>').join('')
+      + '<tr class="hl"><td>합계/평균</td><td class="opt">9.0</td><td>' + (sum('energyCharge') / 12).toFixed(1) + '</td><td class="opt">5.0</td><td>' + (sum('totalUnitRate') / 12).toFixed(1) + '</td><td>' + fmt(sum('gen')) + '</td><td>' + fmt(sum('saving1Y')) + '</td><td>' + fmt(sum('saving20Y')) + '</td></tr>';
 
     drawSelfChart();
   }

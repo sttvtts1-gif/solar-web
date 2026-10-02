@@ -202,6 +202,8 @@
   /* 자가소비 월별 표: 열 8개라 글자를 줄여 좌우 끌기 없이 들어가게 */
   #s_table { font-size: 11px; }
   #s_table th, #s_table td { padding: 5px 3px; }
+  /* 폰 폭에선 상수 열(기후환경 9.0 · 연료비 5.0)을 숨긴다. 합계 열에는 그대로 들어가 있다. */
+  @media (max-width: 600px) { #s_table .opt { display: none; } #s_table { font-size: 10.5px; } }
   /* 전체화면 대체(브라우저가 거절할 때): 검색줄을 감추고 패널을 화면 끝까지 */
   body.pseudo-fs #top { display: none; }
 </style>
@@ -426,15 +428,15 @@
   콘솔 &gt; 플랫폼 &gt; Web 사이트 도메인에 <code>https://appassets.androidplatform.net</code> 도 등록해야 합니다.
 </div>
 
-<script src="config.js"></script>
-<script src="vendor/pdf.min.js"></script>
-<script src="layout.js"></script>
-<script src="vworld.js"></script>
-<script src="kepco.js"></script>
-<script src="rps.js"></script>
-<script src="report.js"></script>
-<script src="rps_ui.js"></script>
-<script src="policy.js"></script>
-<script src="app.js"></script>
+<script src="config.js?v=20261002143232"></script>
+<script src="vendor/pdf.min.js?v=20261002143232"></script>
+<script src="layout.js?v=20261002143232"></script>
+<script src="vworld.js?v=20261002143232"></script>
+<script src="kepco.js?v=20261002143232"></script>
+<script src="rps.js?v=20261002143232"></script>
+<script src="report.js?v=20261002143232"></script>
+<script src="rps_ui.js?v=20261002143232"></script>
+<script src="policy.js?v=20261002143232"></script>
+<script src="app.js?v=20261002143232"></script>
 </body>
 </html>
