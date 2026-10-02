@@ -69,10 +69,13 @@
 
     kakao.maps.event.addListener(map, 'click', e => {
       closeResults();
-      if (!drawing) return;
-      addPoint({ lat: e.latLng.getLat(), lng: e.latLng.getLng() });
+      const p = { lat: e.latLng.getLat(), lng: e.latLng.getLng() };
+      if (drawing) { addPoint(p); return; }
+      pickAt(p);
     });
 
+    // 문제 확인용 읽기 전용 손잡이 (콘솔에서 __solar.buildings 등)
+    window.__solar = { get map() { return map; }, get buildings() { return buildings; }, get roofs() { return roofs; } };
     bindUi();
     renderTypes();
     fillSettings();
@@ -480,7 +483,7 @@
             strokeWeight: 2, strokeColor: '#00e5ff', strokeStyle: 'shortdash', fillColor: '#00e5ff', fillOpacity: 0.12, zIndex: 0,
           });
           pg.setMap(map);
-          kakao.maps.event.addListener(pg, 'click', () => { if (!drawing) { adoptBuilding(bd, curType); renderList(); save(); } });
+          kakao.maps.event.addListener(pg, 'click', e => { if (!drawing) pickAt(e && e.latLng ? { lat: e.latLng.getLat(), lng: e.latLng.getLng() } : Layout.centroid(bd.ring)); });
           bd.gfx = pg;
           bd.floors = parseInt((bd.props || {}).gro_flo_co, 10) || 0;   // 0 = 층수 모름 → 음영 계산에서 제외
           buildings.push(bd);
@@ -497,6 +500,26 @@
     buildings.forEach(b => b.gfx && b.gfx.setMap(null));
     buildings = [];
   }
+  /**
+   * 지도를 누른 점으로 지붕/건물을 고른다. 카카오 도형 클릭은 얇은 선·면을 정확히 눌러야만 와서
+   * 태블릿에서 자주 빗나갔다 → 누른 점이 들어 있는 지붕(우선) 또는 건물을 직접 찾는다.
+   * 같은 탭이 도형 클릭 + 지도 클릭으로 두 번 올 수 있어 300ms 안의 중복은 버린다.
+   */
+  let lastPick = 0;
+  function pickAt(p) {
+    const now = Date.now();
+    if (now - lastPick < 300) return;
+    lastPick = now;
+    // 작은 것(위에 놓인 것)부터: 지붕 → 건물. 겹치면 면적이 작은 쪽
+    const smallest = (list, ringOf) => list.filter(x => Layout.containsGeo(ringOf(x), p))
+      .sort((a, b) => Layout.area(Layout.toLocal(ringOf(a), p)) - Layout.area(Layout.toLocal(ringOf(b), p)))[0];
+    const roof = smallest(roofs, r => r.points);
+    if (roof) { select(roof.id); return; }
+    const bd = smallest(buildings, b => b.ring);
+    if (bd) { adoptBuilding(bd, curType); renderList(); save(); return; }
+    if (buildings.length) hint('누른 곳에 건물 외곽선이 없습니다. 하늘색 건물 안쪽을 누르거나 「직접 그리기」를 쓰세요.');
+  }
+
   function adoptBuilding(bd, type, batch) {
     const dup = roofs.find(r => r.src === bd.id);
     if (dup) { if (!batch) select(dup.id); return; }
@@ -595,7 +618,7 @@
       strokeWeight: sel ? 3 : 2, strokeColor: sel ? '#ffd54a' : '#ff3b3b', fillColor: '#000', fillOpacity: 0.05, zIndex: 1,
     });
     outline.setMap(map);
-    kakao.maps.event.addListener(outline, 'click', () => { if (drawing) return; select(r.id); });
+    kakao.maps.event.addListener(outline, 'click', e => { if (drawing) return; pickAt(e && e.latLng ? { lat: e.latLng.getLat(), lng: e.latLng.getLng() } : Layout.centroid(r.points)); });
 
     // 모듈 하나당 폴리곤 하나. 수백 장은 문제없고 수천 장이면 느려질 수 있다.
     const mods = res.modules.map(c => {
