@@ -25,5 +25,5 @@ window.SOLAR_CONFIG = {
   KEPCO_PROXY: '',
 
   // 공공데이터포털 건축HUB 건축물대장정보 서비스 — 일반 인증키(Decoding)
-  BLD_KEY: '',
+  BLD_KEY: '783512aea7f2bd2696ad01111c67a193bb146adf33a1bb3891967c9ce5ed446f',
 };

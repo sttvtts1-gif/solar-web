@@ -382,7 +382,7 @@
         const sug = Bld.suggestType(x);
         return '<div style="margin-bottom:6px"><b>' + (x.dong || x.name || x.kind || '건물') + '</b> <span style="color:var(--muted)">' + (x.name && x.dong ? x.name : '') + '</span><div class="kv">'
           + [['주용도', f(x.purpose)], ['구조', f(x.structure)], ['지붕', f(x.roof || x.roofEtc)], ['층수', '지상 ' + f(x.floors) + ' / 지하 ' + f(x.basement)],
-             ['높이', f(x.height, 'm')], ['건축면적', f(x.archArea, '㎡')], ['연면적', f(x.totArea, '㎡')], ['사용승인', day(x.approved)]]
+             ['높이', f(x.height, 'm')], ['건축면적', f(x.archArea, '㎡')], ['연면적', f(x.totArea, '㎡')], ['사용승인', day(x.approved)], ['내진설계', f(x.quake)]]
             .map(([k, v]) => '<div><span>' + k + '</span><span>' + v + '</span></div>').join('') + '</div>'
           + (sug ? '<div class="sug">지붕이 ' + x.roof + ' → 평슬라브 배치 추천<button class="btn ghost" data-sug="' + sug + '">적용</button></div>' : '') + '</div>';
       }).join('');

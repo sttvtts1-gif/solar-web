@@ -47,6 +47,7 @@ const Bld = (() => {
       floors: n(it.grndFlrCnt), basement: n(it.ugrndFlrCnt), height: n(it.heit),
       archArea: n(it.archArea), totArea: n(it.totArea), platArea: n(it.platArea),
       approved: it.useAprDay || '', kind: it.mainAtchGbCdNm || '', addr: it.newPlatPlc || it.platPlc || '',
+      quake: it.rserthqkDsgnApplyYn === '1' ? '적용' : it.rserthqkDsgnApplyYn === '0' ? '미적용' : '',
     }));
   }
 
