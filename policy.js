@@ -175,8 +175,39 @@ const Policy = (() => {
       const nav = '<div class="row" style="margin-bottom:6px"><button class="btn sm ghost" id="pm_prev">◀ 이전</button><span style="font-size:12px;color:var(--muted)">' + pageNum + ' / ' + pdf.numPages + '</span><button class="btn sm ghost" id="pm_next">다음 ▶</button></div>';
       $('pm_body').innerHTML = nav;
       $('pm_body').appendChild(cv); cv.style.width = '100%'; cv.style.borderRadius = '8px'; cv.style.background = '#fff';
-      $('pm_prev').onclick = () => pageNum > 1 && showPage(d, pageNum - 1, kw);
-      $('pm_next').onclick = () => pageNum < pdf.numPages && showPage(d, pageNum + 1, kw);
+      const go = n => { if (n >= 1 && n <= pdf.numPages && n !== pageNum) showPage(d, n, kw); };
+      $('pm_prev').onclick = () => go(pageNum - 1);
+      $('pm_next').onclick = () => go(pageNum + 1);
+
+      // 손가락·마우스로 옆으로 밀어 페이지 넘기기: 왼쪽으로 밀면 다음, 오른쪽으로 밀면 이전.
+      // 세로 이동은 그대로 스크롤(touch-action: pan-y). 끄는 동안 그림이 따라 움직이고, 짧게 끌면 제자리로.
+      cv.style.touchAction = 'pan-y';
+      cv.style.transition = 'transform .15s';
+      let sx = null, sy = 0, dx = 0, horiz = false;
+      cv.addEventListener('pointerdown', e => { sx = e.clientX; sy = e.clientY; dx = 0; horiz = false; cv.style.transition = 'none'; });
+      cv.addEventListener('pointermove', e => {
+        if (sx === null) return;
+        dx = e.clientX - sx;
+        if (!horiz && Math.abs(dx) > 10 && Math.abs(dx) > Math.abs(e.clientY - sy)) { horiz = true; cv.setPointerCapture(e.pointerId); }
+        if (horiz) cv.style.transform = 'translateX(' + dx + 'px)';
+      });
+      const end = () => {
+        if (sx === null) return;
+        sx = null; cv.style.transition = 'transform .15s'; cv.style.transform = '';
+        if (!horiz) return;
+        const limit = Math.max(50, cv.clientWidth * 0.15);
+        if (dx <= -limit) go(pageNum + 1);
+        else if (dx >= limit) go(pageNum - 1);
+      };
+      cv.addEventListener('pointerup', end);
+      cv.addEventListener('pointercancel', end);
+      // PC 키보드: ← → 로도 넘긴다 (창이 열려 있는 동안만)
+      document.onkeydown = e => {
+        if (!$('pageModal').classList.contains('on')) return;
+        if (e.key === 'ArrowRight') go(pageNum + 1);
+        if (e.key === 'ArrowLeft') go(pageNum - 1);
+      };
+      $('pm_body').insertAdjacentHTML('beforeend', '<p style="font-size:11px;color:var(--muted);text-align:center;margin:6px 0 0">← 옆으로 밀어서 페이지 넘기기 →</p>');
     } catch (e) { $('pm_body').textContent = '페이지를 그릴 수 없습니다: ' + e.message; }
   }
 
