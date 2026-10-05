@@ -62,7 +62,7 @@ const Policy = (() => {
       if (sortKey === th.dataset.sort) sortDir = sortDir === 'desc' ? 'asc' : 'desc'; else { sortKey = th.dataset.sort; sortDir = 'desc'; }
       render();
     });
-    $('pm_close').onclick = () => $('pageModal').classList.remove('on');
+    $('pm_close').onclick = () => Policy.close();
     if (window.pdfjsLib) pdfjsLib.GlobalWorkerOptions.workerSrc = 'vendor/pdf.worker.min.js';
     render();
   }
@@ -143,27 +143,80 @@ const Policy = (() => {
     $('pageModal').classList.add('on');
   }
 
-  // 페이지를 그림으로 그리고 검색어 자리에 형광펜. 조각으로 쪼개진 글자도 이어붙인 본문 기준으로 찾는다.
+  // ------------------------------------------------------------ 문서 보기
+  // 모든 페이지를 세로로 이어 붙여 손가락으로 쭉 내려 본다(한 장씩 넘기지 않음).
+  // 페이지 자리(빈 상자)는 처음에 한꺼번에 깔고, 실제 그림은 화면 근처(위아래 1.5화면)에 들어온 페이지만 그린다
+  // → 수십 쪽 문서도 바로 열리고 내리는 동안 차례로 채워진다. 검색어가 있으면 그 자리에 형광펜.
+  let viewer = null;          // { pdf, d, kw, observer }
   async function showPage(d, pageNum, kw) {
-    $('pm_title').textContent = d.name + ' — P.' + pageNum;
-    $('pm_body').innerHTML = '페이지 그리는 중…';
+    const box = $('pageModal').querySelector('.box');
+    $('pm_title').textContent = d.name;
+    $('pm_body').innerHTML = '문서 여는 중…';
     $('pageModal').classList.add('on');
+    if (viewer && viewer.observer) viewer.observer.disconnect();
     try {
       const pdf = await pdfjsLib.getDocument({ data: d.data.slice(0) }).promise;
-      const page = await pdf.getPage(pageNum);
-      const vp = page.getViewport({ scale: 1.6 });
+      const first = await pdf.getPage(1);
+      const ratio = first.getViewport({ scale: 1 }).height / first.getViewport({ scale: 1 }).width;   // 자리 높이 잡기용
+      const body = $('pm_body');
+      body.innerHTML = '';
+      const pages = [];
+      for (let n = 1; n <= pdf.numPages; n++) {
+        const wrap = document.createElement('div');
+        wrap.className = 'pdfPage';
+        wrap.dataset.page = n;
+        wrap.style.cssText = 'position:relative;width:100%;aspect-ratio:1/' + ratio.toFixed(4) + ';background:#fff;border-radius:6px;margin:0 0 10px;overflow:hidden';
+        wrap.innerHTML = '<span style="position:absolute;top:6px;right:8px;font-size:11px;color:#94a3b8;z-index:1">' + n + ' / ' + pdf.numPages + '</span>';
+        body.appendChild(wrap);
+        pages.push(wrap);
+      }
+      // 지금 몇 쪽을 보고 있는지 제목줄에
+      const updateTitle = () => {
+        const top = box.getBoundingClientRect().top + 60;
+        let cur = 1;
+        for (const w of pages) { if (w.getBoundingClientRect().top <= top) cur = +w.dataset.page; else break; }
+        $('pm_title').textContent = d.name + ' — ' + cur + ' / ' + pdf.numPages;
+      };
+      // 화면(상자) 위아래 1.5배 안에 걸친 페이지만 그린다. 스크롤 때마다 위치를 직접 잰다
+      // (IntersectionObserver 는 오래된 웹뷰·가려진 창에서 안 움직여서 쓰지 않음).
+      const drawn = new Set();
+      const drawNear = () => {
+        const r = box.getBoundingClientRect(), pad = r.height * 1.5;
+        pages.forEach(w => { const p = w.getBoundingClientRect(); if (p.bottom > r.top - pad && p.top < r.bottom + pad) drawPage(pdf, w, kw, drawn); });
+      };
+      let ticking = false;
+      box.onscroll = () => { updateTitle(); if (!ticking) { ticking = true; setTimeout(() => { ticking = false; drawNear(); }, 80); } };
+      viewer = { pdf, d, kw, observer: null };
+
+      // 검색 결과의 P.n 을 눌러 열었으면 그 페이지로 바로
+      if (pageNum > 1) { pages[pageNum - 1].scrollIntoView({ block: 'start' }); }
+      else box.scrollTop = 0;
+      updateTitle();
+      drawNear();
+    } catch (e) { $('pm_body').textContent = '문서를 열 수 없습니다: ' + e.message + ' (회사 문서보안으로 암호화된 PDF 일 수 있습니다)'; }
+  }
+
+  async function drawPage(pdf, wrap, kw, drawn) {
+    const n = +wrap.dataset.page;
+    if (drawn.has(n)) return;
+    drawn.add(n);
+    try {
+      const page = await pdf.getPage(n);
+      const scale = Math.min(2, (wrap.clientWidth * (window.devicePixelRatio || 1)) / page.getViewport({ scale: 1 }).width);
+      const vp = page.getViewport({ scale });
       const cv = document.createElement('canvas'); cv.width = vp.width; cv.height = vp.height;
+      cv.style.cssText = 'width:100%;height:100%;display:block';
       const c = cv.getContext('2d');
       await page.render({ canvasContext: c, viewport: vp }).promise;
       if (kw && kw.trim()) {
         const tc = await page.getTextContent();
         let joined = ''; const ranges = [];
-        tc.items.forEach((it, idx) => { const s = joined.length; joined += it.str || ''; ranges.push({ s, e: joined.length, idx }); joined += ' '; });
+        tc.items.forEach((it, idx) => { const st = joined.length; joined += it.str || ''; ranges.push({ st, en: joined.length, idx }); joined += ' '; });
         const ms = matchRanges(joined, kw, 200);
         if (ms.length) {
           c.save(); c.globalCompositeOperation = 'multiply'; c.fillStyle = '#fde68a';
-          ranges.forEach(({ s, e, idx }) => {
-            if (!ms.some(m => s < m.end && e > m.start)) return;
+          ranges.forEach(({ st, en, idx }) => {
+            if (!ms.some(m => st < m.end && en > m.start)) return;
             const it = tc.items[idx];
             const t = pdfjsLib.Util.transform(vp.transform, it.transform);
             const fh = Math.hypot(t[2], t[3]) || 10, sx = Math.hypot(t[0], t[1]) || 1;
@@ -172,44 +225,10 @@ const Policy = (() => {
           c.restore();
         }
       }
-      const nav = '<div class="row" style="margin-bottom:6px"><button class="btn sm ghost" id="pm_prev">◀ 이전</button><span style="font-size:12px;color:var(--muted)">' + pageNum + ' / ' + pdf.numPages + '</span><button class="btn sm ghost" id="pm_next">다음 ▶</button></div>';
-      $('pm_body').innerHTML = nav;
-      $('pm_body').appendChild(cv); cv.style.width = '100%'; cv.style.borderRadius = '8px'; cv.style.background = '#fff';
-      const go = n => { if (n >= 1 && n <= pdf.numPages && n !== pageNum) showPage(d, n, kw); };
-      $('pm_prev').onclick = () => go(pageNum - 1);
-      $('pm_next').onclick = () => go(pageNum + 1);
-
-      // 손가락·마우스로 옆으로 밀어 페이지 넘기기: 왼쪽으로 밀면 다음, 오른쪽으로 밀면 이전.
-      // 세로 이동은 그대로 스크롤(touch-action: pan-y). 끄는 동안 그림이 따라 움직이고, 짧게 끌면 제자리로.
-      cv.style.touchAction = 'pan-y';
-      cv.style.transition = 'transform .15s';
-      let sx = null, sy = 0, dx = 0, horiz = false;
-      cv.addEventListener('pointerdown', e => { sx = e.clientX; sy = e.clientY; dx = 0; horiz = false; cv.style.transition = 'none'; });
-      cv.addEventListener('pointermove', e => {
-        if (sx === null) return;
-        dx = e.clientX - sx;
-        if (!horiz && Math.abs(dx) > 10 && Math.abs(dx) > Math.abs(e.clientY - sy)) { horiz = true; cv.setPointerCapture(e.pointerId); }
-        if (horiz) cv.style.transform = 'translateX(' + dx + 'px)';
-      });
-      const end = () => {
-        if (sx === null) return;
-        sx = null; cv.style.transition = 'transform .15s'; cv.style.transform = '';
-        if (!horiz) return;
-        const limit = Math.max(50, cv.clientWidth * 0.15);
-        if (dx <= -limit) go(pageNum + 1);
-        else if (dx >= limit) go(pageNum - 1);
-      };
-      cv.addEventListener('pointerup', end);
-      cv.addEventListener('pointercancel', end);
-      // PC 키보드: ← → 로도 넘긴다 (창이 열려 있는 동안만)
-      document.onkeydown = e => {
-        if (!$('pageModal').classList.contains('on')) return;
-        if (e.key === 'ArrowRight') go(pageNum + 1);
-        if (e.key === 'ArrowLeft') go(pageNum - 1);
-      };
-      $('pm_body').insertAdjacentHTML('beforeend', '<p style="font-size:11px;color:var(--muted);text-align:center;margin:6px 0 0">← 옆으로 밀어서 페이지 넘기기 →</p>');
-    } catch (e) { $('pm_body').textContent = '페이지를 그릴 수 없습니다: ' + e.message; }
+      wrap.appendChild(cv);
+    } catch (e) { drawn.delete(n); }
   }
 
-  return { init, isOpen: () => $('pageModal').classList.contains('on'), close: () => $('pageModal').classList.remove('on') };
+  const closeViewer = () => { $('pageModal').classList.remove('on'); if (viewer && viewer.observer) viewer.observer.disconnect(); viewer = null; $('pm_body').innerHTML = ''; };
+  return { init, isOpen: () => $('pageModal').classList.contains('on'), close: closeViewer };
 })();

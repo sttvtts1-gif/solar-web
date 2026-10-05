@@ -230,6 +230,9 @@
   #brushCur { position: absolute; z-index: 6; display: none; pointer-events: none; width: 14px; height: 14px; margin: -7px 0 0 -7px; border-radius: 50%; border: 2px solid #ff5252; background: rgba(255,82,82,.25); }
   #brushCur.add { border-color: #4ade80; background: rgba(74,222,128,.25); }
   body.editing.brush #map { cursor: none; }
+  /* 문서 보기: 세로로 길게 이어 보므로 화면 거의 전체 */
+  #pageModal .box { max-height: 96%; height: 96%; max-width: 900px; }
+  #pageModal h3 { position: sticky; top: -12px; background: var(--panel); margin: -12px -12px 8px; padding: 12px; z-index: 2; }
 </style>
 </head>
 <body>
@@ -479,7 +482,7 @@
   // 깃허브 Pages 는 화면 파일을 10분 캐시한다. 새로 올린 뒤에도 옛 화면이 나오지 않게,
   // 열 때마다 캐시 없이 index.html 을 다시 받아 버전 표식이 다르면 한 번 새로고침한다.
   // 버전 표식(APP_VER)은 web동기화.sh 가 올릴 때마다 시각으로 바꿔 넣는다.
-  window.APP_VER = '20261006080142';
+  window.APP_VER = '20261006081127';
   (function () {
     if (location.hostname.indexOf('github.io') < 0) return;
     fetch('index.html?nocache=' + Date.now(), { cache: 'no-store' }).then(r => r.text()).then(t => {
@@ -491,16 +494,16 @@
     }).catch(() => {});
   })();
 </script>
-<script src="config.js?v=20261006080142"></script>
-<script src="vendor/pdf.min.js?v=20261006080142"></script>
-<script src="layout.js?v=20261006080142"></script>
-<script src="vworld.js?v=20261006080142"></script>
-<script src="kepco.js?v=20261006080142"></script>
-<script src="bld.js?v=20261006080142"></script>
-<script src="rps.js?v=20261006080142"></script>
-<script src="report.js?v=20261006080142"></script>
-<script src="rps_ui.js?v=20261006080142"></script>
-<script src="policy.js?v=20261006080142"></script>
-<script src="app.js?v=20261006080142"></script>
+<script src="config.js?v=20261006081127"></script>
+<script src="vendor/pdf.min.js?v=20261006081127"></script>
+<script src="layout.js?v=20261006081127"></script>
+<script src="vworld.js?v=20261006081127"></script>
+<script src="kepco.js?v=20261006081127"></script>
+<script src="bld.js?v=20261006081127"></script>
+<script src="rps.js?v=20261006081127"></script>
+<script src="report.js?v=20261006081127"></script>
+<script src="rps_ui.js?v=20261006081127"></script>
+<script src="policy.js?v=20261006081127"></script>
+<script src="app.js?v=20261006081127"></script>
 </body>
 </html>
