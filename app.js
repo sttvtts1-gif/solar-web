@@ -370,7 +370,7 @@
     closeResults();
     $('q').value = r.title;
     $('q').blur();
-    siteName = r.title;
+    siteName = r.title; siteNameSrc = 'search';
     RpsUI.setSite(siteName);
     save();
     goTo(r.lat, r.lng, r.title);
@@ -384,9 +384,26 @@
    */
   let siteKey = '';
   /** 지붕(또는 좌표) 위치의 입지 정보. 같은 필지를 또 부르지 않게 소수 4자리(약 10m)로 묶는다. */
-  function siteInfoAt(lat, lng) {
+  /**
+   * 대상지 이름(화면 위 요약줄·공유·리포트). 검색으로 정한 이름이 계속 남지 않게, 건물을 누를 때마다 다시 정한다.
+   * 우선순위: 건축물대장 건물명 → 카카오 주소의 건물명 → V-World 건물명 → 주소.  fromSearch 면 검색어 이름을 우선.
+   */
+  let siteNameSrc = 'search';      // 'search' | 'addr' | 'kakao' | 'bld'
+  const RANK = { addr: 1, vworld: 2, kakao: 3, bld: 4, search: 5 };
+  function setSiteName(name, src, force) {
+    name = String(name || '').trim();
+    if (!name) return;
+    if (!force && RANK[src] < RANK[siteNameSrc]) return;
+    siteName = name; siteNameSrc = src;
+    RpsUI.setSite(siteName);
+    renderList(); save();
+  }
+
+  function siteInfoAt(lat, lng, vworldName) {
     const k = lat.toFixed(4) + ',' + lng.toFixed(4);
     if (k === siteKey) return;
+    siteNameSrc = 'addr';                         // 새 건물: 검색 때 이름을 버리고 이 건물 기준으로 다시
+    if (vworldName) setSiteName(vworldName, 'vworld', true);
     loadSiteInfo(lat, lng);
   }
   function loadSiteInfo(lat, lng) {
@@ -400,6 +417,11 @@
       if (!b) { $('bldHead').textContent = $('kepcoHead').textContent = '법정동을 못 찾음'; return; }
       geocoder.coord2Address(lng, lat, (ar, st) => {
         const ad = st === kakao.maps.services.Status.OK && ar[0] && ar[0].address;
+        if (siteNameSrc !== 'search') {
+          const road = st === kakao.maps.services.Status.OK && ar[0] && ar[0].road_address;
+          if (road && road.building_name) setSiteName(road.building_name, 'kakao');
+          else if (ad) setSiteName(ad.address_name, 'addr');
+        }
         const bun = ad ? ad.main_address_no : '', ji = ad ? ad.sub_address_no : '', mountain = ad && ad.mountain_yn === 'Y';
         const jibun = bun ? bun + (ji && ji !== '0' ? '-' + ji : '') : '';
         loadBld(b.code, mountain, bun, ji);
@@ -427,6 +449,8 @@
     if (!bun) { $('bldHead').textContent = '지번을 못 찾음'; return; }
     Bld.title(bcode, mountain, bun, ji).then(list => {
       if (!list.length) { $('bldHead').textContent = '대장 없음 (미등재·무허가일 수 있음)'; return; }
+      const named = list.find(x => x.name && x.name.trim());
+      if (named && siteNameSrc !== 'search') setSiteName(named.name, 'bld');
       $('bldHead').textContent = list.length + '동' + (list[0].addr ? ' · ' + list[0].addr : '');
       const f = (v, u) => v === null || v === undefined || v === '' ? '-' : (typeof v === 'number' ? v.toLocaleString('ko-KR') : v) + (u || '');
       const day = d => d && d.length === 8 ? d.slice(0, 4) + '.' + d.slice(4, 6) + '.' + d.slice(6) : (d || '-');
@@ -628,7 +652,7 @@
     roofs.push(roof);
     selectedId = roof.id;
     recompute(roof);
-    if (!batch) { curType = roof.type; renderTypes(); fillSettings(); const c = Layout.centroid(roof.points); siteInfoAt(c.lat, c.lng); }
+    if (!batch) { curType = roof.type; renderTypes(); fillSettings(); const c = Layout.centroid(roof.points); siteInfoAt(c.lat, c.lng, bd.name); }
     setTimeout(ensureHeights, 0);
   }
 
@@ -971,7 +995,7 @@
   function select(id) {
     selectedId = id;
     const r = roofs.find(x => x.id === id);
-    if (r) { curType = r.type; renderTypes(); fillSettings(); const c = Layout.centroid(r.points); siteInfoAt(c.lat, c.lng); }
+    if (r) { curType = r.type; renderTypes(); fillSettings(); const c = Layout.centroid(r.points); siteInfoAt(c.lat, c.lng, /^지붕 \d+$/.test(r.name) ? '' : r.name); }
     roofs.forEach(recompute);
     renderList();
   }
