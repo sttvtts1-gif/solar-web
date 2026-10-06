@@ -165,16 +165,21 @@ const Policy = (() => {
         const wrap = document.createElement('div');
         wrap.className = 'pdfPage';
         wrap.dataset.page = n;
-        wrap.style.cssText = 'position:relative;width:100%;aspect-ratio:1/' + ratio.toFixed(4) + ';background:#fff;border-radius:6px;margin:0 0 10px;overflow:hidden';
+        // 높이는 aspect-ratio(오래된 안드로이드 웹뷰는 모름) 대신 폭 × 비율을 숫자로 넣는다
+        wrap.style.cssText = 'position:relative;width:100%;background:#fff;border-radius:6px;margin:0 0 10px;overflow:hidden';
         wrap.innerHTML = '<span style="position:absolute;top:6px;right:8px;font-size:11px;color:#94a3b8;z-index:1">' + n + ' / ' + pdf.numPages + '</span>';
         body.appendChild(wrap);
         pages.push(wrap);
       }
+      const sizePages = () => { const w = body.clientWidth || box.clientWidth - 24; pages.forEach(p => { p.style.height = Math.round(w * ratio) + 'px'; }); };
+      sizePages();
+      window.onresize = () => { if (viewer) { sizePages(); drawNear(); } };
       // 지금 몇 쪽을 보고 있는지 제목줄에
       const updateTitle = () => {
         const top = box.getBoundingClientRect().top + 60;
         let cur = 1;
         for (const w of pages) { if (w.getBoundingClientRect().top <= top) cur = +w.dataset.page; else break; }
+        if (box.scrollTop + box.clientHeight >= box.scrollHeight - 4) cur = pdf.numPages;   // 맨 끝에 닿으면 마지막 쪽
         $('pm_title').textContent = d.name + ' — ' + cur + ' / ' + pdf.numPages;
       };
       // 화면(상자) 위아래 1.5배 안에 걸친 페이지만 그린다. 스크롤 때마다 위치를 직접 잰다
