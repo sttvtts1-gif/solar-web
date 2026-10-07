@@ -48,6 +48,9 @@ const Bld = (() => {
       archArea: n(it.archArea), totArea: n(it.totArea), platArea: n(it.platArea),
       approved: it.useAprDay || '', kind: it.mainAtchGbCdNm || '', addr: it.newPlatPlc || it.platPlc || '',
       quake: it.rserthqkDsgnApplyYn === '1' ? '적용' : it.rserthqkDsgnApplyYn === '0' ? '미적용' : '',
+      // 주차장: 옥외(자주식+기계식)가 캐노피 대상. 옥내는 참고만.
+      parkOutCnt: (n(it.oudrAutoUtcnt) || 0) + (n(it.oudrMechUtcnt) || 0), parkOutArea: (n(it.oudrAutoArea) || 0) + (n(it.oudrMechArea) || 0),
+      parkInCnt: (n(it.indrAutoUtcnt) || 0) + (n(it.indrMechUtcnt) || 0), parkInArea: (n(it.indrAutoArea) || 0) + (n(it.indrMechArea) || 0),
     }));
   }
 

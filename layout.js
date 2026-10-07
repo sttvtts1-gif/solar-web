@@ -32,6 +32,10 @@ const Layout = (() => {
     //   필지는 건물처럼 축이 뚜렷하지 않아 줄 방향은 기본 정남. 경사각은 2단 기준 15°(설정에서 바꿀 수 있음).
     ground:  { label: '토지 · 노지 2단',       orient: 'portrait', tiers: 2, tierGap: 0.10, tilt: 15, shadeAngle: 22, autoGap: true, arrayGap: 3.0,
                colBlock: 30, blockGap: 2.0, margin: 3.0, align: 'south' },   // 지적경계 3m 이격 = 펜스 돌릴 공간(사용자 지정)
+    // 주차장 캐노피: 주차장 면적 위에 1~4단(지붕 목록에서 고름) 경사 10°. 방위각으로 돌린다.
+    //   줄은 기본으로 주차장(건물) 축에 맞추고(align auto), 목록에서 방위각을 주면 그때 정남 기준 방위각으로 돈다.
+    parking: { label: '주차장 · 캐노피',       orient: 'portrait', tiers: 2, tierGap: 0.05, tilt: 10, shadeAngle: 22, autoGap: true, arrayGap: 2.0,
+               margin: 0.5, align: 'auto' },
   };
 
   const DEFAULTS = {
@@ -44,6 +48,7 @@ const Layout = (() => {
     margin: 0,            // 지붕 가장자리 이격. 도면 실측(A동 14m 폭에 12장)과 맞추려면 0 이어야 한다.
     align: 'auto',        // auto: 건물이 60° 안에서 돌아가 있으면 건물에 맞춤 / south: 정남 고정
     alignLimit: 60,       // °
+    azimuth: 0,           // 방위각(°). 정남 0, 서쪽으로 돌리면 +, 동쪽으로 −. align:'south' 일 때만 쓴다 (토지·주차장)
     colBlock: 0,          // 줄 안에서 이 열수마다 통로를 둔다 (0 = 통로 없음). 토지 배치용
     blockGap: 0,          // 통로 폭 (m)
   };
@@ -151,7 +156,8 @@ const Layout = (() => {
    * 건물에 맞춘다(남동/남서향). 넘어가면 정남(0°) 고정.
    */
   function pickRowAngle(rect, opt) {
-    if (opt.align === 'south') return { angle: 0, aligned: false, buildingAngle: fold(rect.angle) };
+    // 정남 고정 + 방위각: 앞면을 남쪽에서 시계방향(서쪽)으로 az 만큼 돌리면 줄은 수학각으로 −az 돈다
+    if (opt.align === 'south') { const az = Number(opt.azimuth) || 0; return { angle: fold(-az), aligned: false, buildingAngle: fold(rect.angle), azimuth: az }; }
     const a1 = fold(rect.angle), a2 = fold(rect.angle + 90);
     const a = Math.abs(a1) <= Math.abs(a2) ? a1 : a2;
     if (Math.abs(a) <= opt.alignLimit) return { angle: a, aligned: true, buildingAngle: a };
@@ -383,6 +389,7 @@ const Layout = (() => {
       rowAngle: Math.round(row.angle * 10) / 10,
       buildingAngle: Math.round(row.buildingAngle * 10) / 10,
       aligned: row.aligned,
+      azimuth: row.azimuth || 0,
       rows,
       pitch: Math.round((d * tiers + tierGap * (tiers - 1) + arrayGap) * 100) / 100,
       arrayGap: Math.round(arrayGap * 100) / 100,
@@ -428,5 +435,5 @@ const Layout = (() => {
     return Math.max(1, Math.round(((type === 'ginseng' ? r.widthM : r.depthM) || 0) / 20));
   }
 
-  return { compute, guessType, guessSpans, containsGeo, sunPositions, PRESETS, DEFAULTS, centroid, toLocal, area };
+  return { compute, guessType, guessSpans, containsGeo, sunPositions, PRESETS, DEFAULTS, centroid, toLocal, toGeo, area, minRect, rotate };
 })();

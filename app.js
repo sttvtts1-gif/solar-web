@@ -37,8 +37,8 @@
   let preview = null;
 
   // 형태별 상세 설정 키. 모듈 규격은 형태와 무관하게 공통(moduleCfg)이라 여기 없다.
-  const OPT_KEYS = ['orient', 'tiers', 'tilt', 'shadeAngle', 'autoGap', 'arrayGap', 'tierGap', 'colGap', 'margin', 'align', 'alignLimit', 'eaveSetback', 'ridgeSetback', 'lift', 'colBlock', 'blockGap'];
-  const NUM_KEYS = ['tiers', 'tilt', 'shadeAngle', 'arrayGap', 'tierGap', 'colGap', 'margin', 'alignLimit', 'eaveSetback', 'ridgeSetback', 'lift', 'colBlock', 'blockGap'];
+  const OPT_KEYS = ['orient', 'tiers', 'tilt', 'shadeAngle', 'autoGap', 'arrayGap', 'tierGap', 'colGap', 'margin', 'align', 'alignLimit', 'eaveSetback', 'ridgeSetback', 'lift', 'colBlock', 'blockGap', 'azimuth'];
+  const NUM_KEYS = ['tiers', 'tilt', 'shadeAngle', 'arrayGap', 'tierGap', 'colGap', 'margin', 'alignLimit', 'eaveSetback', 'ridgeSetback', 'lift', 'colBlock', 'blockGap', 'azimuth'];
   // 모듈 편집: 지도에서 드래그한 사각형 목록. 순서대로 적용(del=지움, add=되살림).
   // 위도·경도 상자라서 배치 설정을 바꿔 모듈 격자가 움직여도 "그 자리" 에 그대로 먹는다.
   let edits = [];
@@ -294,6 +294,11 @@
       inner = box(1, 5, 46, 28) + ridge(1, 19, 47, 19);
       [7, 11.2, 15.4].forEach(y => { inner += bar(3, y, 42, 3); });
       [21, 25.2, 29.4].forEach(y => { inner += bar(3, y, 42, 3); });
+    } else if (t === 'parking') {
+      // 주차장 · 주차칸(점선) 위에 캐노피 줄
+      inner = box(2, 4, 44, 30);
+      [10, 18, 26, 34].forEach(x => { inner += '<line x1="' + x + '" y1="20" x2="' + x + '" y2="34" stroke="#9fc4b3" stroke-width=".8" stroke-dasharray="1.5 1"/>'; });
+      [7, 12.5, 18].forEach(y => { inner += bar(5, y, 38, 3.4); });
     } else if (t === 'ground') {
       // 토지 · 필지(점선) 안에 2단 줄 + 가운데 세로 통로
       inner = '<polygon points="2,4 44,2 46,34 4,36" fill="rgba(255,213,74,.08)" stroke="#ffd54a" stroke-width="1.2" stroke-dasharray="2 1.5"/>';
@@ -467,8 +472,13 @@
           + [['주용도', f(x.purpose)], ['구조', f(x.structure)], ['지붕', f(x.roof || x.roofEtc)], ['층수', '지상 ' + f(x.floors) + ' / 지하 ' + f(x.basement)],
              ['높이', f(x.height, 'm')], ['건축면적', f(x.archArea, '㎡')], ['연면적', f(x.totArea, '㎡')], ['사용승인', day(x.approved)], ['내진설계', f(x.quake)]]
             .map(([k, v]) => '<div><span>' + k + '</span><span>' + v + '</span></div>').join('') + '</div>'
-          + (sug ? '<div class="sug">지붕이 ' + x.roof + ' → 평슬라브 배치 추천<button class="btn ghost" data-sug="' + sug + '">적용</button></div>' : '') + '</div>';
+          + (sug ? '<div class="sug">지붕이 ' + x.roof + ' → 평슬라브 배치 추천<button class="btn ghost" data-sug="' + sug + '">적용</button></div>' : '')
+          + (x.parkOutArea > 0 ? '<div class="sug">🅿 옥외 주차장 ' + x.parkOutCnt + '대 · ' + f(x.parkOutArea, '㎡') + ' → 그 면적만큼 주차장 캐노피 설치 가능'
+              + '<button class="btn accent" data-park="' + x.parkOutArea + '" data-dong="' + (x.dong || x.name || '') + '">설치</button></div>' : '')
+          + (x.parkInArea > 0 ? '<div class="sug" style="color:var(--muted)">옥내 주차장 ' + x.parkInCnt + '대 · ' + f(x.parkInArea, '㎡') + ' (건물 안이라 캐노피 대상 아님)</div>' : '')
+          + '</div>';
       }).join('');
+      $('bldBody').querySelectorAll('[data-park]').forEach(btn => btn.onclick = () => placeParking(parseFloat(btn.dataset.park), btn.dataset.dong));
       $('bldBody').querySelectorAll('[data-sug]').forEach(btn => btn.onclick = () => {
         const t = btn.dataset.sug;
         roofs.forEach(r => { r.type = t; }); curType = t; renderTypes(); fillSettings(); roofs.forEach(recompute); renderList(); save();
@@ -644,6 +654,44 @@
         reviewSite(near);
         hint(near.name + ' — 합산 배치했습니다.');
       });
+  }
+
+  // ------------------------------------------------------------ 주차장 캐노피 (건축물대장 옥외 주차장 면적)
+  /**
+   * 대장의 옥외 주차장 면적만큼 주차장 지붕을 만든다. 대장엔 주차장 위치가 없어서, 기준 건물(선택된 건물 지붕, 없으면 제일 큰 건물)의
+   * 긴 변에 맞춘 직사각형을 건물 남쪽에 1m 띄워 놓는다 — 자리가 다르면 「직접 그리기」로 다시 그리면 된다(면적은 안내 수치 참고).
+   */
+  function placeParking(areaM2, dong) {
+    if (!(areaM2 > 0)) return;
+    const base = roofs.find(r => r.id === selectedId && r.type !== 'ground' && r.type !== 'parking')
+      || roofs.filter(r => r.type !== 'ground' && r.type !== 'parking').sort((a, b) => (b.result ? b.result.areaM2 : 0) - (a.result ? a.result.areaM2 : 0))[0];
+    if (!base) { hint('기준 건물이 없습니다. 먼저 건물을 지붕으로 넣은 뒤 「설치」를 누르세요.'); return; }
+    const o = Layout.centroid(base.points);
+    const local = Layout.toLocal(base.points, o);
+    const rect = Layout.minRect(local);
+    // 긴 변이 x축에 오도록 돌린 틀에서 남쪽(작은 y) 아래에 붙인다
+    const ang = rect.w >= rect.h ? rect.angle : rect.angle + 90;
+    const rot = local.map(p => Layout.rotate(p, -ang));
+    const xs = rot.map(p => p.x), ys = rot.map(p => p.y);
+    const minX = Math.min.apply(null, xs), maxX = Math.max.apply(null, xs), minY = Math.min.apply(null, ys);
+    // 주차장다운 꼴: 깊이 16m(2열 주차 5m×2 + 통로 6m), 폭 = 면적/16. 건물보다 넓으면 건물 폭에 맞추고 깊이를 늘린다. 작으면 정사각형에 가깝게.
+    const bw = Math.max(5, maxX - minX);
+    let D = areaM2 < 16 * 16 ? Math.sqrt(areaM2) : 16, W = areaM2 / D;
+    if (W > bw) { W = bw; D = areaM2 / W; }
+    const cx = (minX + maxX) / 2, x0 = cx - W / 2, x1 = cx + W / 2;
+    const y1 = minY - 1, y0 = y1 - D;
+    const box = [{ x: x0, y: y0 }, { x: x1, y: y0 }, { x: x1, y: y1 }, { x: x0, y: y1 }].map(p => Layout.rotate(p, ang));
+    const ring = Layout.toGeo(box, o);
+    const roof = { id: Date.now().toString(36) + Math.random().toString(36).slice(2, 5), name: '주차장' + (dong ? '(' + dong + ')' : '') + ' ' + Math.round(areaM2) + '㎡', type: 'parking',
+      points: ring, src: 'parking:' + base.id + ':' + Math.round(areaM2), floors: 1, gfx: null, parkArea: areaM2 };
+    const dup = roofs.find(r => r.src === roof.src);
+    if (dup) { select(dup.id); hint('이미 넣은 주차장입니다.'); return; }
+    roofs.push(roof);
+    selectedId = roof.id;
+    curType = 'parking'; renderTypes(); fillSettings();
+    recompute(roof); renderList(); save();
+    fitRoof(roof);
+    hint('주차장 캐노피 ' + Math.round(areaM2) + '㎡ 를 ' + base.name + ' 남쪽에 놓았습니다 (대장엔 위치가 없어 추정). 자리가 다르면 「직접 그리기」로 그 면적만큼 다시 그리세요. 단수·방위각은 목록에서.');
   }
 
   // ------------------------------------------------------------ 토지 입지 검토
@@ -1073,6 +1121,10 @@
       opt.spans = r.spans || r.spansGuess;
     }
     opt.vent = !!r.vent; opt.ventH = 1;
+    // 토지·주차장은 지붕마다 방위각·경계 이격·단수를 따로 둘 수 있다(목록의 버튼)
+    if (r.azimuth != null) { opt.azimuth = r.azimuth; opt.align = 'south'; }   // 방위각을 주면 정남 기준으로 돈다 (주차장은 기본 자동 맞춤)
+    if (r.margin != null) opt.margin = r.margin;
+    if (r.tiers) opt.tiers = r.tiers;
     if (r.extra && r.extra.length) opt.extraRings = r.extra;
     r.result = Layout.compute(r.points, opt, { on: shade.on, obstacles: obstaclesFor(r), blockers: blockersFor(r) });
     const res = r.result;
@@ -1176,7 +1228,8 @@
       const res = r.result || {};
       const d = document.createElement('div');
       d.className = 'roof' + (r.id === selectedId ? ' sel' : '');
-      const dir = res.aligned ? ('건물맞춤 ' + res.rowAngle + '°') : '정남';
+      const az = res.azimuth || 0;
+      const dir = res.aligned ? ('건물맞춤 ' + res.rowAngle + '°') : (az ? '방위 ' + (az > 0 ? '서 ' : '동 ') + Math.abs(az) + '°' : '정남');
       const shadeTxt = shade.on ? ' · <span style="color:' + (res.shaded ? 'var(--danger)' : 'var(--ok)') + '">음영 제외 ' + (res.shaded || 0) + '장</span>' : '';
       d.innerHTML = '<span class="nm">' + r.name + ' · ' + Layout.PRESETS[r.type].label.split(' · ')[1] + ' · ' + dir
         + '<br><small style="color:var(--muted)">' + res.areaM2 + '㎡ · ' + res.rows + '줄 · 피치 ' + res.pitch + 'm' + (res.opt.ridge
@@ -1203,8 +1256,26 @@
           d.appendChild(fb);
         }
       }
+      if (r.type === 'ground' || r.type === 'parking') {
+        // 방위각: 1° 씩 돌리는 버튼 + 숫자 입력(정남 0, 서 +, 동 −)
+        const stop = e => e.stopPropagation();
+        const turn = dv => { r.azimuth = Math.max(-90, Math.min(90, Math.round(((r.azimuth || 0) + dv)))); recompute(r); renderList(); save(); };
+        const bl = document.createElement('button'); bl.className = 'btn ghost'; bl.textContent = '↶1°'; bl.title = '동쪽으로 1°'; bl.onclick = e => { stop(e); turn(-1); };
+        const bz = document.createElement('button'); bz.className = 'btn ghost'; bz.textContent = r.azimuth == null && r.type === 'parking' ? '방위 자동' : '방위 ' + (r.azimuth || 0) + '°'; bz.title = '방위각 직접 입력 (정남 0 · 서 + · 동 −). 주차장은 비우면 주차장 방향에 자동 맞춤';
+        bz.onclick = e => { stop(e); const s = prompt(r.name + ' 방위각 (°) — 정남 0, 서쪽 +, 동쪽 − (±90)' + (r.type === 'parking' ? '. 비우면 주차장 방향 자동' : ''), r.azimuth == null ? '' : r.azimuth); if (s === null) return; const v = parseFloat(s); if (s.trim() === '' && r.type === 'parking') { r.azimuth = null; recompute(r); renderList(); save(); } else if (isFinite(v)) { r.azimuth = 0; turn(v); } };
+        const br = document.createElement('button'); br.className = 'btn ghost'; br.textContent = '1°↷'; br.title = '서쪽으로 1°'; br.onclick = e => { stop(e); turn(1); };
+        d.appendChild(bl); d.appendChild(bz); d.appendChild(br);
+        const mk = (label, vals, cur, fmt, on) => {
+          const s = document.createElement('select'); s.className = 'btn ghost'; s.title = label; s.onclick = stop;
+          vals.forEach(v => { const o = document.createElement('option'); o.value = v; o.textContent = fmt(v); if (v === cur) o.selected = true; s.appendChild(o); });
+          s.onchange = e => { stop(e); on(parseFloat(s.value)); recompute(r); renderList(); save(); };
+          return s;
+        };
+        if (r.type === 'ground') d.appendChild(mk('지적경계 이격', [1, 2, 3], r.margin != null ? r.margin : res.opt.margin, v => '이격 ' + v + 'm', v => { r.margin = v; }));
+        if (r.type === 'parking') d.appendChild(mk('단수', [1, 2, 3, 4], r.tiers || res.opt.tiers, v => v + '단', v => { r.tiers = v; }));
+      }
       const fl = document.createElement('button');
-      fl.className = 'btn ghost'; fl.textContent = '층수'; if (r.type === 'ground') fl.style.display = 'none';
+      fl.className = 'btn ghost'; fl.textContent = '층수'; if (r.type === 'ground' || r.type === 'parking') fl.style.display = 'none';
       fl.onclick = e => {
         e.stopPropagation();
         const v = parseInt(prompt(r.name + ' 지상 층수 (음영 계산용)', r.floors || 1), 10);
@@ -1255,7 +1326,7 @@
     if (!roofs.length) { hint('공유할 결과가 없습니다.'); return; }
     const lines = roofs.map(r => {
       const s = r.result;
-      return r.name + ' [' + Layout.PRESETS[r.type].label + '] ' + s.kw.toFixed(2) + 'kW (' + s.opt.moduleWp + 'W × ' + s.count + 'EA), ' + s.areaM2 + '㎡, ' + (s.aligned ? '건물맞춤 ' + s.rowAngle + '°' : '정남');
+      return r.name + ' [' + Layout.PRESETS[r.type].label + '] ' + s.kw.toFixed(2) + 'kW (' + s.opt.moduleWp + 'W × ' + s.count + 'EA), ' + s.areaM2 + '㎡, ' + (s.aligned ? '건물맞춤 ' + s.rowAngle + '°' : (s.azimuth ? '방위 ' + s.azimuth + '°' : '정남'));
     });
     const total = roofs.reduce((a, r) => a + r.result.kw, 0);
     const text = '태양광 배치분석' + (siteName ? ' — ' + siteName : '') + '\n' + lines.join('\n') + '\n합계 ' + total.toFixed(2) + 'kW';
@@ -1270,7 +1341,8 @@
       localStorage.setItem(STORE, JSON.stringify({
         curType, settings, siteName, shade, moduleCfg, edits,
         roofs: roofs.map(r => ({ id: r.id, name: r.name, type: r.type, points: r.points, src: r.src, floors: r.floors, floorsManual: r.floorsManual, spans: r.spans, vent: r.vent,
-          parcels: r.parcels, extra: r.extra, review: r.review && !r.review.pending ? r.review : undefined, force: r.force })),
+          parcels: r.parcels, extra: r.extra, review: r.review && !r.review.pending ? r.review : undefined, force: r.force,
+          azimuth: r.azimuth, margin: r.margin, tiers: r.tiers })),
         // 음영 장애물로 다시 쓰려고 주변 건물도 남긴다 (그림은 다시 그리지 않는다)
         buildings: buildings.map(b => ({ id: b.id, name: b.name, ring: b.ring, floors: b.floors })),
       }));

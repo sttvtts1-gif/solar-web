@@ -54,7 +54,7 @@
   #miniSummary { font-size: 13px; color: var(--muted); padding: 2px 0 8px; }
   #miniSummary b { color: var(--fg); }
   .row { display: flex; gap: 6px; align-items: center; margin-bottom: 8px; flex-wrap: wrap; }
-  .types { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; margin-bottom: 8px; }
+  .types { display: grid; grid-template-columns: repeat(5, 1fr); gap: 4px; margin-bottom: 8px; }
   .type { border: 1px solid var(--line); border-radius: 10px; padding: 8px 6px; text-align: center; font-size: 12px; line-height: 1.3; background: rgba(255,255,255,.05); }
   .type b { display: block; font-size: 13px; margin-bottom: 2px; }
   .type.on { border-color: var(--accent); background: rgba(255,213,74,.18); }
@@ -302,6 +302,7 @@
         <label>단 사이 틈 (m)<input id="o_tierGap" type="number" step="0.05"></label>
         <label>모듈 사이 틈 (m)<input id="o_colGap" type="number" step="0.01"></label>
         <label>가장자리 이격 (m)<input id="o_margin" type="number" step="0.1"></label>
+        <label>방위각 (°) — 정남 0 · 서쪽 + · 동쪽 − (토지·주차장, 1° 단위)<input id="o_azimuth" type="number" step="1" min="-90" max="90"></label>
         <label>줄 방향<select id="o_align"><option value="auto">건물에 맞춤 (±한계 안)</option><option value="south">정남 고정</option></select></label>
         <label>건물 맞춤 한계 (°)<input id="o_alignLimit" type="number" step="5"></label>
         <label>[원단] 처마·골 이격 (m)<input id="o_eaveSetback" type="number" step="0.1"></label>
@@ -498,7 +499,7 @@
   // 깃허브 Pages 는 화면 파일을 10분 캐시한다. 새로 올린 뒤에도 옛 화면이 나오지 않게,
   // 열 때마다 캐시 없이 index.html 을 다시 받아 버전 표식이 다르면 한 번 새로고침한다.
   // 버전 표식(APP_VER)은 web동기화.sh 가 올릴 때마다 시각으로 바꿔 넣는다.
-  window.APP_VER = '20261007145945';
+  window.APP_VER = '20261007150558';
   (function () {
     if (location.hostname.indexOf('github.io') < 0) return;
     fetch('index.html?nocache=' + Date.now(), { cache: 'no-store' }).then(r => r.text()).then(t => {
@@ -510,17 +511,17 @@
     }).catch(() => {});
   })();
 </script>
-<script src="config.js?v=20261007145945"></script>
-<script src="vendor/pdf.min.js?v=20261007145945"></script>
-<script src="layout.js?v=20261007145945"></script>
-<script src="vworld.js?v=20261007145945"></script>
-<script src="site.js?v=20261007145945"></script>
-<script src="kepco.js?v=20261007145945"></script>
-<script src="bld.js?v=20261007145945"></script>
-<script src="rps.js?v=20261007145945"></script>
-<script src="report.js?v=20261007145945"></script>
-<script src="rps_ui.js?v=20261007145945"></script>
-<script src="policy.js?v=20261007145945"></script>
-<script src="app.js?v=20261007145945"></script>
+<script src="config.js?v=20261007150558"></script>
+<script src="vendor/pdf.min.js?v=20261007150558"></script>
+<script src="layout.js?v=20261007150558"></script>
+<script src="vworld.js?v=20261007150558"></script>
+<script src="site.js?v=20261007150558"></script>
+<script src="kepco.js?v=20261007150558"></script>
+<script src="bld.js?v=20261007150558"></script>
+<script src="rps.js?v=20261007150558"></script>
+<script src="report.js?v=20261007150558"></script>
+<script src="rps_ui.js?v=20261007150558"></script>
+<script src="policy.js?v=20261007150558"></script>
+<script src="app.js?v=20261007150558"></script>
 </body>
 </html>
