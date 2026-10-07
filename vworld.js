@@ -33,10 +33,16 @@ const VWorld = (() => {
   }
 
   // 네이티브 → JSONP 순서. 네이티브가 있으면 CORS/Referer 문제를 전부 피한다.
-  function request(params) {
+  function request(params, url) {
     if (!params.key) return Promise.reject(new Error('V-World 인증키가 없습니다. config.js 의 VWORLD_KEY 를 채우세요.'));
-    if (window.Native && typeof window.Native.fetch === 'function') return nativeFetch(API + '?' + qs(params));
-    return jsonp(params);
+    if (window.Native && typeof window.Native.fetch === 'function') return nativeFetch((url || API) + '?' + qs(params));
+    return jsonp(params, url);
+  }
+  /** 국가중점(NED) 속성 API — 토지이용계획(getLandUseAttr)·토지특성(getLandCharacteristics) 등. 같은 키, 같은 전송 경로. */
+  function ned(path, params) {
+    const p = Object.assign({ key: cfg().VWORLD_KEY || '', format: 'json' }, params);
+    if (window.Native && window.Native.fetch) p.domain = cfg().VWORLD_DOMAIN || '';
+    return request(p, 'https://api.vworld.kr/ned/data/' + path);
   }
 
   let seq = 0;
@@ -62,7 +68,7 @@ const VWorld = (() => {
   // kepco.js · bld.js 도 이걸 쓴다 — 각자 onNativeFetch 를 갈아끼우면 먼저 끝난 쪽이 다른 쪽 콜백을 떼어 버린다.
   window.NativeHttp = { get: (url, referer) => nativeFetchRef(url, referer) };
 
-  function jsonp(params) {
+  function jsonp(params, url) {
     return new Promise((resolve, reject) => {
       const cb = '__vw_cb' + (++seq);
       const s = document.createElement('script');
@@ -70,7 +76,7 @@ const VWorld = (() => {
       window[cb] = data => { done(); resolve(data); };
       s.onerror = () => { done(); reject(new Error('V-World 호출 실패 (키·도메인 등록 확인)')); };
       const t = setTimeout(() => { done(); reject(new Error('V-World 응답 시간 초과')); }, 15000);
-      s.src = API + '?' + qs(Object.assign({}, params, { callback: cb }));
+      s.src = (url || API) + '?' + qs(Object.assign({}, params, { callback: cb }));
       document.head.appendChild(s);
     });
   }
@@ -109,6 +115,7 @@ const VWorld = (() => {
         name: p.buld_nm || p.buld_nm_dc || p.addr || p.jibun || '',
         ring,
         props: p,
+        pnu: p.pnu || '', jibun: p.jibun || '',     // 필지일 때 (연속지적도)
       });
     });
     return out;
@@ -143,5 +150,5 @@ const VWorld = (() => {
     return request(Object.assign(baseParams(f, 'LP_PA_CBND_BUBUN'), { size: '1000' })).then(parse).catch(() => []);
   }
 
-  return { buildingsInBox, buildingAt, parcelAt, parcelsInBox };
+  return { buildingsInBox, buildingAt, parcelAt, parcelsInBox, ned };
 })();

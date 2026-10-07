@@ -266,6 +266,10 @@
   <div id="modeView">
     <!-- 입지 정보: 지번을 고르면 건축물대장 + 한전 선로를 바로 펼쳐 보여준다 -->
     <div id="siteCard" class="siteCard" style="display:none">
+      <div id="siteRow" style="display:none">
+        <div class="scRow"><b>🧭 토지 입지 검토</b><span id="siteHead" class="scHead"></span></div>
+        <div id="siteBody" class="scBody"></div>
+      </div>
       <div class="scRow"><b>🏢 건축물대장</b><span id="bldHead" class="scHead"></span></div>
       <div id="bldBody" class="scBody"></div>
       <div class="scRow"><b>⚡ 한전 선로 여유용량</b><span id="kepcoHead" class="scHead"></span></div>
@@ -452,6 +456,15 @@
 </div>
 
 <!-- 설정: 모듈 규격 등 앱 전체 공통값 -->
+<!-- 합산 / 분리 같은 O X 질문 -->
+<div class="modal" id="oxModal">
+  <div class="box" style="max-width:420px;border-radius:16px;margin:auto">
+    <h3 id="ox_title">확인</h3>
+    <div id="ox_body" style="font-size:13px;line-height:1.5;margin:8px 0 12px"></div>
+    <div class="row"><button class="btn accent" id="ox_o" style="flex:1">합산 O</button><button class="btn ghost" id="ox_x" style="flex:1">분리 X</button></div>
+  </div>
+</div>
+
 <div class="modal" id="settingsModal">
   <div class="box">
     <h3>설정 <button class="btn sm ghost" id="btnSettingsClose">닫기</button></h3>
@@ -485,7 +498,7 @@
   // 깃허브 Pages 는 화면 파일을 10분 캐시한다. 새로 올린 뒤에도 옛 화면이 나오지 않게,
   // 열 때마다 캐시 없이 index.html 을 다시 받아 버전 표식이 다르면 한 번 새로고침한다.
   // 버전 표식(APP_VER)은 web동기화.sh 가 올릴 때마다 시각으로 바꿔 넣는다.
-  window.APP_VER = '20261007142108';
+  window.APP_VER = '20261007143810';
   (function () {
     if (location.hostname.indexOf('github.io') < 0) return;
     fetch('index.html?nocache=' + Date.now(), { cache: 'no-store' }).then(r => r.text()).then(t => {
@@ -497,16 +510,17 @@
     }).catch(() => {});
   })();
 </script>
-<script src="config.js?v=20261007142108"></script>
-<script src="vendor/pdf.min.js?v=20261007142108"></script>
-<script src="layout.js?v=20261007142108"></script>
-<script src="vworld.js?v=20261007142108"></script>
-<script src="kepco.js?v=20261007142108"></script>
-<script src="bld.js?v=20261007142108"></script>
-<script src="rps.js?v=20261007142108"></script>
-<script src="report.js?v=20261007142108"></script>
-<script src="rps_ui.js?v=20261007142108"></script>
-<script src="policy.js?v=20261007142108"></script>
-<script src="app.js?v=20261007142108"></script>
+<script src="config.js?v=20261007143810"></script>
+<script src="vendor/pdf.min.js?v=20261007143810"></script>
+<script src="layout.js?v=20261007143810"></script>
+<script src="vworld.js?v=20261007143810"></script>
+<script src="site.js?v=20261007143810"></script>
+<script src="kepco.js?v=20261007143810"></script>
+<script src="bld.js?v=20261007143810"></script>
+<script src="rps.js?v=20261007143810"></script>
+<script src="report.js?v=20261007143810"></script>
+<script src="rps_ui.js?v=20261007143810"></script>
+<script src="policy.js?v=20261007143810"></script>
+<script src="app.js?v=20261007143810"></script>
 </body>
 </html>

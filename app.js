@@ -597,17 +597,86 @@
   }
   function clearParcel() { if (parcelGfx) { parcelGfx.setMap(null); parcelGfx = null; } }
 
-  /** 검색한 필지 외곽선 자체를 배치 대상으로 등록 (토지 · 노지 2단). 같은 필지를 두 번 넣지 않는다. */
+  /** O / X 창. 확인(O) 이면 true. */
+  function askOX(title, body, oLabel, xLabel) {
+    return new Promise(resolve => {
+      $('ox_title').textContent = title; $('ox_body').innerHTML = body;
+      $('ox_o').textContent = oLabel || '합산 O'; $('ox_x').textContent = xLabel || '분리 X';
+      $('oxModal').classList.add('on');
+      const done = v => { $('oxModal').classList.remove('on'); resolve(v); };
+      $('ox_o').onclick = () => done(true);
+      $('ox_x').onclick = () => done(false);
+    });
+  }
+
+  /**
+   * 검색한 필지 외곽선 자체를 배치 대상으로 등록 (토지 · 노지 2단). 같은 필지를 두 번 넣지 않는다.
+   * 이미 넣은 토지에 붙어 있는(경계 3m 안) 필지면 합산할지 묻는다:
+   *   합산 O → 기존 토지에 필지를 더해 한 부지로 배치(면적도 합산 → 허가 규모 판정도 합산 기준)
+   *   분리 X → 따로 배치
+   */
   function adoptParcel(parcel, name) {
-    const src = 'parcel:' + (parcel.pnu || parcel.ring.map(p => p.lat.toFixed(5) + p.lng.toFixed(5)).join(''));
-    const dup = roofs.find(r => r.src === src);
-    if (dup) { select(dup.id); return; }
-    const roof = { id: Date.now().toString(36) + Math.random().toString(36).slice(2, 5), name: parcel.jibun || name || ('토지 ' + (roofs.length + 1)), type: 'ground', points: parcel.ring.slice(), src, floors: 0, gfx: null };
-    roofs.push(roof);
-    selectedId = roof.id;
-    curType = 'ground'; renderTypes(); fillSettings();
-    recompute(roof); renderList(); save();
-    setTimeout(ensureHeights, 0);
+    const pnu = parcel.pnu || (parcel.props || {}).pnu || '';
+    const jibun = parcel.jibun || (parcel.props || {}).jibun || '';
+    const src = 'parcel:' + (pnu || parcel.ring.map(p => p.lat.toFixed(5) + p.lng.toFixed(5)).join(''));
+    const dup = roofs.find(r => r.src === src || (r.parcels || []).some(p => p.pnu && p.pnu === pnu));
+    if (dup) { select(dup.id); hint((jibun || '이 필지') + ' 는 이미 배치돼 있습니다.'); return; }
+    const near = roofs.find(r => r.type === 'ground' && [r.points].concat(r.extra || []).some(rg => Site.distanceM(rg, parcel.ring) <= 3));
+    const make = () => {
+      const roof = { id: Date.now().toString(36) + Math.random().toString(36).slice(2, 5), name: jibun || name || ('토지 ' + (roofs.length + 1)), type: 'ground', points: parcel.ring.slice(), src, floors: 0, gfx: null,
+        parcels: [{ pnu, jibun, ring: parcel.ring.slice() }], extra: [] };
+      roofs.push(roof);
+      selectedId = roof.id;
+      curType = 'ground'; renderTypes(); fillSettings();
+      recompute(roof); renderList(); save();
+      reviewSite(roof);
+      setTimeout(ensureHeights, 0);
+    };
+    if (!near) { make(); return; }
+    askOX('인근 부지 연결', '<b>' + (jibun || '이 필지') + '</b> 은(는) 이미 배치한 <b>' + near.name + '</b> 에 붙어 있습니다.<br>한 부지로 <b>합산</b>해서 배치할까요, <b>분리</b>해서 따로 배치할까요?<br><small style="color:var(--muted)">합산하면 면적도 합쳐져 개발행위허가 규모·환경영향평가 판정이 합산 면적으로 됩니다.</small>')
+      .then(merge => {
+        if (!merge) { make(); return; }
+        near.parcels = (near.parcels || [{ pnu: '', jibun: near.name, ring: near.points }]).concat([{ pnu, jibun, ring: parcel.ring.slice() }]);
+        near.extra = (near.extra || []).concat([parcel.ring.slice()]);
+        near.name = near.parcels.map(p => p.jibun || '필지').join(' + ');
+        selectedId = near.id;
+        recompute(near); renderList(); save();
+        reviewSite(near);
+        hint(near.name + ' — 합산 배치했습니다.');
+      });
+  }
+
+  // ------------------------------------------------------------ 토지 입지 검토
+  /** 토지 지붕의 지역지구·지형·도로·면적 기준을 검토해 r.review 에 둔다. 설치불가면 모듈을 깔지 않는다(「그래도 배치」로 풀 수 있음). */
+  function reviewSite(r) {
+    if (r.type !== 'ground') return;
+    const parcels = r.parcels && r.parcels.length ? r.parcels : [{ pnu: '', jibun: r.name, ring: r.points }];
+    r.review = { pending: true };
+    renderReview(r);
+    const area = r.result ? r.result.areaM2 : 0;
+    Site.review(parcels, area).then(rv => {
+      r.review = rv;
+      recompute(r); renderList(); save();
+      renderReview(r);
+    }).catch(e => { r.review = { verdict: 'warn', items: [{ level: 'warn', text: '입지 검토 실패: ' + e.message }], head: {} }; renderReview(r); });
+  }
+  function renderReview(r) {
+    const head = $('siteHead'), body = $('siteBody');
+    if (!r || r.type !== 'ground' || !r.review) { head.textContent = ''; body.innerHTML = ''; $('siteRow').style.display = 'none'; return; }
+    $('siteCard').style.display = ''; $('siteRow').style.display = '';
+    if (r.review.pending) { head.textContent = '검토 중…'; body.innerHTML = ''; return; }
+    const rv = r.review, h = rv.head || {};
+    const badge = rv.verdict === 'ban' ? '<span class="badge" style="background:var(--danger)">설치불가</span>'
+      : rv.verdict === 'warn' ? '<span class="badge" style="background:#ff9800;color:#000">확인 필요</span>'
+      : '<span class="badge" style="background:var(--ok)">양호</span>';
+    head.innerHTML = badge + (r.force && rv.verdict === 'ban' ? ' <small>(그래도 배치 중)</small>' : '');
+    const line = [h.zone && ('용도지역 ' + h.zone), h.jimok && ('지목 ' + h.jimok), h.use && ('이용 ' + h.use), h.slope && ('지형 ' + h.slope), h.road && ('도로 ' + h.road),
+      h.ledgerArea && ('대장 ' + Math.round(h.ledgerArea).toLocaleString('ko-KR') + '㎡')].filter(Boolean).join(' · ');
+    const color = { ban: 'var(--danger)', warn: '#ff9800', info: 'var(--muted)' };
+    const mark = { ban: '✖', warn: '▲', info: '·' };
+    body.innerHTML = '<div style="margin-bottom:4px">' + r.name + (line ? ' — ' + line : '') + (h.year ? ' <small style="color:var(--muted)">(' + h.year + ')</small>' : '') + '</div>'
+      + rv.items.map(i => '<div style="color:' + color[i.level] + ';padding:1px 0">' + mark[i.level] + ' ' + i.text + '</div>').join('')
+      + '<p class="scNote">V-World 토지이용계획·토지특성(공시지가 조사 기준: 완경사 ≤15°, 급경사 >15°). 법령 기준은 조례·개정으로 달라질 수 있어 허가 전 토지이음·지자체 확인 필요.</p>';
   }
 
   function loadBuildings(quiet) {
@@ -966,14 +1035,18 @@
       opt.spans = r.spans || r.spansGuess;
     }
     opt.vent = !!r.vent; opt.ventH = 1;
+    if (r.extra && r.extra.length) opt.extraRings = r.extra;
     r.result = Layout.compute(r.points, opt, { on: shade.on, obstacles: obstaclesFor(r), blockers: blockersFor(r) });
     const res = r.result;
+    // 입지 검토에서 설치불가로 나온 토지는 모듈을 깔지 않는다 (「그래도 배치」를 누르면 r.force)
+    if (r.review && r.review.verdict === 'ban' && !r.force) { res.banned = true; res.modules = []; res.count = 0; res.kw = 0; res.rows = 0; }
     applyEdits(res);
     const sel = r.id === selectedId;
 
+    const toLL = rg => rg.map(p => new kakao.maps.LatLng(p.lat, p.lng));
     const outline = new kakao.maps.Polygon({
-      path: r.points.map(p => new kakao.maps.LatLng(p.lat, p.lng)),
-      strokeWeight: sel ? 3 : 2, strokeColor: sel ? '#ffd54a' : '#ff3b3b', fillColor: '#000', fillOpacity: 0.05, zIndex: 1,
+      path: r.extra && r.extra.length ? [r.points].concat(r.extra).map(toLL) : toLL(r.points),
+      strokeWeight: sel ? 3 : 2, strokeColor: res.banned ? '#ff3b3b' : (sel ? '#ffd54a' : '#ff3b3b'), fillColor: res.banned ? '#ff0000' : '#000', fillOpacity: res.banned ? 0.25 : 0.05, zIndex: 1,
     });
     outline.setMap(map);
     kakao.maps.event.addListener(outline, 'click', e => { if (drawing) return; pickAt(e && e.latLng ? { lat: e.latLng.getLat(), lng: e.latLng.getLng() } : Layout.centroid(r.points)); });
@@ -1021,6 +1094,8 @@
     if (r) { curType = r.type; renderTypes(); fillSettings(); const c = Layout.centroid(r.points); siteInfoAt(c.lat, c.lng, /^지붕 \d+$/.test(r.name) ? '' : r.name); }
     roofs.forEach(recompute);
     renderList();
+    renderReview(r && r.type === 'ground' ? r : null);
+    if (r && r.type === 'ground' && !r.review) reviewSite(r);
   }
   function remove(id) {
     const i = roofs.findIndex(x => x.id === id);
@@ -1070,9 +1145,23 @@
           + (r.vent ? ' · 벤츄레이터 ' + (res.vents ? res.vents.length : 0) + '줄(1m)' : '')
           + (r.type === 'ground' ? ' · 통로 ' + (res.aisles || 0) + '개(' + res.colBlock + '열마다 ' + res.blockGap + 'm)' : '')
           + (r.type === 'ginseng' ? ' · 동 ' + (r.spans || r.spansGuess || 1) + '개' + (r.spans ? '' : '(추정)') : '') + (r.type === 'ground' ? '' : ' · ' + (r.floors || 1) + '층') + shadeTxt + '</small></span>'
-        + '<span class="kw">' + (res.kw || 0).toFixed(2) + 'kW</span>';
+        + '<span class="kw">' + (res.banned ? '—' : (res.kw || 0).toFixed(2) + 'kW') + '</span>';
+      if (r.type === 'ground' && r.review && !r.review.pending) {
+        const rv = r.review;
+        const bg = document.createElement('span');
+        bg.className = 'badge';
+        bg.style.cssText = 'margin-right:4px;background:' + (rv.verdict === 'ban' ? 'var(--danger)' : rv.verdict === 'warn' ? '#ff9800;color:#000' : 'var(--ok)');
+        bg.textContent = rv.verdict === 'ban' ? '설치불가' : rv.verdict === 'warn' ? '확인 필요' : '입지 양호';
+        d.appendChild(bg);
+        if (rv.verdict === 'ban') {
+          const fb = document.createElement('button');
+          fb.className = 'btn ' + (r.force ? 'accent' : 'ghost'); fb.textContent = r.force ? '배치 취소' : '그래도 배치';
+          fb.onclick = e => { e.stopPropagation(); r.force = !r.force; recompute(r); renderList(); renderReview(r); save(); };
+          d.appendChild(fb);
+        }
+      }
       const fl = document.createElement('button');
-      fl.className = 'btn ghost'; fl.textContent = '층수';
+      fl.className = 'btn ghost'; fl.textContent = '층수'; if (r.type === 'ground') fl.style.display = 'none';
       fl.onclick = e => {
         e.stopPropagation();
         const v = parseInt(prompt(r.name + ' 지상 층수 (음영 계산용)', r.floors || 1), 10);
@@ -1137,7 +1226,8 @@
     try {
       localStorage.setItem(STORE, JSON.stringify({
         curType, settings, siteName, shade, moduleCfg, edits,
-        roofs: roofs.map(r => ({ id: r.id, name: r.name, type: r.type, points: r.points, src: r.src, floors: r.floors, floorsManual: r.floorsManual, spans: r.spans, vent: r.vent })),
+        roofs: roofs.map(r => ({ id: r.id, name: r.name, type: r.type, points: r.points, src: r.src, floors: r.floors, floorsManual: r.floorsManual, spans: r.spans, vent: r.vent,
+          parcels: r.parcels, extra: r.extra, review: r.review && !r.review.pending ? r.review : undefined, force: r.force })),
         // 음영 장애물로 다시 쓰려고 주변 건물도 남긴다 (그림은 다시 그리지 않는다)
         buildings: buildings.map(b => ({ id: b.id, name: b.name, ring: b.ring, floors: b.floors })),
       }));

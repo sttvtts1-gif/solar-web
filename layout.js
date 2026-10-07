@@ -182,7 +182,10 @@ const Layout = (() => {
 
     const o = centroid(geoPoly);
     const local = toLocal(geoPoly, o);
-    const areaM2 = area(local);
+    // 합산 배치: 붙어 있는 다른 필지(opt.extraRings)도 같은 격자로 깐다. 모듈은 어느 한 필지 안에 온전히 들어가야 한다.
+    const extras = ((userOpt && userOpt.extraRings) || []).filter(r => r && r.length >= 3).map(r => toLocal(r, o));
+    const rings = [local].concat(extras);
+    const areaM2 = rings.reduce((a, r) => a + area(r), 0);
 
     // 음영 조각은 지붕과 같은 원점의 미터 평면에서 만든다(회전 전 좌표).
     //   shade.obstacles : 주변 더 높은 건물 { ring, dh } — 그림자만
@@ -203,12 +206,13 @@ const Layout = (() => {
       addShadow(ring, ob.dh || 0);
     });
 
-    const rect = minRect(local);
+    const rect = minRect([].concat(...rings));
     const row = pickRowAngle(rect, opt);
 
     // 줄이 x축과 나란해지도록 돌린다. 계산이 끝나면 다시 되돌린다.
-    const poly = local.map(p => rotate(p, -row.angle));
-    const b = bbox(poly);
+    const polys = rings.map(r => r.map(p => rotate(p, -row.angle)));
+    const poly = polys[0];
+    const b = bbox([].concat(...polys));
 
     // 용마루 벤츄레이터/모니터 (있을 때만): 폭 1m 띠, 높이 opt.ventH(기본 1m). 자리 차단 + 그림자.
     //   원단(남북지붕): 경간마다 남북 깊이 가운데를 동서로 지나는 띠.  인삼밭(동서지붕): 동서 폭 가운데를 남북으로 지나는 띠.
@@ -325,7 +329,7 @@ const Layout = (() => {
       for (let k = 0; k < nFit; k++) {
         const x = b.minX + m + xOff + xs[k];
         const c = [{ x, y }, { x: x + w, y }, { x: x + w, y: y + d }, { x, y: y + d }];
-        if (c.every(p => pointIn(poly, p) && (m === 0 || distToEdges(poly, p) >= m - 1e-9))) {
+        if (polys.some(pg => c.every(p => pointIn(pg, p) && (m === 0 || distToEdges(pg, p) >= m - 1e-9)))) {
           if (onBlocker(c)) { blocked++; continue; }
           if (inShadow(c)) { shaded++; continue; }
           modules.push(c);
