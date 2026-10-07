@@ -26,7 +26,7 @@ const Cad = (() => {
         '0', 'SECTION', '2', 'TABLES', '0', 'TABLE', '2', 'LAYER', '70', String(layers.length)];
       layers.forEach(([n, c]) => out.push('0', 'LAYER', '2', n, '70', '0', '62', String(c), '6', 'CONTINUOUS'));
       out.push('0', 'ENDTAB', '0', 'ENDSEC', '0', 'SECTION', '2', 'ENTITIES');
-      out.push(...e);
+      for (const x of e) out.push(x);   // 전개(...)는 수만 개면 스택이 넘친다
       out.push('0', 'ENDSEC', '0', 'EOF');
       return out.join('\r\n') + '\r\n';
     }
