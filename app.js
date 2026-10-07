@@ -150,7 +150,12 @@
     $('btnDraw').onclick = startDraw;
     $('btnParcel').onclick = () => loadParcels();
     $('btn3d').onclick = open3d;
-    $('btnProposal').onclick = makeProposal;
+    // 웹(PC): 원본 제안서 파일을 골라 그 안을 채운다. APK 나 파일을 고를 수 없으면 5쪽 별도 파일.
+    $('btnProposal').onclick = () => {
+      if (!window.Native && window.JSZip && $('tplFile')) { hint('원본 제안서(.pptx)를 고르세요 — 37·38쪽 그림과 47~49쪽 표를 채워 완성본으로 내려받습니다.'); $('tplFile').value = ''; $('tplFile').click(); }
+      else makeProposal(null);
+    };
+    if ($('tplFile')) $('tplFile').onchange = () => { const f = $('tplFile').files && $('tplFile').files[0]; if (f) makeProposal(f); };
     $('v3d_close').onclick = () => View3D.close();
     $('v3d_auto').onclick = () => { $('v3d_auto').classList.toggle('accent', View3D.toggleAuto()); };
     $('v3d_snap').onclick = () => {
@@ -824,7 +829,7 @@
   }
   // ------------------------------------------------------------ 제안서 PPT
   /** 배치·높이·손익·한전 선로를 모아 제안서 5쪽(.pptx)을 만든다. 원본 제안서는 암호화돼 못 열어서 별도 파일 → 「슬라이드 재사용」으로 삽입. */
-  async function makeProposal() {
+  async function makeProposal(templateFile) {
     const done = roofs.filter(r => r.result && r.result.count);
     if (!done.length) { hint('먼저 배치를 하세요. 배치된 지붕·토지의 용량으로 제안서를 만듭니다.'); return; }
     if (typeof PptxGenJS === 'undefined') { hint('PPT 라이브러리(vendor/pptxgen.bundle.js)가 없습니다.'); return; }
@@ -876,11 +881,25 @@
     const memo = memoRes && memoRes.hits ? memoRes.hits.map(h => (h.tab ? '[' + h.tab + '] ' : '') + h.text).slice(0, 4) : [];
     const rpsSt = (window.RpsUI && RpsUI.getState) ? RpsUI.getState() : {};
     const data = {
-      site: { name: siteName, addr: siteAddr }, kw: rs.reduce((a, r) => a + r.kw, 0),
-      module: { w: moduleCfg.moduleWp, L: moduleCfg.modLmm, S: moduleCfg.modSmm },
+      site: { name: siteName, addr: siteAddr, short: (siteAddr || '').split(' ').slice(-2).join(' ') }, kw: rs.reduce((a, r) => a + r.kw, 0),
+      module: { w: moduleCfg.moduleWp, L: moduleCfg.modLmm, S: moduleCfg.modSmm, maker: '현대' },
       roofs: rs, origin, buildings: buildings.filter(b => !srcs.has(b.id) && distM(origin, Layout.centroid(b.ring)) <= 150).map(b => ({ ring: b.ring })),
       lines: lastKepco, memo, costPerKw: rpsSt.costPerKw || 1000000,
     };
+    if (templateFile) {
+      try {
+        hint('원본 제안서 읽는 중… (' + Math.round(templateFile.size / 1048576) + 'MB)');
+        const buf = await templateFile.arrayBuffer();
+        hint('배치도·측면도 그리고 표 채우는 중…');
+        const imgs = { plan: Proposal.drawPlanSheet(data), section: Proposal.drawSectionSheet(data) };
+        const blob = await Proposal.fillTemplate(buf, data, imgs);
+        const name = templateFile.name.replace(/\.pptx$/i, '') + '_' + (siteName || '현장').replace(/[\\/:*?"<>|]/g, '') + '_' + data.kw.toFixed(0) + 'kW.pptx';
+        const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = name; document.body.appendChild(a); a.click(); a.remove();
+        setTimeout(() => URL.revokeObjectURL(a.href), 60000);
+        hint('완성본을 내려받았습니다: ' + name + ' (37 배치도 · 38 측면도 · 47~49 손익·한전 계통 채움)');
+      } catch (e) { hint('원본 채우기 실패: ' + e.message + ' — 원본이 암호화돼 있으면 풀어서 다시 고르세요.'); }
+      return;
+    }
     try {
       const { pptx, fileName } = await Proposal.build(data);
       const how = await Proposal.save(pptx, fileName);

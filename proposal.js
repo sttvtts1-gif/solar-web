@@ -84,7 +84,8 @@ const Proposal = (() => {
 
   // ------------------------------------------------------------ 그림: 측면도
   /** 지붕 하나의 단면(남→북 또는 서→동). 치수는 mm. */
-  function drawSection(r) {
+  function drawSection(r) { return drawSectionCanvas(r).toDataURL('image/png'); }
+  function drawSectionCanvas(r) {
     const W = 1000, H = 420;
     const cv = document.createElement('canvas'); cv.width = W; cv.height = H;
     const g = cv.getContext('2d');
@@ -145,12 +146,12 @@ const Proposal = (() => {
       g.fillText('남', X(0) - 30, Y(0) + 24); g.fillText('북', X(depth) + 14, Y(0) + 24);
       g.fillText(r.typeLabel + ' · ' + r.tiers + '단 ' + r.tilt + '° · 피치 ' + r.pitch + 'm · 이격 ' + r.gap + 'm' + (r.slopeNote ? ' · ' + r.slopeNote : ''), 110, 28);
     }
-    return cv.toDataURL('image/png');
+    return cv;
   }
 
   // ------------------------------------------------------------ 상담일지 선로 메모 (중계 consult)
   function consult(addr) {
-    const cfg = window.SOLAR_CONFIG || {};
+    const cfg = (typeof window !== 'undefined' && window.SOLAR_CONFIG) || {};
     if (!cfg.KEPCO_PROXY || !addr) return Promise.resolve(null);
     const url = cfg.KEPCO_PROXY + '?path=consult&addr=' + encodeURIComponent(addr);
     if (window.Native && window.Native.fetch && window.NativeHttp) return window.NativeHttp.get(url, '').catch(() => null);
@@ -319,5 +320,260 @@ const Proposal = (() => {
     return 'download';
   }
 
-  return { build, save, consult, drawPlan, drawSection, PRICE, genKwh, yearCost };
+  // ============================================================ 원본 제안서 채우기 (템플릿 방식)
+  // 원본 1.제안서_그랜드썬기술단_2026-10-06.pptx 구조(2026-10-07 확인, 63쪽, 16:9 12192000×6858000 EMU):
+  //   slide37 배치도 = 그림 image141.png (10.57×7.47in)   slide38 측면도 = image142.png
+  //   slide47 「표 5」 32×6 (년차·효율·3.6h·3.8h·4.0h·연간비용) + 「표 3」 21×2 라벨표 + 하단 '# 변전소 …' 텍스트박스
+  //   slide48 「표 1」 33×7 (0년차 포함, 장기계약 누적매출·투자비 회수·현물 누적매출·투자비 회수·연간비용) + 「표 4」 19×2
+  //   slide49 「표 1」 22×9 (1·2·무등급 연간매출·누적수익·연간비용) + 「표 3」 5×4 월수익 + 「표 4」 5×4 단가 + 「표 7」 5×2
+  // 표는 XML 의 <a:tc> 칸 글만 바꾸고 서식(색·글꼴·테두리)은 그대로 둔다. 그림은 같은 이름의 media 파일을 덮어쓴다.
+
+  const esc = s => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  /** 칸 하나의 글을 바꾼다. 첫 문단의 pPr 과 첫 run 의 rPr(없으면 endParaRPr)을 살려 새로 조립. */
+  function setCell(tc, text) {
+    const body = tc.match(/<a:txBody>[\s\S]*?<\/a:txBody>/);
+    if (!body) return tc;
+    const b = body[0];
+    const pPr = (b.match(/<a:pPr[^>]*\/>|<a:pPr[^>]*>[\s\S]*?<\/a:pPr>/) || [''])[0];
+    let rPr = (b.match(/<a:rPr[^>]*\/>|<a:rPr[^>]*>[\s\S]*?<\/a:rPr>/) || [''])[0];
+    if (!rPr) { const e = b.match(/<a:endParaRPr[^>]*\/>|<a:endParaRPr[^>]*>[\s\S]*?<\/a:endParaRPr>/); if (e) rPr = e[0].replace(/endParaRPr/g, 'rPr'); }
+    const nb = '<a:txBody><a:bodyPr/><a:lstStyle/><a:p>' + pPr + (text === '' ? '' : '<a:r>' + rPr + '<a:t>' + esc(text) + '</a:t></a:r>') + '</a:p></a:txBody>';
+    return tc.replace(b, nb);
+  }
+  const cellText = tc => [...tc.matchAll(/<a:t>([^<]*)<\/a:t>/g)].map(m => m[1]).join('').replace(/\s+/g, '');
+  function frameOf(xml, name) {
+    const fr = xml.match(/<p:graphicFrame>[\s\S]*?<\/p:graphicFrame>/g) || [];
+    return fr.find(f => f.indexOf('name="' + name + '"') >= 0) || null;
+  }
+  /** rows[i][j] 가 null/undefined 면 그대로, 아니면 그 글로. */
+  function setTable(xml, name, rows) {
+    const f = frameOf(xml, name); if (!f) return xml;
+    let i = 0;
+    const nf = f.replace(/<a:tr [\s\S]*?<\/a:tr>/g, tr => {
+      const r = rows[i++]; if (!r) return tr;
+      let j = 0;
+      return tr.replace(/<a:tc[\s\S]*?<\/a:tc>/g, tc => { const v = r[j++]; return v == null ? tc : setCell(tc, v); });
+    });
+    return xml.replace(f, nf);
+  }
+  /** 2열 라벨표: 왼쪽 라벨(공백 제거)이 map 의 키와 같으면 오른쪽 칸을 바꾼다. */
+  function setByLabel(xml, name, map) {
+    const f = frameOf(xml, name); if (!f) return xml;
+    const nf = f.replace(/<a:tr [\s\S]*?<\/a:tr>/g, tr => {
+      const tcs = tr.match(/<a:tc[\s\S]*?<\/a:tc>/g) || [];
+      if (tcs.length < 2) return tr;
+      const key = cellText(tcs[0]);
+      const hit = Object.keys(map).find(k => key === k.replace(/\s+/g, ''));
+      if (hit === undefined) return tr;
+      return tr.replace(tcs[1], setCell(tcs[1], map[hit]));
+    });
+    return xml.replace(f, nf);
+  }
+  /** 하단 '# 변전소 …' 상자의 첫 문단을 바꾼다(빨간 run 서식 유지). 줄이 여러 개면 문단을 더 넣는다. */
+  function setNote(xml, lines) {
+    const sps = xml.match(/<p:sp>[\s\S]*?<\/p:sp>/g) || [];
+    const sp = sps.find(s => s.indexOf('변전소') >= 0); if (!sp) return xml;
+    const ps = sp.match(/<a:p>[\s\S]*?<\/a:p>/g) || []; if (!ps.length) return xml;
+    const p0 = ps[0];
+    const rprs = p0.match(/<a:rPr[^>]*>[\s\S]*?<\/a:rPr>/g) || [];
+    const rPr = rprs[1] || rprs[0] || '<a:rPr lang="ko-KR" sz="1050"/>';
+    // 문단을 늘리면 상자가 아래로 자라 맨 아랫줄이 잘린다 → 한 문단에 ' | ' 로 이어 붙인다
+    const np = '<a:p><a:r>' + rPr + '<a:t>' + esc(lines.join('  |  ')) + '</a:t></a:r></a:p>';
+    return xml.replace(sp, sp.replace(p0, np));
+  }
+  function dataUrlBytes(u) {
+    const b64 = u.slice(u.indexOf(',') + 1);
+    if (typeof atob === 'function') { const bin = atob(b64); const a = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) a[i] = bin.charCodeAt(i); return a; }
+    return Buffer.from(b64, 'base64');
+  }
+
+  /** 손익 수치 일괄 계산 (원본 표 채우기·별도 5쪽 공용) */
+  function computeTables(kw, costPerKw) {
+    const invest = kw * (costPerKw || 1000000);
+    const ins = step(INSURANCE, kw), safe = step(SAFETY_MONTHLY, kw) * 12;
+    const lowV = kw <= 100;                                   // 100kW 초과는 고압 연계
+    const grid = lowV ? '저압삼상 공중' : '고압 공중';
+    const kepcoFee = kw * (lowV ? 120000 : 24000);           // 제안서 각주: 저압공중 12만/kW, 고압공중 2.4만/kW
+    const t47 = [], t48 = [], t49 = [];
+    const S = { a: 0, b: 0, c: 0, k30: 0, k20: 0, r2: 0, sp: 0, a1: 0, a2: 0, aN: 0 };
+    let cum2 = 0, cumSp = 0, c1 = 0, c2 = 0, cN = 0;
+    for (let y = 1; y <= 30; y++) {
+      const k = yearCost(kw, y), g = genKwh(kw, 3.6, y);
+      const a = g * PRICE.g1, b = genKwh(kw, 3.8, y) * PRICE.g1, c = genKwh(kw, 4.0, y) * PRICE.g1;
+      S.a += a; S.b += b; S.c += c; S.k30 += k;
+      t47.push([String(y), pct(eff(y)), won(a), won(b), won(c), won(k)]);
+      const r2 = g * PRICE.g2, sp = g * PRICE.spot;
+      cum2 += r2 - k; cumSp += sp - k; S.r2 += r2; S.sp += sp;
+      t48.push([String(y), pct(eff(y)), won(cum2), won(cum2 - invest), won(cumSp), won(cumSp - invest), won(k)]);
+      if (y <= 20) {
+        const a2 = r2, aN = g * PRICE.gN;
+        c1 += a - k; c2 += a2 - k; cN += aN - k; S.a1 += a; S.a2 += a2; S.aN += aN; S.k20 += k;
+        t49.push([String(y), pct(eff(y)), won(a), won(c1), won(a2), won(c2), won(aN), cN < 0 ? '(' + won(-cN) + ')' : won(cN), won(k)]);
+      }
+    }
+    const g1 = genKwh(kw, 3.6, 1), m1 = g1 * PRICE.g1 / 12, m2 = g1 * PRICE.g2 / 12, mN = g1 * PRICE.gN / 12, mSp = g1 * PRICE.spot / 12, mk = yearCost(kw, 1) / 12;
+    return { invest, ins, safe, grid, kepcoFee, t47, t48, t49, S, cum2, cumSp, c1, c2, cN, m1, m2, mN, mSp, mk, monthlyGen: g1 / 12,
+      m36: m1, m38: genKwh(kw, 3.8, 1) * PRICE.g1 / 12, m40: genKwh(kw, 4.0, 1) * PRICE.g1 / 12 };
+  }
+
+  /** 한전 계통 한 줄 (원본 각주 '# 변전소 MW, MTR- MW, DL- MW (출력제어조건 MW)' 꼴) */
+  function kepcoLine(lines) {
+    const r = lines && lines.rows && lines.rows[0];
+    if (!r) return '# 변전소 - MW, MTR- - MW, DL- - MW (출력제어조건 -) — 한전 자료 없음, 한전ON 확인';
+    const mw = v => v == null ? '-' : (v / 1000).toFixed(1);
+    return '# 변전소 ' + (r.subst || '-') + ' 여유 ' + mw(r.substFree) + 'MW, MTR-' + (r.mtr || '-') + ' 여유 ' + mw(r.mtrFree) + 'MW, DL-' + (r.dl || '-') + ' 여유 ' + mw(r.dlFree) + 'MW'
+      + ' (출력제어조건 한전ON 확인)' + (lines.level === '인근' ? ' ※ 인근 번지 ' + (lines.basis || []).slice(0, 2).join(',') + ' 자료' : '');
+  }
+
+  /**
+   * 원본 제안서를 채운다.
+   * @param zipBuf ArrayBuffer|Buffer  @param d build() 과 같은 데이터  @param imgs { plan:dataURL, section:dataURL } (없으면 그림은 그대로)
+   * @returns Promise<Blob|Buffer>
+   */
+  async function fillTemplate(zipBuf, d, imgs) {
+    const JZ = (typeof window !== 'undefined' && (window.JSZipLib || window.JSZip)) || (typeof JSZip !== 'undefined' ? JSZip : require('jszip'));
+    const zip = await JZ.loadAsync(zipBuf);
+    if (imgs && imgs.plan) zip.file('ppt/media/image141.png', dataUrlBytes(imgs.plan));
+    if (imgs && imgs.section) zip.file('ppt/media/image142.png', dataUrlBytes(imgs.section));
+    const kw = d.kw, T = computeTables(kw, d.costPerKw);
+    const note = [kepcoLine(d.lines)].concat((d.memo || []).slice(0, 1).map(m => '상담일지: ' + m.slice(0, 70)));
+    const get = async n => zip.file('ppt/slides/slide' + n + '.xml').async('string');
+    // 47
+    let x = await get(47);
+    x = setTable(x, '표 5', [null].concat(T.t47, [['합계', '', won(T.S.a), won(T.S.b), won(T.S.c), won(T.S.k30)]]));
+    x = setByLabel(x, '표 3', { '설비용량(STC)(kW)': kw.toFixed(1), '발전시간(시간)': '3.6', '1등급 공사비': won(T.invest) + ' 원', '1등급 최종 공사비': '',
+      '1등급 장기계약(월) 3.6h': won(T.m36) + ' 원', '1등급 장기계약(월) 3.8h': won(T.m38) + ' 원', '1등급 장기계약(월) 4h': won(T.m40) + ' 원',
+      '전기안전관리비(년)': won(T.safe) + ' 원', '보험료(년)': won(T.ins) + ' 원', '계통 구분': T.grid, '한전연계비 vat별도': '-' + won(T.kepcoFee) + ' 원',
+      '장기계약 (1등급)': PRICE.g1.toFixed(3), '장기계약 (2등급)': PRICE.g2.toFixed(4), '장기계약 (무등급)': PRICE.gN.toFixed(4) });
+    x = setNote(x, note);
+    zip.file('ppt/slides/slide47.xml', x);
+    // 48
+    x = await get(48);
+    x = setTable(x, '표 1', [null, ['0', '100.00%', '', won(-T.invest), '', won(-T.invest), '0']].concat(T.t48, [['합계', '', won(T.cum2), won(T.cum2 - T.invest), won(T.cumSp), won(T.cumSp - T.invest), won(T.S.k30)]]));
+    x = setByLabel(x, '표 4', { '설비용량(STC)(kW)': kw.toFixed(1), '발전시간(시간)': '3.6', '2등급 공사비': won(T.invest) + ' 원', '무등급 공사비': won(T.invest) + ' 원',
+      '월수익 장기계약': won(T.m2 - T.mk) + ' 원', '월수익 현물': won(T.mSp - T.mk) + ' 원', '장기계약': PRICE.g2.toFixed(3), '현물': PRICE.spot.toFixed(3),
+      '전기안전관리비(년)': won(T.safe) + ' 원', '보험료(년)': won(T.ins) + ' 원', '계통 구분': T.grid, '한전연계비 vat별도': '-' + won(T.kepcoFee) + ' 원' });
+    x = setNote(x, note);
+    zip.file('ppt/slides/slide48.xml', x);
+    // 49
+    x = await get(49);
+    x = setTable(x, '표 1', [null].concat(T.t49, [['합계', '', won(T.S.a1), won(T.c1), won(T.S.a2), won(T.c2), won(T.S.aN), T.cN < 0 ? '(' + won(-T.cN) + ')' : won(T.cN), won(T.S.k20)]]));
+    x = setTable(x, '표 3', [null, null, [kw.toFixed(1), null, won(T.m1), won(T.m1 - T.mk)], [null, null, won(T.m2), won(T.m2 - T.mk)], [won(T.monthlyGen), null, won(T.mN), won(T.mN - T.mk)]]);
+    x = setTable(x, '표 4', [null, null, [null, PRICE.g1.toFixed(3), PRICE.smp.toFixed(3), PRICE.rec1.toFixed(3)], [null, PRICE.g2.toFixed(3), PRICE.smp.toFixed(3), PRICE.rec2.toFixed(3)], [null, PRICE.gN.toFixed(3), PRICE.smp.toFixed(3), PRICE.recN.toFixed(3)]]);
+    x = setByLabel(x, '표 7', { '전기안전관리비': won(T.safe), '보험료': won(T.ins), '계통 구분': T.grid, '한전연계비 vat별도': '-' + won(T.kepcoFee), '설계조정부담금(50kW이상)': '' });
+    x = setNote(x, note);
+    zip.file('ppt/slides/slide49.xml', x);
+    return zip.generateAsync({ type: typeof window !== 'undefined' ? 'blob' : 'nodebuffer', compression: 'STORE' });   // 노드(24+)에도 Blob 이 있어 window 로 가른다
+  }
+
+  // ------------------------------------------------------------ CAD 도면 틀 (원본 37·38쪽과 같은 꼴)
+  function sheetFrame(g, W, H, d, titleName) {
+    g.fillStyle = '#fff'; g.fillRect(0, 0, W, H);
+    g.strokeStyle = '#000'; g.lineWidth = 3; g.strokeRect(12, 12, W - 24, H - 24);
+    // 표제란
+    const y0 = H - 88, h = 76; g.lineWidth = 1.5; g.strokeRect(12, y0, W - 24, h);
+    const cols = [12, 300, 480, 760, 870, 1010, 1180, 1500, W - 12];
+    cols.slice(1, -1).forEach(x => { g.beginPath(); g.moveTo(x, y0); g.lineTo(x, y0 + h); g.stroke(); });
+    g.fillStyle = '#000'; g.textBaseline = 'middle';
+    const small = (t, x, y, a) => { g.font = '13px sans-serif'; g.textAlign = a || 'left'; g.fillText(t, x, y); };
+    small('공 사 명', 20, y0 + 20); small('PROJECT', 20, y0 + 38);
+    g.font = '15px sans-serif'; g.fillText((d.site.addr || d.site.name || ''), 100, y0 + 30); g.fillText(d.site.name && d.site.name !== d.site.addr ? d.site.name : '', 100, y0 + 54);
+    small('시 행 청', 308, y0 + 20);
+    g.font = '13px sans-serif'; g.textAlign = 'center'; g.fillText('그랜드썬기술단', 620, y0 + 18); g.fillText('GRANDSUN ENGINEERING CO., LTD.', 620, y0 + 38); g.fillText('TEL : 051-941-7783   FAX : 051-941-7785', 620, y0 + 58);
+    g.fillText('1 : none', 815, y0 + 38);
+    g.textAlign = 'left'; ['책임기술자', '설 계 자', '제 도 자'].forEach((t, i) => { g.fillText(t, 878, y0 + 14 + i * 24); g.beginPath(); g.moveTo(870, y0 + 25 + i * 24); g.lineTo(1180, y0 + 25 + i * 24); g.stroke(); });
+    g.beginPath(); g.moveTo(960, y0); g.lineTo(960, y0 + h); g.stroke();
+    small('도 면 명', 1188, y0 + 20); small('T I T L E', 1188, y0 + 38);
+    g.font = '16px sans-serif'; g.textAlign = 'center'; g.fillText(titleName, 1340, y0 + 40);
+    small('도면번호', 1508, y0 + 20);
+  }
+  function compass(g, x, y) {
+    g.save(); g.translate(x, y); g.strokeStyle = '#000'; g.fillStyle = '#000'; g.lineWidth = 2;
+    g.beginPath(); g.arc(0, 0, 34, 0, Math.PI * 2); g.stroke(); g.beginPath(); g.arc(0, 0, 24, 0, Math.PI * 2); g.stroke();
+    g.beginPath(); g.moveTo(0, -46); g.lineTo(8, 0); g.lineTo(0, 46); g.lineTo(-8, 0); g.closePath(); g.fill();
+    g.fillStyle = '#fff'; g.beginPath(); g.moveTo(0, -46); g.lineTo(8, 0); g.lineTo(-8, 0); g.closePath(); g.fill();
+    g.strokeStyle = '#000'; g.beginPath(); g.moveTo(0, -46); g.lineTo(8, 0); g.lineTo(0, 46); g.lineTo(-8, 0); g.closePath(); g.stroke();
+    g.fillStyle = '#000'; g.font = 'bold 16px sans-serif'; g.textAlign = 'center'; g.fillText('N', 0, -54); g.restore();
+  }
+  const PALETTE = ['#e0251f', '#19b219', '#1a2fd6', '#e01fd6', '#e08a1f', '#16a3a3'];
+
+  /** 원본 37쪽 꼴의 배치도 도면 (1600×1131). 건물 외곽 빨강, 동별 모듈 색, 라벨 상자(주소·동·kW·(W×EA)), 모듈 표, 표제란. */
+  function drawPlanSheet(d) {
+    const W = 1600, H = 1131;
+    const cv = document.createElement('canvas'); cv.width = W; cv.height = H;
+    const g = cv.getContext('2d');
+    sheetFrame(g, W, H, d, '모듈배치평면도');
+    const area = { x: 120, y: 60, w: W - 150, h: H - 60 - 88 - 160 };
+    g.strokeStyle = '#d33'; g.lineWidth = 1; g.strokeRect(area.x, area.y, area.w, area.h);
+    const o = d.origin, all = [];
+    d.roofs.forEach(r => r.rings.forEach(rg => all.push(...toXY(rg, o))));
+    (d.buildings || []).forEach(b => all.push(...toXY(b.ring, o)));
+    const minX = Math.min(...all.map(p => p.x)), maxX = Math.max(...all.map(p => p.x)), minY = Math.min(...all.map(p => p.y)), maxY = Math.max(...all.map(p => p.y));
+    const pad = 70, sc = Math.min((area.w - pad * 2) / Math.max(1, maxX - minX), (area.h - pad * 2) / Math.max(1, maxY - minY));
+    const ox = area.x + (area.w - (maxX - minX) * sc) / 2, oy = area.y + (area.h - (maxY - minY) * sc) / 2;
+    const X = x => ox + (x - minX) * sc, Y = y => oy + (maxY - y) * sc;
+    const path = ring => { g.beginPath(); ring.forEach((p, i) => i ? g.lineTo(X(p.x), Y(p.y)) : g.moveTo(X(p.x), Y(p.y))); g.closePath(); };
+    g.save(); g.beginPath(); g.rect(area.x, area.y, area.w, area.h); g.clip();
+    g.fillStyle = '#eef0ec'; g.fillRect(area.x, area.y, area.w, area.h);
+    (d.buildings || []).forEach(b => { path(toXY(b.ring, o)); g.fillStyle = '#d9dbd6'; g.fill(); g.strokeStyle = '#9a9c98'; g.lineWidth = 1; g.stroke(); });
+    d.roofs.forEach((r, i) => {
+      const col = PALETTE[i % PALETTE.length];
+      r.rings.forEach(rg => { path(toXY(rg, o)); g.fillStyle = '#f7f7f4'; g.fill(); g.strokeStyle = '#e0251f'; g.lineWidth = 2.5; g.stroke(); });
+      g.fillStyle = col; g.strokeStyle = '#fff'; g.lineWidth = 0.5;
+      r.modules.forEach(m => { path(toXY(m, o)); g.fill(); g.stroke(); });
+      if (r.ridges) { g.setLineDash([6, 4]); g.strokeStyle = '#555'; g.lineWidth = 1; r.ridges.forEach(seg => { const s = toXY(seg, o); g.beginPath(); g.moveTo(X(s[0].x), Y(s[0].y)); g.lineTo(X(s[1].x), Y(s[1].y)); g.stroke(); }); g.setLineDash([]); }
+    });
+    g.restore();
+    // 라벨 상자: 동 이름 / kW(빨강) / (W × EA). 그림 바깥쪽으로 번갈아 띄우고 지시선.
+    d.roofs.forEach((r, i) => {
+      const c = toXY([r.centroid], o)[0], cx = X(c.x), cy = Y(c.y);
+      const bw = 190, bh = 74, right = cx < area.x + area.w / 2;
+      const bx = Math.max(area.x + 8, Math.min(area.x + area.w - bw - 8, cx + (right ? -bw - 70 : 70))), by = Math.max(area.y + 8, Math.min(area.y + area.h - bh - 8, cy - bh / 2 + (i % 2 ? 60 : -60)));
+      g.strokeStyle = '#1a2fd6'; g.lineWidth = 1; g.beginPath(); g.moveTo(cx, cy); g.lineTo(right ? bx + bw : bx, by + bh / 2); g.stroke();
+      g.fillStyle = '#fff'; g.fillRect(bx, by, bw, bh); g.strokeRect(bx, by, bw, bh);
+      g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillStyle = '#000';
+      g.font = '13px sans-serif'; g.fillText((d.site.short || '') + ' ' + String.fromCharCode(65 + i) + '동 · ' + r.typeLabel.split(' ')[0], bx + bw / 2, by + 15);
+      g.font = 'bold 24px sans-serif'; g.fillStyle = '#e0251f'; g.fillText(r.kw.toFixed(2) + 'KW', bx + bw / 2, by + 40);
+      g.font = '13px sans-serif'; g.fillStyle = '#000'; g.fillText('(' + d.module.w + 'W × ' + r.count + 'EA)', bx + bw / 2, by + 61);
+    });
+    compass(g, area.x + 60, area.y + 70);
+    // 하단: 모듈배치도 표시 + 모듈 표
+    const ty = area.y + area.h + 20;
+    g.strokeStyle = '#e08a1f'; g.lineWidth = 2; g.beginPath(); g.arc(area.x + 50, ty + 55, 22, 0, Math.PI * 2); g.stroke(); g.beginPath(); g.moveTo(area.x + 20, ty + 55); g.lineTo(area.x + 300, ty + 55); g.stroke();
+    g.fillStyle = '#1a2fd6'; g.font = 'bold 20px sans-serif'; g.textAlign = 'left'; g.fillText('모 듈 배 치 도', area.x + 90, ty + 40); g.font = '12px sans-serif'; g.fillText('SCALE: N/S', area.x + 180, ty + 72);
+    const tx = W - 30 - 760, tw = [280, 130, 170, 180], th = 56;
+    const total = d.roofs.reduce((a, r) => a + r.count, 0);
+    const tilts = [...new Set(d.roofs.map(r => r.tilt))].sort((a, b) => a - b);
+    const cells = [['모     듈', '', '', '설치각도'], [d.module.maker + ' ' + d.module.w + 'Wp(양면)|' + d.module.L.toLocaleString() + ' x ' + d.module.S.toLocaleString(), total.toLocaleString() + '장', d.kw.toFixed(3) + 'kW', (tilts.length > 1 ? tilts[0] + '~' + tilts[tilts.length - 1] : tilts[0]) + '도']];
+    g.strokeStyle = '#000'; g.lineWidth = 1.5; g.fillStyle = '#000'; g.textAlign = 'center';
+    let x = tx; tw.forEach((w, j) => { g.strokeRect(x, ty, w, th); g.strokeRect(x, ty + th, w, th + 18); x += w; });
+    g.strokeRect(tx, ty, tw[0] + tw[1] + tw[2], th);
+    g.font = 'bold 26px sans-serif'; g.fillText('모     듈', tx + (tw[0] + tw[1] + tw[2]) / 2, ty + th / 2); g.fillText('설치각도', tx + tw[0] + tw[1] + tw[2] + tw[3] / 2, ty + th / 2);
+    g.font = '22px sans-serif'; x = tx;
+    cells[1].forEach((t, j) => { const ls = t.split('|'); ls.forEach((l, k) => g.fillText(l, x + tw[j] / 2, ty + th + (th + 18) / 2 + (k - (ls.length - 1) / 2) * 26)); x += tw[j]; });
+    return cv.toDataURL('image/png');
+  }
+
+  /** 원본 38쪽 꼴의 측면도 도면. 큰 동 2개를 "A"-"A", "B"-"B" 로. */
+  function drawSectionSheet(d) {
+    const W = 1600, H = 1131;
+    const cv = document.createElement('canvas'); cv.width = W; cv.height = H;
+    const g = cv.getContext('2d');
+    sheetFrame(g, W, H, d, '모듈배치측면도');
+    const picks = d.roofs.slice().sort((a, b) => b.kw - a.kw).slice(0, 2);
+    picks.forEach((r, i) => {
+      const img = new Image(); img.src = drawSection(r);
+      const x = 60 + i * 760, y = 140, w = 720, h = 520;
+      // drawSection 은 동기 캔버스라 바로 그릴 수 있다 (dataURL 디코딩 전이면 캔버스를 다시 그린다)
+      const sub = document.createElement('canvas'); sub.width = 1000; sub.height = 420;
+      const tmp = drawSectionCanvas(r); g.drawImage(tmp, x, y, w, h * 420 / 520 * 1.24);
+      g.fillStyle = '#1a2fd6'; g.font = 'bold 30px sans-serif'; g.textAlign = 'center';
+      g.fillText('“' + String.fromCharCode(65 + i) + '“-“' + String.fromCharCode(65 + i) + '“측면도  VIEW  SCALE  1:1', x + w / 2, y + 640);
+      g.fillStyle = '#000'; g.font = '18px sans-serif'; g.fillText(r.name + ' · ' + r.typeLabel + ' · ' + r.kw.toFixed(2) + 'kW', x + w / 2, y + 680);
+    });
+    return cv.toDataURL('image/png');
+  }
+
+  return { build, save, consult, drawPlan, drawSection, drawPlanSheet, drawSectionSheet, fillTemplate, computeTables, kepcoLine, PRICE, genKwh, yearCost };
 })();
+if (typeof module !== 'undefined' && module.exports) module.exports = Proposal;
