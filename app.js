@@ -723,9 +723,12 @@
     renderReview(r);
     const area = r.result ? r.result.areaM2 : 0;
     const rings = [r.points].concat(r.extra || []);
-    Terrain.plane(rings).catch(() => null).then(t => {
+    const terrainP = (r.terrain && r.terrain.manual) ? Promise.resolve(r.terrain)
+      : Terrain.plane(rings).catch(e => { r.terrainErr = e.message || '표고 응답 없음'; return null; });
+    terrainP.then(t => {
       r.terrain = t || null;
-      if (t) { recompute(r); renderList(); }
+      if (t) { r.terrainErr = null; recompute(r); renderList(); }
+      else { renderList(); hint(r.name + ' — 표고 자료를 못 받았습니다(' + (r.terrainErr || '') + '). 목록의 「경사」로 경사·사면을 직접 넣으면 이격이 보정됩니다.'); }
       return Site.review(parcels, area, t);
     }).then(rv => {
       r.review = rv;
@@ -837,6 +840,7 @@
           kind, spans: r.type === 'flush' ? (res.spans || 1) : (r.spans || r.spansGuess || 1),
           roofSlope: r.type === 'flush' ? (Number(opt.tilt) || 0) : 0, mat,
           buildingAngle: res.buildingAngle || 0,
+          grad: r.type === 'ground' && r.terrain ? { gE: r.terrain.gradE, gN: r.terrain.gradN } : null,   // 토지 기울기(3D 에서 땅을 기울여 그림)
           modules: res.modules || [], rowAngle: res.rowAngle || 0, tilt: r.type === 'flush' ? 0 : (Number(opt.tilt) || 0),
           dSlope: opt.orient === 'portrait' ? opt.modL : opt.modS };
       }),
@@ -1301,7 +1305,10 @@
           + (res.blocked ? ' · <span style="color:#ff9800">지장물·벤츄 −' + res.blocked + '장</span>' : '')
           + (r.vent ? ' · 벤츄레이터 ' + (res.vents ? res.vents.length : 0) + '줄(1m)' : '')
           + (r.type === 'ground' ? ' · 통로 ' + (res.aisles || 0) + '개(' + res.colBlock + '열마다 ' + res.blockGap + 'm)' : '')
-          + (r.type === 'ground' && r.terrain ? ' · <span style="color:' + (r.terrain.slopeDeg >= 15 ? 'var(--danger)' : r.terrain.slopeDeg >= 10 ? '#ff9800' : 'var(--muted)') + '">경사 ' + r.terrain.slopeDeg + '° ' + r.terrain.name + (res.backRiseDeg ? ' (이격 보정 ' + (res.backRiseDeg > 0 ? '−' : '+') + ')' : '') + '</span>' : '')
+          + (r.type === 'ground' ? (r.terrain
+              ? ' · <span style="color:' + (r.terrain.slopeDeg >= 15 ? 'var(--danger)' : r.terrain.slopeDeg >= 10 ? '#ff9800' : 'var(--accent)') + '">경사 ' + r.terrain.slopeDeg + '° ' + r.terrain.name + (r.terrain.manual ? '(직접)' : '(90m 표고)')
+                + (res.flatGap && res.flatGap !== res.arrayGap ? ' · 이격 ' + res.flatGap + '→' + res.arrayGap + 'm' : '') + '</span>'
+              : ' · <span style="color:#ff9800">경사 자료 없음' + (r.terrainErr ? '(' + r.terrainErr + ')' : '') + '</span>') : '')
           + (r.type === 'ginseng' ? ' · 동 ' + (r.spans || r.spansGuess || 1) + '개' + (r.spans ? '' : '(추정)') : '') + (r.type === 'ground' ? '' : ' · ' + (r.floors || 1) + '층') + shadeTxt + '</small></span>'
         + '<span class="kw">' + (res.banned ? '—' : (res.kw || 0).toFixed(2) + 'kW') + '</span>';
       if (r.type === 'ground' && r.review && !r.review.pending) {
@@ -1343,6 +1350,28 @@
           return s;
         };
         if (r.type === 'ground') d.appendChild(mk('지적경계 이격', [1, 2, 3], r.margin != null ? r.margin : res.opt.margin, v => '이격 ' + v + 'm', v => { r.margin = v; }));
+        if (r.type === 'ground') {
+          // 경사·사면 직접 입력: "12 남" / "8 북서" / "0" (비우면 표고 자료로 되돌림). 표고(90m)가 작은 필지를 뭉개서 현장 값이 더 정확할 때.
+          const sb = document.createElement('button'); sb.className = 'btn ' + (r.terrain && r.terrain.manual ? 'accent' : 'ghost'); sb.textContent = '경사';
+          sb.title = '경사각과 사면 방향 직접 입력 (예: 12 남 = 남쪽으로 내려가는 12° 남사면)';
+          sb.onclick = e => {
+            stop(e);
+            const s = prompt(r.name + ' — 경사각(°)과 사면(내리막 방향). 예: "12 남", "8 북서", "15 동". 비우면 표고 자료로 되돌림', r.terrain && r.terrain.manual ? r.terrain.slopeDeg + ' ' + r.terrain.name.replace('사면', '') : '');
+            if (s === null) return;
+            if (!s.trim()) { r.terrain = null; reviewSite(r); return; }
+            const m = s.trim().match(/^(\d+(?:\.\d+)?)\s*([가-힣]*)/);
+            if (!m) { hint('형식: 12 남 / 8 북서 / 0'); return; }
+            const deg = parseFloat(m[1]);
+            const dirs = { '북': 0, '북동': 45, '동': 90, '남동': 135, '남': 180, '남서': 225, '서': 270, '북서': 315 };
+            const dn = (m[2] || '남').replace('사면', '').replace('쪽', '');
+            const aspect = dirs[dn] != null ? dirs[dn] : 180;
+            const t = Math.tan(deg * Math.PI / 180), a = aspect * Math.PI / 180;
+            // 내리막이 aspect 방향 → 땅은 그 반대로 오른다
+            r.terrain = { slopeDeg: deg, aspect, name: deg < 1 ? '평지' : dn + '사면', gradE: -t * Math.sin(a), gradN: -t * Math.cos(a), zMin: 0, zMax: 0, n: 0, manual: true };
+            recompute(r); renderList(); save(); reviewSite(r);
+          };
+          d.appendChild(sb);
+        }
         if (r.type === 'parking') d.appendChild(mk('단수', [1, 2, 3, 4], r.tiers || res.opt.tiers, v => v + '단', v => { r.tiers = v; }));
       }
       const fl = document.createElement('button');

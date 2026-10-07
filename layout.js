@@ -289,6 +289,7 @@ const Layout = (() => {
     const arrayH = arraySlope * Math.sin(tilt);
     const shadeA = Math.max(1, Number(opt.shadeAngle) || 22) * D2R;
     let arrayGap = (opt.autoGap && tilt > 0) ? arrayH / Math.tan(shadeA) : opt.arrayGap;
+    const flatGap = arrayGap;                     // 평지였을 때 이격 (경사 보정 전후를 보여주려고)
     // 지면 경사(토지): 앞면이 보는 쪽의 반대(뒤)로 땅이 오르면(남사면) 그림자가 짧아지고, 내리면(북사면) 길어진다.
     //   그림자 길이 ℓ = H / (tan α + tan β), β = 뒤쪽으로의 지면 기울기(오르면 +). 분모가 0.05 아래로 가면 20H 로 막는다.
     let backRise = 0;
@@ -405,6 +406,7 @@ const Layout = (() => {
       arrayGap: Math.round(arrayGap * 100) / 100,
       arrayH: Math.round(arrayH * 100) / 100,
       backRiseDeg: Math.round(Math.atan(backRise) * 180 / Math.PI * 10) / 10,   // 뒤쪽으로 지면이 오르는 각(+ 남사면 쪽)
+      flatGap: Math.round(flatGap * 100) / 100,
       spans, blocks,
       aisles, colBlock, blockGap,
       // 합산 토지의 바깥 경계(공유 경계 제외) — 지도에 이것만 그려 한 덩어리로 보이게

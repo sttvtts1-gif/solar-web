@@ -81,13 +81,29 @@ const View3D = (() => {
     const r = xy.map(p => rot(p, -roof.buildingAngle));
     const minX = Math.min(...r.map(p => p.x)), maxX = Math.max(...r.map(p => p.x)), minY = Math.min(...r.map(p => p.y)), maxY = Math.max(...r.map(p => p.y));
     const n = Math.max(1, roof.spans | 0), t = Math.tan((roof.roofSlope || 0) * Math.PI / 180);
+    const cx = xy.reduce((a, p) => a + p.x, 0) / xy.length, cy = xy.reduce((a, p) => a + p.y, 0) / xy.length;
     const z = p => {
+      if (roof.grad) return roof.baseH + roof.grad.gE * (p.x - cx) + roof.grad.gN * (p.y - cy);   // 토지: 기울어진 지면
       if (roof.kind === 'flat' || !t) return roof.baseH;
       const q = rot(p, -roof.buildingAngle);
       if (roof.kind === 'gable-ew') { const D = (maxY - minY) / n, u = ((q.y - minY) % D + D) % D; return roof.baseH + (D / 2 - Math.abs(u - D / 2)) * t; }
       const W = (maxX - minX) / n, u = ((q.x - minX) % W + W) % W; return roof.baseH + (W / 2 - Math.abs(u - W / 2)) * t;
     };
     return { z, minX, maxX, minY, maxY, n, t };
+  }
+
+  /** 토지 필지를 지면 기울기대로 깐 판(두께 없음). 삼각분할 후 꼭짓점마다 높이. */
+  function slopedPlate(xy, zf, color) {
+    const tri = THREE.ShapeUtils.triangulateShape(xy.map(p => new THREE.Vector2(p.x, p.y)), []);
+    const pos = [], idx = [];
+    xy.forEach(p => pos.push(p.x, zf(p) - 0.35, -p.y));
+    tri.forEach(t => idx.push(t[0], t[1], t[2]));
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+    geo.setIndex(idx); geo.computeVertexNormals();
+    const m = new THREE.Mesh(geo, new THREE.MeshLambertMaterial({ color, side: THREE.DoubleSide }));
+    m.receiveShadow = true;
+    return m;
   }
 
   /** 박공지붕 면 + 박공벽(삼각). 건물 외접상자 기준이라 네모 건물에 잘 맞는다. */
@@ -185,7 +201,7 @@ const View3D = (() => {
       const surf = roofSurface(r, o);
       r.rings.forEach(rg => {
         const xy = local(rg, o); ext(xy);
-        if (r.type === 'ground') scene.add(extrude(xy, 0.15, r.banned ? 0xc96a6a : 0xb9a77a, 0.95));
+        if (r.type === 'ground') scene.add(r.grad ? slopedPlate(xy, surf.z, r.banned ? 0xc96a6a : 0xb9a77a) : extrude(xy, 0.15, r.banned ? 0xc96a6a : 0xb9a77a, 0.95));
         else if (r.type === 'parking') { scene.add(extrude(xy, 0.1, 0x9a9a9a, 1)); const top = extrude(xy, 0.15, 0x6d7f99, 0.85); top.position.y = r.baseH; scene.add(top); }
         else {
           const cs = colorsOf(r.mat);
