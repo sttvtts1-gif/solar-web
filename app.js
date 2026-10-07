@@ -27,6 +27,7 @@
   // 음영 고려. 켜면 주변의 더 높은 건물(층수 × 층고) 그림자에 걸리는 모듈을 뺀다.
   let shade = { on: false, floorH: 3.5 };
   let parcelGfx = null;    // 검색한 지번의 필지 외곽선
+  let lastParcel = null;   // 검색한 필지 { ring, pnu, jibun } — 「토지 배치」 버튼이 쓴다
 
   // 그리기 모드 상태
   let drawing = false;
@@ -35,8 +36,8 @@
   let preview = null;
 
   // 형태별 상세 설정 키. 모듈 규격은 형태와 무관하게 공통(moduleCfg)이라 여기 없다.
-  const OPT_KEYS = ['orient', 'tiers', 'tilt', 'shadeAngle', 'autoGap', 'arrayGap', 'tierGap', 'colGap', 'margin', 'align', 'alignLimit', 'eaveSetback', 'ridgeSetback', 'lift'];
-  const NUM_KEYS = ['tiers', 'tilt', 'shadeAngle', 'arrayGap', 'tierGap', 'colGap', 'margin', 'alignLimit', 'eaveSetback', 'ridgeSetback', 'lift'];
+  const OPT_KEYS = ['orient', 'tiers', 'tilt', 'shadeAngle', 'autoGap', 'arrayGap', 'tierGap', 'colGap', 'margin', 'align', 'alignLimit', 'eaveSetback', 'ridgeSetback', 'lift', 'colBlock', 'blockGap'];
+  const NUM_KEYS = ['tiers', 'tilt', 'shadeAngle', 'arrayGap', 'tierGap', 'colGap', 'margin', 'alignLimit', 'eaveSetback', 'ridgeSetback', 'lift', 'colBlock', 'blockGap'];
   // 모듈 편집: 지도에서 드래그한 사각형 목록. 순서대로 적용(del=지움, add=되살림).
   // 위도·경도 상자라서 배치 설정을 바꿔 모듈 격자가 움직여도 "그 자리" 에 그대로 먹는다.
   let edits = [];
@@ -133,6 +134,7 @@
     };
 
     $('btnDraw').onclick = startDraw;
+    $('btnParcel').onclick = () => { if (lastParcel) adoptParcel(lastParcel); else hint('먼저 지번을 검색하세요. 검색한 필지가 토지 배치 대상이 됩니다.'); };
     bindEdit();
     $('btnBuildings').onclick = () => loadBuildings();
 
@@ -291,6 +293,10 @@
       inner = box(1, 5, 46, 28) + ridge(1, 19, 47, 19);
       [7, 11.2, 15.4].forEach(y => { inner += bar(3, y, 42, 3); });
       [21, 25.2, 29.4].forEach(y => { inner += bar(3, y, 42, 3); });
+    } else if (t === 'ground') {
+      // 토지 · 필지(점선) 안에 2단 줄 + 가운데 세로 통로
+      inner = '<polygon points="2,4 44,2 46,34 4,36" fill="rgba(255,213,74,.08)" stroke="#ffd54a" stroke-width="1.2" stroke-dasharray="2 1.5"/>';
+      [6, 16, 26].forEach(y => { inner += bar(6, y, 15, 2.6) + bar(6, y + 3.2, 15, 2.6) + bar(26, y, 15, 2.6) + bar(26, y + 3.2, 15, 2.6); });
     } else {
       // 평슬라브 · 한 줄씩 경사거치 + 이격
       inner = box(3, 3, 42, 32);
@@ -560,6 +566,8 @@
     hint(name + ' — 필지·건물 불러오는 중…');
     clearParcel();
     VWorld.parcelAt(lat, lng).then(parcel => {
+      lastParcel = parcel || null;
+      $('btnParcel').disabled = !parcel;
       if (parcel) {
         parcelGfx = new kakao.maps.Polygon({
           path: parcel.ring.map(p => new kakao.maps.LatLng(p.lat, p.lng)),
@@ -575,7 +583,8 @@
           ? list.filter(bd => Layout.containsGeo(parcel.ring, Layout.centroid(bd.ring)))
           : list.filter(bd => Layout.containsGeo(bd.ring, { lat, lng }));
         if (!inside.length) {
-          hint(name + ' — ' + (parcel ? '필지 안에 건물 정보가 없습니다.' : '필지 정보를 못 받았습니다.') + ' 하늘색 건물을 누르거나 직접 그려 주세요.');
+          if (parcel) { adoptParcel(parcel, name); hint(name + ' — 필지 안에 건물이 없어 토지(노지 2단)로 배치했습니다. 건물 지붕이면 하늘색 건물을 누르세요.'); }
+          else hint(name + ' — 필지 정보를 못 받았습니다. 하늘색 건물을 누르거나 직접 그려 주세요.');
           return;
         }
         inside.forEach(bd => adoptBuilding(bd, Layout.guessType(bd.ring), true));
@@ -587,6 +596,19 @@
     }).catch(e => hint(e.message));
   }
   function clearParcel() { if (parcelGfx) { parcelGfx.setMap(null); parcelGfx = null; } }
+
+  /** 검색한 필지 외곽선 자체를 배치 대상으로 등록 (토지 · 노지 2단). 같은 필지를 두 번 넣지 않는다. */
+  function adoptParcel(parcel, name) {
+    const src = 'parcel:' + (parcel.pnu || parcel.ring.map(p => p.lat.toFixed(5) + p.lng.toFixed(5)).join(''));
+    const dup = roofs.find(r => r.src === src);
+    if (dup) { select(dup.id); return; }
+    const roof = { id: Date.now().toString(36) + Math.random().toString(36).slice(2, 5), name: parcel.jibun || name || ('토지 ' + (roofs.length + 1)), type: 'ground', points: parcel.ring.slice(), src, floors: 0, gfx: null };
+    roofs.push(roof);
+    selectedId = roof.id;
+    curType = 'ground'; renderTypes(); fillSettings();
+    recompute(roof); renderList(); save();
+    setTimeout(ensureHeights, 0);
+  }
 
   function loadBuildings(quiet) {
     if (!hasVWorld()) { hint('V-World 인증키가 없습니다. config.js 의 VWORLD_KEY 를 채워야 건물을 가져옵니다.'); return Promise.resolve([]); }
@@ -721,6 +743,7 @@
   // 건물 높이: 건축물대장 높이(heights) 우선, 없으면 층수 × 층고
   const bldH = bd => (heights[bd.id] > 0 ? heights[bd.id] : (bd.floors || 1) * shade.floorH);
   function roofH(r) {
+    if (r.type === 'ground') return 0;        // 토지(노지): 지면. 주변 건물은 전부 더 높다
     const own = r.src && buildings.find(b => b.id === r.src);
     if (own && heights[own.id] > 0) return heights[own.id];
     return (r.floors || 1) * shade.floorH;
@@ -1045,7 +1068,8 @@
           + (res.edited ? ' · <span style="color:var(--accent)">편집 −' + res.edited + '장</span>' : '')
           + (res.blocked ? ' · <span style="color:#ff9800">지장물·벤츄 −' + res.blocked + '장</span>' : '')
           + (r.vent ? ' · 벤츄레이터 ' + (res.vents ? res.vents.length : 0) + '줄(1m)' : '')
-          + (r.type === 'ginseng' ? ' · 동 ' + (r.spans || r.spansGuess || 1) + '개' + (r.spans ? '' : '(추정)') : '') + ' · ' + (r.floors || 1) + '층' + shadeTxt + '</small></span>'
+          + (r.type === 'ground' ? ' · 통로 ' + (res.aisles || 0) + '개(' + res.colBlock + '열마다 ' + res.blockGap + 'm)' : '')
+          + (r.type === 'ginseng' ? ' · 동 ' + (r.spans || r.spansGuess || 1) + '개' + (r.spans ? '' : '(추정)') : '') + (r.type === 'ground' ? '' : ' · ' + (r.floors || 1) + '층') + shadeTxt + '</small></span>'
         + '<span class="kw">' + (res.kw || 0).toFixed(2) + 'kW</span>';
       const fl = document.createElement('button');
       fl.className = 'btn ghost'; fl.textContent = '층수';

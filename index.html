@@ -54,7 +54,7 @@
   #miniSummary { font-size: 13px; color: var(--muted); padding: 2px 0 8px; }
   #miniSummary b { color: var(--fg); }
   .row { display: flex; gap: 6px; align-items: center; margin-bottom: 8px; flex-wrap: wrap; }
-  .types { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin-bottom: 8px; }
+  .types { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; margin-bottom: 8px; }
   .type { border: 1px solid var(--line); border-radius: 10px; padding: 8px 6px; text-align: center; font-size: 12px; line-height: 1.3; background: rgba(255,255,255,.05); }
   .type b { display: block; font-size: 13px; margin-bottom: 2px; }
   .type.on { border-color: var(--accent); background: rgba(255,213,74,.18); }
@@ -279,6 +279,7 @@
     <div class="row">
       <button class="btn accent" id="btnBuildings">🏢 건물 가져오기</button>
       <button class="btn ghost" id="btnDraw">✎ 직접 그리기</button>
+      <button class="btn ghost" id="btnParcel" title="검색한 필지 외곽선 안에 노지 2단 배치" disabled>▭ 토지 배치</button>
       <button class="btn ghost" id="btnEdit">✂ 모듈 편집</button>
       <button class="btn ghost" id="btnShare">공유</button>
       <button class="btn ghost" id="btnClear">전체 삭제</button>
@@ -302,6 +303,8 @@
         <label>[원단] 처마·골 이격 (m)<input id="o_eaveSetback" type="number" step="0.1"></label>
         <label>[원단] 용마루 이격 (m)<input id="o_ridgeSetback" type="number" step="0.1"></label>
         <label>[원단] 북측 들어올림 (m) — 클수록 이격 줄어듦<input id="o_lift" type="number" step="0.5" min="0"></label>
+        <label>[토지] 통로 간격 (열) — 0이면 통로 없음<input id="o_colBlock" type="number" step="1" min="0"></label>
+        <label>[토지] 통로 폭 (m)<input id="o_blockGap" type="number" step="0.5" min="0"></label>
       </div>
       <div class="row" style="margin-top:8px"><button class="btn ghost" id="btnReset">이 형태 기본값으로</button></div>
     </details>
@@ -482,7 +485,7 @@
   // 깃허브 Pages 는 화면 파일을 10분 캐시한다. 새로 올린 뒤에도 옛 화면이 나오지 않게,
   // 열 때마다 캐시 없이 index.html 을 다시 받아 버전 표식이 다르면 한 번 새로고침한다.
   // 버전 표식(APP_VER)은 web동기화.sh 가 올릴 때마다 시각으로 바꿔 넣는다.
-  window.APP_VER = '20261006161651';
+  window.APP_VER = '20261007142108';
   (function () {
     if (location.hostname.indexOf('github.io') < 0) return;
     fetch('index.html?nocache=' + Date.now(), { cache: 'no-store' }).then(r => r.text()).then(t => {
@@ -494,16 +497,16 @@
     }).catch(() => {});
   })();
 </script>
-<script src="config.js?v=20261006161651"></script>
-<script src="vendor/pdf.min.js?v=20261006161651"></script>
-<script src="layout.js?v=20261006161651"></script>
-<script src="vworld.js?v=20261006161651"></script>
-<script src="kepco.js?v=20261006161651"></script>
-<script src="bld.js?v=20261006161651"></script>
-<script src="rps.js?v=20261006161651"></script>
-<script src="report.js?v=20261006161651"></script>
-<script src="rps_ui.js?v=20261006161651"></script>
-<script src="policy.js?v=20261006161651"></script>
-<script src="app.js?v=20261006161651"></script>
+<script src="config.js?v=20261007142108"></script>
+<script src="vendor/pdf.min.js?v=20261007142108"></script>
+<script src="layout.js?v=20261007142108"></script>
+<script src="vworld.js?v=20261007142108"></script>
+<script src="kepco.js?v=20261007142108"></script>
+<script src="bld.js?v=20261007142108"></script>
+<script src="rps.js?v=20261007142108"></script>
+<script src="report.js?v=20261007142108"></script>
+<script src="rps_ui.js?v=20261007142108"></script>
+<script src="policy.js?v=20261007142108"></script>
+<script src="app.js?v=20261007142108"></script>
 </body>
 </html>

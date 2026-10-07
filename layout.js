@@ -28,6 +28,10 @@ const Layout = (() => {
                ridge: true, spans: 1, eaveSetback: 0.5, ridgeSetback: 0.3, lift: 0 },
     // 평슬라브: 정남 경사거치, 줄마다 후면입사각 이격
     slab:    { label: '평슬라브 · 경사거치',   orient: 'portrait', tiers: 1, tierGap: 0.05, tilt: 15, shadeAngle: 22, autoGap: true, arrayGap: 2.5 },
+    // 토지(노지): 필지 외곽선 안에 정남 2단 거치. 앞뒤는 후면입사각 22° 이격, 좌우는 30열마다 2m 통로(점검·장비 진입). 경계 이격 1m.
+    //   필지는 건물처럼 축이 뚜렷하지 않아 줄 방향은 기본 정남. 경사각은 2단 기준 15°(설정에서 바꿀 수 있음).
+    ground:  { label: '토지 · 노지 2단',       orient: 'portrait', tiers: 2, tierGap: 0.10, tilt: 15, shadeAngle: 22, autoGap: true, arrayGap: 3.0,
+               colBlock: 30, blockGap: 2.0, margin: 1.0, align: 'south' },
   };
 
   const DEFAULTS = {
@@ -40,6 +44,8 @@ const Layout = (() => {
     margin: 0,            // 지붕 가장자리 이격. 도면 실측(A동 14m 폭에 12장)과 맞추려면 0 이어야 한다.
     align: 'auto',        // auto: 건물이 60° 안에서 돌아가 있으면 건물에 맞춤 / south: 정남 고정
     alignLimit: 60,       // °
+    colBlock: 0,          // 줄 안에서 이 열수마다 통로를 둔다 (0 = 통로 없음). 토지 배치용
+    blockGap: 0,          // 통로 폭 (m)
   };
 
   // ------------------------------------------------------------ 좌표 변환
@@ -285,8 +291,18 @@ const Layout = (() => {
 
     // 2) 줄 안에서도 남는 폭을 좌우 반씩 나눈다. 사각형 지붕이면 딱 가운데 정렬이 된다.
     const usableW = (b.maxX - m) - (b.minX + m);
-    const nFit = Math.max(0, Math.floor((usableW + opt.colGap) / (w + opt.colGap) + 1e-9));
-    const xOff = (usableW - (nFit * w + Math.max(0, nFit - 1) * opt.colGap)) / 2;
+    const colBlock = Math.max(0, opt.colBlock | 0), blockGap = Math.max(0, Number(opt.blockGap) || 0);
+    // 통로(colBlock 열마다 blockGap)를 넣어 가며 들어가는 열의 x 오프셋을 전부 구한다
+    const xs = [];
+    let xCur = 0, aisles = 0;
+    while (xCur + w <= usableW + 1e-9) {
+      xs.push(xCur);
+      xCur += w + opt.colGap;
+      if (colBlock > 0 && blockGap > 0 && xs.length % colBlock === 0 && xCur + blockGap + w <= usableW + 1e-9) { xCur += blockGap - opt.colGap; aisles++; }
+    }
+    const nFit = xs.length;
+    const laidW = nFit ? xs[nFit - 1] + w : 0;
+    const xOff = (usableW - laidW) / 2;
 
     const modules = [];
     let rows = 0, shaded = 0;
@@ -307,7 +323,7 @@ const Layout = (() => {
       const y = y0 + yOff;
       let placedInRow = 0;
       for (let k = 0; k < nFit; k++) {
-        const x = b.minX + m + xOff + k * (w + opt.colGap);
+        const x = b.minX + m + xOff + xs[k];
         const c = [{ x, y }, { x: x + w, y }, { x: x + w, y: y + d }, { x, y: y + d }];
         if (c.every(p => pointIn(poly, p) && (m === 0 || distToEdges(poly, p) >= m - 1e-9))) {
           if (onBlocker(c)) { blocked++; continue; }
@@ -337,6 +353,7 @@ const Layout = (() => {
       arrayGap: Math.round(arrayGap * 100) / 100,
       arrayH: Math.round(arrayH * 100) / 100,
       spans, blocks,
+      aisles, colBlock, blockGap,
       depthM: Math.round(b.h * 10) / 10,
       widthM: Math.round(b.w * 10) / 10,
       opt,
@@ -344,7 +361,7 @@ const Layout = (() => {
   }
 
   function empty(opt) {
-    return { modules: [], count: 0, shaded: 0, blocked: 0, vents: [], kw: 0, areaM2: 0, rowAngle: 0, buildingAngle: 0, aligned: false, rows: 0, pitch: 0, opt };
+    return { modules: [], count: 0, shaded: 0, blocked: 0, vents: [], kw: 0, areaM2: 0, rowAngle: 0, buildingAngle: 0, aligned: false, rows: 0, pitch: 0, aisles: 0, opt };
   }
 
   /**

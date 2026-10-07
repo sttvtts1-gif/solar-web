@@ -16,7 +16,7 @@ const VWorld = (() => {
 
   // ------------------------------------------------------------ 전송
   function qs(params) {
-    return Object.keys(params).map(k => encodeURIComponent(k) + '=' + encodeURIComponent(params[k])).join('&');
+    return Object.keys(params).filter(k => params[k] !== '').map(k => encodeURIComponent(k) + '=' + encodeURIComponent(params[k])).join('&');
   }
 
   function baseParams(geomFilter, data) {
@@ -24,8 +24,9 @@ const VWorld = (() => {
       service: 'data', version: '2.0', request: 'GetFeature',
       data: data || 'LT_C_SPBD',
       key: cfg().VWORLD_KEY || '',
-      // 웹(JSONP)은 브라우저가 실제 출처를 Referer 로 보내므로 domain 도 그 출처로 맞춘다. APK 는 등록 도메인.
-      domain: (window.Native && window.Native.fetch) ? (cfg().VWORLD_DOMAIN || '') : location.origin,
+      // domain 은 APK(네이티브)에서만 등록 도메인으로 보낸다. 웹(JSONP)에서 domain 을 붙이면 — localhost 든 등록 도메인이든 —
+      // V-World 가 INCORRECT_KEY 로 거절한다(2026-10-07 확인). 빼면 Referer 만 보고 통과시킨다.
+      domain: (window.Native && window.Native.fetch) ? (cfg().VWORLD_DOMAIN || '') : '',
       geomFilter,
       geometry: 'true', crs: 'EPSG:4326', format: 'json', size: '1000', page: '1',
     };
