@@ -27,8 +27,65 @@ const View3D = (() => {
     return mesh;
   }
 
-  /** 모듈 판 전부를 하나의 geometry 로. 각 판: 앞 두 꼭짓점 base, 뒤 두 꼭짓점 base+rise. */
-  function modulesMesh(roof, o) {
+  const rot = (p, deg) => { const a = deg * Math.PI / 180, c = Math.cos(a), s = Math.sin(a); return { x: p.x * c - p.y * s, y: p.x * s + p.y * c }; };
+
+  /**
+   * 지붕면 높이 함수. 건물 축(buildingAngle)으로 돌린 틀에서
+   *   gable-ew: 남북 깊이를 spans 개 경간으로 나누고 경간 가운데가 용마루(동서) — 원단 남북지붕
+   *   gable-ns: 동서 폭을 spans 개 동으로 나누고 동 가운데가 용마루(남북) — 인삼밭 동서지붕
+   *   flat    : 처마 높이 그대로
+   * 처마(벽) 높이 = baseH, 용마루 = baseH + 반폭 × tan(지붕 경사).
+   */
+  function roofSurface(roof, o) {
+    const xy = local(roof.rings[0], o);
+    const r = xy.map(p => rot(p, -roof.buildingAngle));
+    const minX = Math.min(...r.map(p => p.x)), maxX = Math.max(...r.map(p => p.x)), minY = Math.min(...r.map(p => p.y)), maxY = Math.max(...r.map(p => p.y));
+    const n = Math.max(1, roof.spans | 0), t = Math.tan((roof.roofSlope || 0) * Math.PI / 180);
+    const z = p => {
+      if (roof.kind === 'flat' || !t) return roof.baseH;
+      const q = rot(p, -roof.buildingAngle);
+      if (roof.kind === 'gable-ew') { const D = (maxY - minY) / n, u = ((q.y - minY) % D + D) % D; return roof.baseH + (D / 2 - Math.abs(u - D / 2)) * t; }
+      const W = (maxX - minX) / n, u = ((q.x - minX) % W + W) % W; return roof.baseH + (W / 2 - Math.abs(u - W / 2)) * t;
+    };
+    return { z, minX, maxX, minY, maxY, n, t };
+  }
+
+  /** 박공지붕 면 + 박공벽(삼각). 건물 외접상자 기준이라 네모 건물에 잘 맞는다. */
+  function gableMesh(roof, o, surf) {
+    const pos = [], idx = [], col = [];
+    const push = (pts, color) => { const b = pos.length / 3; pts.forEach(p => { const w = rot({ x: p.x, y: p.y }, roof.buildingAngle); pos.push(w.x, p.z, -w.y); col.push(color.r, color.g, color.b); }); for (let i = 1; i + 1 < pts.length; i++) idx.push(b, b + i, b + i + 1); };
+    const face = new THREE.Color(0xaeb6c2), face2 = new THREE.Color(0x98a1ad), wall = new THREE.Color(0xd9d4c7);
+    const { minX, maxX, minY, maxY, n, t } = surf, h0 = roof.baseH;
+    if (roof.kind === 'gable-ew') {
+      const D = (maxY - minY) / n, hr = h0 + D / 2 * t;
+      for (let i = 0; i < n; i++) {
+        const y0 = minY + i * D, yc = y0 + D / 2, y1 = y0 + D;
+        push([{ x: minX, y: y0, z: h0 }, { x: maxX, y: y0, z: h0 }, { x: maxX, y: yc, z: hr }, { x: minX, y: yc, z: hr }], face);      // 남쪽 면
+        push([{ x: minX, y: yc, z: hr }, { x: maxX, y: yc, z: hr }, { x: maxX, y: y1, z: h0 }, { x: minX, y: y1, z: h0 }], face2);     // 북쪽 면
+        push([{ x: minX, y: y0, z: h0 }, { x: minX, y: yc, z: hr }, { x: minX, y: y1, z: h0 }], wall);                                  // 박공벽 서
+        push([{ x: maxX, y: y1, z: h0 }, { x: maxX, y: yc, z: hr }, { x: maxX, y: y0, z: h0 }], wall);                                  // 박공벽 동
+      }
+    } else {
+      const W = (maxX - minX) / n, hr = h0 + W / 2 * t;
+      for (let i = 0; i < n; i++) {
+        const x0 = minX + i * W, xc = x0 + W / 2, x1 = x0 + W;
+        push([{ x: x0, y: minY, z: h0 }, { x: xc, y: minY, z: hr }, { x: xc, y: maxY, z: hr }, { x: x0, y: maxY, z: h0 }], face);      // 서쪽 면
+        push([{ x: xc, y: minY, z: hr }, { x: x1, y: minY, z: h0 }, { x: x1, y: maxY, z: h0 }, { x: xc, y: maxY, z: hr }], face2);     // 동쪽 면
+        push([{ x: x0, y: minY, z: h0 }, { x: x1, y: minY, z: h0 }, { x: xc, y: minY, z: hr }], wall);                                  // 박공벽 남
+        push([{ x: x1, y: maxY, z: h0 }, { x: x0, y: maxY, z: h0 }, { x: xc, y: maxY, z: hr }], wall);                                  // 박공벽 북
+      }
+    }
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+    geo.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
+    geo.setIndex(idx); geo.computeVertexNormals();
+    const mesh = new THREE.Mesh(geo, new THREE.MeshLambertMaterial({ vertexColors: true, side: THREE.DoubleSide }));
+    mesh.castShadow = true; mesh.receiveShadow = true;
+    return mesh;
+  }
+
+  /** 모듈 판 전부를 하나의 geometry 로. 각 판: 지붕면 높이 + 0.3, 뒤 두 꼭짓점은 경사각만큼 더 올린다. */
+  function modulesMesh(roof, o, surf) {
     const th = roof.rowAngle * Math.PI / 180, fx = Math.sin(th), fy = -Math.cos(th);   // 앞면이 보는 방향
     const rise = roof.dSlope * Math.sin(roof.tilt * Math.PI / 180);
     const pos = [], idx = [];
@@ -38,7 +95,8 @@ const View3D = (() => {
       const order = [0, 1, 2, 3].sort((a, b) => s[b] - s[a]);
       const front = new Set(order.slice(0, 2));
       const base = pos.length / 3;
-      c.forEach((p, i) => pos.push(p.x, roof.baseH + 0.3 + (front.has(i) ? 0 : rise), -p.y));
+      // 지붕면이 기울어 있으면(원단) 판 전체를 지붕면 위 같은 높이차로 얹는다: 각 꼭짓점의 지붕 높이 + 0.3
+      c.forEach((p, i) => pos.push(p.x, surf.z(p) + 0.3 + (front.has(i) ? 0 : rise), -p.y));
       idx.push(base, base + 1, base + 2, base, base + 2, base + 3);
     });
     const geo = new THREE.BufferGeometry();
@@ -75,19 +133,21 @@ const View3D = (() => {
     const ext = pts => pts.forEach(p => { minX = Math.min(minX, p.x); maxX = Math.max(maxX, p.x); minY = Math.min(minY, p.y); maxY = Math.max(maxY, p.y); });
 
     (data.buildings || []).forEach(b => {
-      const xy = local(b.ring, o); ext(xy);
+      const xy = local(b.ring, o);          // 주변 건물은 카메라 범위에 넣지 않는다(배치 지붕이 작게 보이지 않게)
       scene.add(extrude(xy, b.h, 0xbfc3c9, 1));
       maxH = Math.max(maxH, b.h);
     });
     data.roofs.forEach(r => {
+      const surf = roofSurface(r, o);
       r.rings.forEach(rg => {
         const xy = local(rg, o); ext(xy);
         if (r.type === 'ground') scene.add(extrude(xy, 0.15, r.banned ? 0xc96a6a : 0xb9a77a, 0.95));
         else if (r.type === 'parking') { scene.add(extrude(xy, 0.1, 0x9a9a9a, 1)); const top = extrude(xy, 0.15, 0x6d7f99, 0.85); top.position.y = r.baseH; scene.add(top); }
-        else scene.add(extrude(xy, r.baseH, 0xd9d4c7, 1));
+        else scene.add(extrude(xy, r.baseH, 0xd9d4c7, 1));                       // 벽(처마 높이까지)
       });
-      if (r.modules && r.modules.length) scene.add(modulesMesh(r, o));
-      maxH = Math.max(maxH, r.baseH);
+      if (r.kind !== 'flat' && surf.t) scene.add(gableMesh(r, o, surf));           // 박공지붕
+      if (r.modules && r.modules.length) scene.add(modulesMesh(r, o, surf));
+      maxH = Math.max(maxH, r.baseH + (surf.t ? Math.max(surf.maxX - surf.minX, surf.maxY - surf.minY) / surf.n / 2 * surf.t : 0));
     });
     if (!isFinite(minX)) { minX = -50; maxX = 50; minY = -50; maxY = 50; }
     view.target = new THREE.Vector3((minX + maxX) / 2, maxH / 2, -(minY + maxY) / 2);

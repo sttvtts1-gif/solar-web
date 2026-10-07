@@ -25,8 +25,6 @@
   // V-World 에서 받아온 건물 외곽선. 누르면 지붕으로 들어가고, 음영 계산의 장애물로도 쓴다.
   let buildings = [];      // { id, name, ring, floors, gfx }
   let parcels = [];        // 「토지 가져오기」로 깐 필지 { pnu, jibun, ring, gfx } — 누르면 토지 배치
-  let lots = [];           // 「주차장 가져오기」로 띄운 주차장 장소(카카오 PK6) 오버레이
-  let siteParkArea = 0;    // 건축물대장 옥외 주차장 면적(㎡) — 주차장 가져오기의 기본 면적
   // 음영 고려. 켜면 주변의 더 높은 건물(층수 × 층고) 그림자에 걸리는 모듈을 뺀다.
   let shade = { on: false, floorH: 3.5 };
   let parcelGfx = null;    // 검색한 지번의 필지 외곽선
@@ -148,7 +146,6 @@
 
     $('btnDraw').onclick = startDraw;
     $('btnParcel').onclick = () => loadParcels();
-    $('btnLots').onclick = () => loadLots();
     $('btn3d').onclick = open3d;
     $('v3d_close').onclick = () => View3D.close();
     $('v3d_auto').onclick = () => { $('v3d_auto').classList.toggle('accent', View3D.toggleAuto()); };
@@ -500,7 +497,6 @@
           + '</div>';
       }).join('');
       $('bldBody').querySelectorAll('[data-park]').forEach(btn => btn.onclick = () => placeParking(parseFloat(btn.dataset.park), btn.dataset.dong));
-      siteParkArea = list.reduce((a, x) => a + (x.parkOutArea || 0), 0);
       $('bldBody').querySelectorAll('[data-sug]').forEach(btn => btn.onclick = () => {
         const t = btn.dataset.sug;
         roofs.forEach(r => { r.type = t; }); curType = t; renderTypes(); fillSettings(); roofs.forEach(recompute); renderList(); save();
@@ -816,48 +812,6 @@
       .catch(e => { hint(e.message); return []; })
       .finally(() => { $('btnParcel').disabled = false; });
   }
-  /**
-   * 화면 안 주차장 장소(카카오 카테고리 PK6)를 🅿 로 띄운다. 위성사진의 주차칸 선을 읽는 기능은 없다 — 장소 위치 + 대장 면적으로
-   * 캐노피 직사각형을 놓고, 자리가 다르면 직접 그린다. 누르면 면적을 물어본 뒤(기본: 대장 옥외 주차장 면적) 그 자리에 놓는다.
-   */
-  function loadLots() {
-    if (map.getLevel() > 5) { hint('너무 멀리서 보고 있습니다. 지도를 더 확대한 뒤 눌러 주세요.'); return; }
-    clearLots();
-    hint('주차장 장소 찾는 중…');
-    places.categorySearch('PK6', (res, status) => {
-      if (status !== kakao.maps.services.Status.OK || !res.length) { hint('이 화면 안에 등록된 주차장 장소가 없습니다. 주차장 자리를 「직접 그리기」로 그리고 형태를 주차장으로 두세요.'); return; }
-      res.forEach(pl => {
-        const el = document.createElement('div');
-        el.className = 'lotPin'; el.textContent = '🅿'; el.title = pl.place_name;
-        el.onclick = ev => { ev.stopPropagation(); placeParkingAt(parseFloat(pl.y), parseFloat(pl.x), pl.place_name); };
-        const ov = new kakao.maps.CustomOverlay({ position: new kakao.maps.LatLng(pl.y, pl.x), content: el, zIndex: 15, yAnchor: 1 });
-        ov.setMap(map);
-        lots.push(ov);
-      });
-      hint('주차장 ' + res.length + '곳. 🅿 를 누르면 그 자리에 캐노피를 놓습니다(면적은 물어봄, 기본은 대장 옥외 주차장 면적).');
-    }, { bounds: map.getBounds() });
-  }
-  function clearLots() { lots.forEach(o => o.setMap(null)); lots = []; }
-  /** 점 위치에 주차장 캐노피 직사각형(깊이 16m). 줄은 150m 안 가장 가까운 건물 축에 맞춘다. */
-  function placeParkingAt(lat, lng, name) {
-    const s = prompt((name || '주차장') + ' 면적 (㎡)' + (siteParkArea ? ' — 대장 옥외 주차장 ' + Math.round(siteParkArea) + '㎡' : ''), siteParkArea ? Math.round(siteParkArea) : 500);
-    if (s === null) return;
-    const areaM2 = parseFloat(s);
-    if (!(areaM2 > 0)) return;
-    const o = { lat, lng };
-    let ang = 0;
-    const near = buildings.map(b => ({ b, d: distM(o, Layout.centroid(b.ring)) })).filter(x => x.d <= 150).sort((a, b) => a.d - b.d)[0];
-    if (near) { const rc = Layout.minRect(Layout.toLocal(near.b.ring, Layout.centroid(near.b.ring))); ang = rc.w >= rc.h ? rc.angle : rc.angle + 90; }
-    let D = areaM2 < 256 ? Math.sqrt(areaM2) : 16, W = areaM2 / D;
-    const box = [{ x: -W / 2, y: -D / 2 }, { x: W / 2, y: -D / 2 }, { x: W / 2, y: D / 2 }, { x: -W / 2, y: D / 2 }].map(p => Layout.rotate(p, ang));
-    const roof = { id: Date.now().toString(36) + Math.random().toString(36).slice(2, 5), name: (name || '주차장') + ' ' + Math.round(areaM2) + '㎡', type: 'parking',
-      points: Layout.toGeo(box, o), src: 'lot:' + lat.toFixed(5) + ',' + lng.toFixed(5), floors: 1, gfx: null, parkArea: areaM2 };
-    roofs.push(roof);
-    selectedId = roof.id;
-    curType = 'parking'; renderTypes(); fillSettings();
-    recompute(roof); renderList(); save();
-    hint((name || '주차장') + ' 자리에 캐노피 ' + Math.round(areaM2) + '㎡ 를 놓았습니다(직사각형 추정). 꼴이 다르면 「직접 그리기」로 그리고 형태를 주차장으로.');
-  }
   /** 배치 결과를 3D 로. 지붕은 대장 높이(없으면 층수×층고), 토지는 0.5m 구조물, 주차장은 2.5m 캐노피. 주변 건물은 회색. */
   function open3d() {
     const done = roofs.filter(r => r.result);
@@ -869,9 +823,15 @@
       origin,
       roofs: done.map(r => {
         const res = r.result, opt = res.opt || {};
+        // 지붕 꼴: 원단(남북지붕) = 용마루 동서, 경간 res.spans / 인삼밭(동서지붕) = 용마루 남북, 동 수 r.spans / 평슬라브·토지·주차장 = 평면
+        //   원단은 모듈이 지붕면에 붙으니(경사각 = 지붕 경사) 추가로 기울이지 않고, 나머지는 지붕 위에 경사각만큼 세운다.
+        const kind = r.type === 'flush' ? 'gable-ew' : r.type === 'ginseng' ? 'gable-ns' : 'flat';
         return { name: r.name, type: r.type, rings: [r.points].concat(r.extra || []), banned: !!res.banned,
           baseH: r.type === 'ground' ? 0.5 : r.type === 'parking' ? 2.5 : roofH(r),
-          modules: res.modules || [], rowAngle: res.rowAngle || 0, tilt: Number(opt.tilt) || 0,
+          kind, spans: r.type === 'flush' ? (res.spans || 1) : (r.spans || r.spansGuess || 1),
+          roofSlope: r.type === 'flush' ? (Number(opt.tilt) || 0) : r.type === 'ginseng' ? 10 : 0,
+          buildingAngle: res.buildingAngle || 0,
+          modules: res.modules || [], rowAngle: res.rowAngle || 0, tilt: r.type === 'flush' ? 0 : (Number(opt.tilt) || 0),
           dSlope: opt.orient === 'portrait' ? opt.modL : opt.modS };
       }),
       buildings: buildings.filter(b => !srcs.has(b.id) && distM(origin, Layout.centroid(b.ring)) <= 250).map(b => ({ ring: b.ring, h: bldH(b) })),
