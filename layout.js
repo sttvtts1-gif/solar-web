@@ -20,14 +20,15 @@ const Layout = (() => {
   //   A동 도면(14×30m, 인삼밭 2단): tilt 15°, 22° → 피치 8.08m, 4어레이 × 12장 = 96장으로 도면과 같다.
   const PRESETS = {
     // 동서지붕(남북이 긴 건물): 정남으로 세워 인삼밭처럼 2단 거치 + 음영 이격
-    ginseng: { label: '동서지붕 · 인삼밭 2단', orient: 'portrait', tiers: 2, tierGap: 0.10, tilt: 15, shadeAngle: 22, autoGap: true, arrayGap: 3.0 },
+    ginseng: { label: '동서지붕 · 인삼밭 2단', orient: 'portrait', tiers: 2, tierGap: 0.10, tilt: 15, shadeAngle: 22, autoGap: true, arrayGap: 3.0, colBlock: 20, blockGap: 0.6 },
     // 남북지붕(동서로 긴 건물) 또는 경사 지붕 면 전체를 덮는 원단(밀착) 배치. 지붕면에 붙으니 이격 없음.
     // 남북지붕 원단: 용마루에서 끊어 면마다 남향 블록 하나, 블록 사이는 후면입사각 22° (사용자 도면 2026-10-02).
-    //   처마·골 이격 500, 용마루 이격 300, 경사 10°. 북측 블록을 들어올리면(lift) 그만큼 이격이 준다.
+    //   처마·골 이격 500, 용마루 이격 300, 경사 10°. 북측 블록은 남쪽 면과 같은 면으로 들어 올려 이어 붙인다(lift 는 안 씀).
+    //   건물 지붕은 좌우 20열마다 60cm 통로(colBlock/blockGap).
     flush:   { label: '남북지붕 · 원단',       orient: 'portrait', tiers: 1, tierGap: 0.05, tilt: 10, shadeAngle: 22, autoGap: true, arrayGap: 0.05,
-               ridge: true, spans: 1, eaveSetback: 0.5, ridgeSetback: 0.3, lift: 0 },
+               ridge: true, spans: 1, eaveSetback: 0.5, ridgeSetback: 0.3, lift: 0, colBlock: 20, blockGap: 0.6 },
     // 평슬라브: 정남 경사거치, 줄마다 후면입사각 이격
-    slab:    { label: '평슬라브 · 경사거치',   orient: 'portrait', tiers: 1, tierGap: 0.05, tilt: 15, shadeAngle: 22, autoGap: true, arrayGap: 2.5 },
+    slab:    { label: '평슬라브 · 경사거치',   orient: 'portrait', tiers: 1, tierGap: 0.05, tilt: 15, shadeAngle: 22, autoGap: true, arrayGap: 2.5, colBlock: 20, blockGap: 0.6 },
     // 토지(노지): 필지 외곽선 안에 정남 2단 거치. 앞뒤는 후면입사각 22° 이격, 좌우는 30열마다 2m 통로(점검·장비 진입). 경계 이격 3m(펜스).
     //   필지는 건물처럼 축이 뚜렷하지 않아 줄 방향은 기본 정남. 경사각은 2단 기준 15°(설정에서 바꿀 수 있음).
     ground:  { label: '토지 · 노지 2단',       orient: 'portrait', tiers: 2, tierGap: 0.10, tilt: 15, shadeAngle: 22, autoGap: true, arrayGap: 3.0,
@@ -318,19 +319,25 @@ const Layout = (() => {
         const y0 = b.minY + i * D;
         faces.push([y0 + eave, y0 + D / 2 - rs], [y0 + D / 2 + rs, y0 + D - eave]);
       }
-      let cursor = -Infinity, prevH = 0;
-      faces.forEach(([fs, fe]) => {
-        const gap = prevH > 0 ? Math.max(0, prevH - lift) / Math.tan(shadeA) : 0;
-        let y = Math.max(fs, cursor + gap), n = 0;
+      // 경간(동)마다: 남쪽 면은 처마 이격부터 용마루까지 꽉 채운다. 북쪽 면은 용마루 바로 뒤부터 끝까지, 남향을 유지한 채 남쪽 면과
+      // 같은 면으로 이어 붙인다(= 뒤가 들린다, 사용자 단면도 2026-10-07). 북쪽 블록 꼭대기(처마 기준 높이 (yEnd−y0)·tanθ)가 다음 동 남쪽 면에
+      // 드리우는 후면입사각 그림자만큼 다음 동 앞줄을 뒤로 민다: hTop − (y−yEnd)·tanα = (y−y0n)·tanθ 를 y 에 대해 푼다.
+      const tS = Math.tan(tilt), tA = Math.tan(shadeA);
+      let nextStart = -Infinity;
+      for (let i = 0; i < spans; i++) {
+        const y0 = b.minY + i * D, ridge = y0 + D / 2, y0n = y0 + D;
+        let y = Math.max(y0 + eave, nextStart), n = 0;
         const first = y;
-        while (y + d <= fe + 1e-9) { ys.push(y); y += d + tierGap; n++; }
-        if (n) {
-          const slope = n * dSlope + (n - 1) * opt.tierGap;
-          prevH = slope * Math.sin(tilt);
-          cursor = ys[ys.length - 1] + d;
-          blocks.push({ rows: n, from: first, to: cursor, gap: Math.round(gap * 100) / 100 });
-        }
-      });
+        while (y + d <= ridge - rs + 1e-9) { ys.push(y); y += d + tierGap; n++; }
+        if (n) blocks.push({ rows: n, from: first, to: ys[ys.length - 1] + d, gap: Math.round(Math.max(0, first - (y0 + eave)) * 100) / 100 });
+        y = ridge + rs; n = 0;
+        const f2 = y;
+        while (y + d <= y0n - eave + 1e-9) { ys.push(y); y += d + tierGap; n++; }
+        const yEnd = n ? ys[ys.length - 1] + d : ridge;
+        if (n) blocks.push({ rows: n, from: f2, to: yEnd, gap: 0, lifted: Math.round((yEnd - y0) * tS * 100) / 100 });
+        const hTop = (yEnd - y0) * tS;
+        nextStart = tA + tS > 1e-6 ? (hTop + yEnd * tA + y0n * tS) / (tA + tS) : y0n;
+      }
     } else {
       for (let y = b.minY + m, i = 0; y + d <= b.maxY - m + 1e-9; i++) {
         ys.push(y);
