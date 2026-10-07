@@ -632,6 +632,7 @@ const Proposal = (() => {
     small('도 면 명', 1188, y0 + 20); small('T I T L E', 1188, y0 + 38);
     g.font = '16px ' + FONT; g.textAlign = 'center'; g.fillText(titleName, 1340, y0 + 40);
     small('도면번호', 1508, y0 + 20);
+    g.font = '12px ' + FONT; g.textAlign = 'left'; g.fillStyle = '#555'; g.fillText('v' + String((typeof window !== 'undefined' && window.APP_VER) || 'dev').slice(-6), 1508, y0 + 56);   // 어느 판으로 뽑았는지
   }
   function compass(g, x, y) {
     g.save(); g.translate(x, y); g.strokeStyle = '#000'; g.fillStyle = '#000'; g.lineWidth = 2;
