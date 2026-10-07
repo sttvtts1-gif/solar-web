@@ -63,21 +63,21 @@ const Proposal = (() => {
       // 라벨
       const c = toXY([r.centroid], o)[0];
       const label = (i + 1) + '동 ' + r.kw.toFixed(1) + 'kW';
-      g.font = 'bold 26px sans-serif'; const tw = Math.max(g.measureText(label).width, 200);
+      g.font = 'bold 26px ' + FONT; const tw = Math.max(g.measureText(label).width, 200);
       const lx = Math.min(W - tw / 2 - 20, Math.max(tw / 2 + 20, X(c.x))), ly = Math.min(H - 110, Math.max(40, Y(c.y)));
       g.fillStyle = 'rgba(255,255,255,.92)'; g.fillRect(lx - tw / 2 - 8, ly - 20, tw + 16, 60);
       g.strokeStyle = '#111'; g.lineWidth = 1; g.strokeRect(lx - tw / 2 - 8, ly - 20, tw + 16, 60);
       g.fillStyle = '#111'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(label, lx, ly);
-      g.font = '16px sans-serif'; g.fillText(r.typeLabel + ' · ' + r.count + 'EA', lx, ly + 28);
+      g.font = '16px ' + FONT; g.fillText(r.typeLabel + ' · ' + r.count + 'EA', lx, ly + 28);
     });
     // 북쪽 화살표 · 축척
     g.strokeStyle = '#111'; g.fillStyle = '#111'; g.lineWidth = 3;
     g.beginPath(); g.moveTo(W - 60, 120); g.lineTo(W - 60, 40); g.stroke();
     g.beginPath(); g.moveTo(W - 60, 30); g.lineTo(W - 72, 56); g.lineTo(W - 48, 56); g.closePath(); g.fill();
-    g.font = 'bold 22px sans-serif'; g.textAlign = 'center'; g.fillText('N', W - 60, 142);
+    g.font = 'bold 22px ' + FONT; g.textAlign = 'center'; g.fillText('N', W - 60, 142);
     const barM = sc * 10 > 60 ? 10 : sc * 50 > 60 ? 50 : 100;
     g.lineWidth = 4; g.beginPath(); g.moveTo(pad, H - 30); g.lineTo(pad + barM * sc, H - 30); g.stroke();
-    g.font = '18px sans-serif'; g.textAlign = 'left'; g.fillText(barM + ' m', pad + barM * sc + 10, H - 30);
+    g.font = '18px ' + FONT; g.textAlign = 'left'; g.fillText(barM + ' m', pad + barM * sc + 10, H - 30);
     g.textAlign = 'right'; g.fillText('모듈 ' + data.module.w + 'W · ' + data.module.L + '×' + data.module.S + 'mm  |  ■ 모듈  ─ 건물 외곽  ┄ 용마루', W - pad, H - 30);
     return cv.toDataURL('image/png');
   }
@@ -94,7 +94,7 @@ const Proposal = (() => {
     const sc = Math.min((W - 220) / depth, (H - 120) / Math.max(4, top));
     const X = m => 110 + m * sc, Y = m => H - 70 - m * sc;
     const mm = v => Math.round(v * 1000).toLocaleString('ko-KR');
-    g.strokeStyle = '#111'; g.lineWidth = 2; g.fillStyle = '#111'; g.font = '15px sans-serif';
+    g.strokeStyle = '#111'; g.lineWidth = 2; g.fillStyle = '#111'; g.font = '15px ' + FONT;
     // 지면 · 벽
     g.beginPath(); g.moveTo(X(-1), Y(0)); g.lineTo(X(depth + 1), Y(0)); g.stroke();
     g.strokeRect(X(0), Y(eave), depth * sc, eave * sc);
@@ -113,16 +113,18 @@ const Proposal = (() => {
       for (let i = 0; i < n; i++) {
         const y0 = i * D, yc = y0 + D / 2, y1 = y0 + D;
         g.beginPath(); g.moveTo(X(y0), Y(eave)); g.lineTo(X(yc), Y(ridge)); g.lineTo(X(y1), Y(eave)); g.stroke();
-        const lift = 0.15;
+        const lift = r.frontLift != null ? r.frontLift : 0.5;   // 앞다리: 지붕면에서 띄우는 높이(사용자 지정 0.5m)
+        for (let k = 0; k <= 2; k++) { const u = 0.5 + (D / 2 - 0.8) * k / 2; post(y0 + u, eave + (D / 2 - Math.abs(u - D / 2)) * t, eave + u * t + lift); }
         mod(y0 + 0.5, eave + 0.5 * t + lift, yc - 0.3, eave + (D / 2 - 0.3) * t + lift);
         mod(yc + 0.3, eave + (D / 2 + 0.3) * t + lift, y1 - 0.5, eave + (D - 0.5) * t + lift);
         for (let k = 1; k <= 3; k++) { const u = D / 2 + 0.3 + (D / 2 - 0.8) * k / 3; post(y0 + u, eave + (D / 2 - Math.abs(u - D / 2)) * t, eave + u * t + lift); }
       }
       dim(X(0) - 40, 0, eave, '처마 ' + mm(eave), -1);
+      dim(X(0) - 12, eave, eave + 0.5 * t + (r.frontLift != null ? r.frontLift : 0.5), '앞다리 ' + mm(0.5 * t + (r.frontLift != null ? r.frontLift : 0.5)), 1);
       dim(X(depth / n / 2) + 0, eave, ridge, '지붕 ' + mm(ridge - eave), 1);
       dim(X(depth) + 40, 0, top, '북측 끝 ' + mm(top), 1);
       g.fillText('남', X(0) - 30, Y(0) + 24); g.fillText('북', X(depth) + 14, Y(0) + 24);
-      g.fillText('원단 · 용마루 ' + n + '개 · 지붕경사 ' + r.roofSlope + '° · 남면 밀착, 북면 블록 들어올림(같은 면)', 110, 28);
+      g.fillText('원단 · 용마루 ' + n + '개 · 지붕경사 ' + r.roofSlope + '° · 앞다리 ' + mm(r.frontLift != null ? r.frontLift : 0.5) + ' 띄움, 북면 블록은 같은 면으로 들어올림', 110, 28);
     } else if (r.kind === 'gable-ns') {
       // 동서지붕: 박공 위 수평 프레임에 2단 거치
       const n = r.spans, Wd = depth / n, t = Math.tan(r.roofSlope * Math.PI / 180);
@@ -261,7 +263,7 @@ const Proposal = (() => {
     // ---- p48 외주 : 장기계약(2등급) vs 현물 30년 누적 · 투자비 회수
     const s4 = pptx.addSlide();
     title(s4, pptx, pg.p48 || 48, '손익계산 ② 장기계약(2등급) vs 현물 — 30년 누적 · 투자비 회수', kw.toFixed(1) + ' kW');
-    const invest = kw * (d.costPerKw || 1000000);
+    const invest = kw * (d.costPerKw || COST_PER_KW);
     const h4 = [hcell('년차'), hcell('장기계약 연매출'), hcell('누적(비용차감)'), hcell('투자비 회수'), hcell('현물 연매출'), hcell('누적(비용차감)'), hcell('투자비 회수')];
     const r4 = [];
     let cumA = -invest, cumB = -invest, payA = null, payB = null;
@@ -275,7 +277,7 @@ const Proposal = (() => {
     const y4 = splitTable(s4, h4, r4, null, 0.3, 0.65, 9.4, [0.4, 0.85, 0.85, 0.85, 0.85, 0.85, 0.85], { rowH: 0.125 });
     s4.addText([
       { text: '산정 기준\n', options: { bold: true, color: C.navy } },
-      { text: '· 투자비 ' + won(invest) + ' 원 (' + won(d.costPerKw || 1000000) + ' 원/kW × ' + kw.toFixed(1) + 'kW, 설정값)\n' },
+      { text: '· 투자비 ' + won(invest) + ' 원 (' + won(d.costPerKw || COST_PER_KW) + ' 원/kW × ' + kw.toFixed(1) + 'kW, 설정값)\n' },
       { text: '· 장기계약(2등급) ' + PRICE.g2.toFixed(2) + ' 원/kWh / 현물 ' + PRICE.spot.toFixed(2) + ' 원/kWh (SMP ' + PRICE.smp + ' + REC ' + PRICE.recSpot + ' × 1.5)\n' },
       { text: '· 발전시간 3.6h · 연간비용 차감 후 누적\n' },
       { text: '· 투자비 회수: 장기계약 ' + (payA ? payA + '년차' : '30년 내 미회수') + ' / 현물 ' + (payB ? payB + '년차' : '30년 내 미회수') + '\n' },
@@ -337,7 +339,9 @@ const Proposal = (() => {
     const pPr = (b.match(/<a:pPr[^>]*\/>|<a:pPr[^>]*>[\s\S]*?<\/a:pPr>/) || [''])[0];
     let rPr = (b.match(/<a:rPr[^>]*\/>|<a:rPr[^>]*>[\s\S]*?<\/a:rPr>/) || [''])[0];
     if (!rPr) { const e = b.match(/<a:endParaRPr[^>]*\/>|<a:endParaRPr[^>]*>[\s\S]*?<\/a:endParaRPr>/); if (e) rPr = e[0].replace(/endParaRPr/g, 'rPr'); }
-    const nb = '<a:txBody><a:bodyPr/><a:lstStyle/><a:p>' + pPr + (text === '' ? '' : '<a:r>' + rPr + '<a:t>' + esc(text) + '</a:t></a:r>') + '</a:p></a:txBody>';
+    // 문단 끝 서식(endParaRPr)이 없으면 파워포인트가 기본 18pt 로 줄 높이를 잡아 표가 커진다 → run 과 같은 크기로 붙인다
+    const szm = rPr.match(/ sz="(\d+)"/), end = '<a:endParaRPr lang="ko-KR" altLang="en-US"' + (szm ? ' sz="' + szm[1] + '"' : '') + '/>';
+    const nb = '<a:txBody><a:bodyPr/><a:lstStyle/><a:p>' + pPr + (text === '' ? '' : '<a:r>' + rPr + '<a:t>' + esc(text) + '</a:t></a:r>') + end + '</a:p></a:txBody>';
     return tc.replace(b, nb);
   }
   const cellText = tc => [...tc.matchAll(/<a:t>([^<]*)<\/a:t>/g)].map(m => m[1]).join('').replace(/\s+/g, '');
@@ -378,7 +382,7 @@ const Proposal = (() => {
     const rprs = p0.match(/<a:rPr[^>]*>[\s\S]*?<\/a:rPr>/g) || [];
     const rPr = rprs[1] || rprs[0] || '<a:rPr lang="ko-KR" sz="1050"/>';
     // 문단을 늘리면 상자가 아래로 자라 맨 아랫줄이 잘린다 → 한 문단에 ' | ' 로 이어 붙인다
-    const np = '<a:p><a:r>' + rPr + '<a:t>' + esc(lines.join('  |  ')) + '</a:t></a:r></a:p>';
+    const np = '<a:p><a:r>' + rPr + '<a:t>' + esc(lines.join('  |  ')) + '</a:t></a:r><a:endParaRPr lang="ko-KR" sz="1050"/></a:p>';
     return xml.replace(sp, sp.replace(p0, np));
   }
   function dataUrlBytes(u) {
@@ -387,13 +391,29 @@ const Proposal = (() => {
     return Buffer.from(b64, 'base64');
   }
 
+  /**
+   * 한전연계비 — 손익계산서 탭의 수식 그대로 (기본시설부담금, VAT 불포함, 기본거리 공중 200m·지중 50m 안, 첨가거리 0):
+   *   저압(단상·삼상) 공중 = 306,000 + (kW − 5) × 121,000   지중 = 588,000 + (kW − 5) × 141,000
+   *   고압·특고압        공중 = kW × 24,000                   지중 = kW × 50,000
+   * 100kW 초과는 고압 연계로 본다. 지중은 현장 협의 사항이라 공중으로 계산한다.
+   */
+  function kepcoFeeOf(kw, highV, underground) {
+    if (highV) return kw * (underground ? 50000 : 24000);
+    return underground ? 588000 + (kw - 5) * 141000 : 306000 + (kw - 5) * 121000;
+  }
+  /** 한전 단말통신공사 — 탭 구간표(20kW 이상 대상, 외주·최창민 탭 금액): ≤20 없음, ≤90 500만, ≤200 600만, ≤400 700만, ≤600 800만, ≤800 900만, 그 위 1,000만 */
+  const TERMINAL = [[20, 0], [90, 5000000], [200, 6000000], [400, 7000000], [600, 8000000], [800, 9000000], [1e9, 10000000]];
+  const terminalOf = kw => kw < 20 ? 0 : step(TERMINAL, kw);
+  const COST_PER_KW = 1200000;                                 // kW당 공사비 기본(사용자 지정 2026-10-07: 120만원)
+
   /** 손익 수치 일괄 계산 (원본 표 채우기·별도 5쪽 공용) */
   function computeTables(kw, costPerKw) {
-    const invest = kw * (costPerKw || 1000000);
+    const invest = kw * (costPerKw || COST_PER_KW);
     const ins = step(INSURANCE, kw), safe = step(SAFETY_MONTHLY, kw) * 12;
     const lowV = kw <= 100;                                   // 100kW 초과는 고압 연계
     const grid = lowV ? '저압삼상 공중' : '고압 공중';
-    const kepcoFee = kw * (lowV ? 120000 : 24000);           // 제안서 각주: 저압공중 12만/kW, 고압공중 2.4만/kW
+    const kepcoFee = kepcoFeeOf(kw, !lowV, false);
+    const terminal = terminalOf(kw);
     const t47 = [], t48 = [], t49 = [];
     const S = { a: 0, b: 0, c: 0, k30: 0, k20: 0, r2: 0, sp: 0, a1: 0, a2: 0, aN: 0 };
     let cum2 = 0, cumSp = 0, c1 = 0, c2 = 0, cN = 0;
@@ -412,7 +432,7 @@ const Proposal = (() => {
       }
     }
     const g1 = genKwh(kw, 3.6, 1), m1 = g1 * PRICE.g1 / 12, m2 = g1 * PRICE.g2 / 12, mN = g1 * PRICE.gN / 12, mSp = g1 * PRICE.spot / 12, mk = yearCost(kw, 1) / 12;
-    return { invest, ins, safe, grid, kepcoFee, t47, t48, t49, S, cum2, cumSp, c1, c2, cN, m1, m2, mN, mSp, mk, monthlyGen: g1 / 12,
+    return { invest, ins, safe, grid, kepcoFee, terminal, t47, t48, t49, S, cum2, cumSp, c1, c2, cN, m1, m2, mN, mSp, mk, monthlyGen: g1 / 12,
       m36: m1, m38: genKwh(kw, 3.8, 1) * PRICE.g1 / 12, m40: genKwh(kw, 4.0, 1) * PRICE.g1 / 12 };
   }
 
@@ -432,8 +452,13 @@ const Proposal = (() => {
    */
   async function fillTemplate(zipBuf, d, imgs) {
     const JZ = (typeof window !== 'undefined' && (window.JSZipLib || window.JSZip)) || (typeof JSZip !== 'undefined' ? JSZip : require('jszip'));
-    const zip = await JZ.loadAsync(zipBuf);
-    if (imgs && imgs.plan) zip.file('ppt/media/image141.png', dataUrlBytes(imgs.plan));
+    const zip = await JZ.loadAsync(zipBuf, { createFolders: false });
+    // 37쪽: 위성사진 배치도(앱 화면 꼴). 그 뒤에 CAD 도면 배치도를 한 장 더 넣는다(37-2). 38쪽: 측면도.
+    if (imgs && imgs.planMap) zip.file('ppt/media/image141.png', dataUrlBytes(imgs.planMap));
+    if (imgs && imgs.plan) {
+      if (imgs.planMap) await addSlideCopy(zip, 37, 'image141.png', dataUrlBytes(imgs.plan), '배치도', '배치도(도면)');
+      else zip.file('ppt/media/image141.png', dataUrlBytes(imgs.plan));
+    }
     if (imgs && imgs.section) zip.file('ppt/media/image142.png', dataUrlBytes(imgs.section));
     const kw = d.kw, T = computeTables(kw, d.costPerKw);
     const note = [kepcoLine(d.lines)].concat((d.memo || []).slice(0, 1).map(m => '상담일지: ' + m.slice(0, 70)));
@@ -444,6 +469,7 @@ const Proposal = (() => {
     x = setByLabel(x, '표 3', { '설비용량(STC)(kW)': kw.toFixed(1), '발전시간(시간)': '3.6', '1등급 공사비': won(T.invest) + ' 원', '1등급 최종 공사비': '',
       '1등급 장기계약(월) 3.6h': won(T.m36) + ' 원', '1등급 장기계약(월) 3.8h': won(T.m38) + ' 원', '1등급 장기계약(월) 4h': won(T.m40) + ' 원',
       '전기안전관리비(년)': won(T.safe) + ' 원', '보험료(년)': won(T.ins) + ' 원', '계통 구분': T.grid, '한전연계비 vat별도': '-' + won(T.kepcoFee) + ' 원',
+      '한전 단말통신공사(20kW 이상)': T.terminal ? '-' + won(T.terminal) + ' 원' : '',
       '장기계약 (1등급)': PRICE.g1.toFixed(3), '장기계약 (2등급)': PRICE.g2.toFixed(4), '장기계약 (무등급)': PRICE.gN.toFixed(4) });
     x = setNote(x, note);
     zip.file('ppt/slides/slide47.xml', x);
@@ -452,7 +478,8 @@ const Proposal = (() => {
     x = setTable(x, '표 1', [null, ['0', '100.00%', '', won(-T.invest), '', won(-T.invest), '0']].concat(T.t48, [['합계', '', won(T.cum2), won(T.cum2 - T.invest), won(T.cumSp), won(T.cumSp - T.invest), won(T.S.k30)]]));
     x = setByLabel(x, '표 4', { '설비용량(STC)(kW)': kw.toFixed(1), '발전시간(시간)': '3.6', '2등급 공사비': won(T.invest) + ' 원', '무등급 공사비': won(T.invest) + ' 원',
       '월수익 장기계약': won(T.m2 - T.mk) + ' 원', '월수익 현물': won(T.mSp - T.mk) + ' 원', '장기계약': PRICE.g2.toFixed(3), '현물': PRICE.spot.toFixed(3),
-      '전기안전관리비(년)': won(T.safe) + ' 원', '보험료(년)': won(T.ins) + ' 원', '계통 구분': T.grid, '한전연계비 vat별도': '-' + won(T.kepcoFee) + ' 원' });
+      '전기안전관리비(년)': won(T.safe) + ' 원', '보험료(년)': won(T.ins) + ' 원', '계통 구분': T.grid, '한전연계비 vat별도': '-' + won(T.kepcoFee) + ' 원',
+      '한전 단말통신공사(50kW 이상)': T.terminal ? '-' + won(T.terminal) + ' 원' : '' });
     x = setNote(x, note);
     zip.file('ppt/slides/slide48.xml', x);
     // 49
@@ -460,10 +487,115 @@ const Proposal = (() => {
     x = setTable(x, '표 1', [null].concat(T.t49, [['합계', '', won(T.S.a1), won(T.c1), won(T.S.a2), won(T.c2), won(T.S.aN), T.cN < 0 ? '(' + won(-T.cN) + ')' : won(T.cN), won(T.S.k20)]]));
     x = setTable(x, '표 3', [null, null, [kw.toFixed(1), null, won(T.m1), won(T.m1 - T.mk)], [null, null, won(T.m2), won(T.m2 - T.mk)], [won(T.monthlyGen), null, won(T.mN), won(T.mN - T.mk)]]);
     x = setTable(x, '표 4', [null, null, [null, PRICE.g1.toFixed(3), PRICE.smp.toFixed(3), PRICE.rec1.toFixed(3)], [null, PRICE.g2.toFixed(3), PRICE.smp.toFixed(3), PRICE.rec2.toFixed(3)], [null, PRICE.gN.toFixed(3), PRICE.smp.toFixed(3), PRICE.recN.toFixed(3)]]);
-    x = setByLabel(x, '표 7', { '전기안전관리비': won(T.safe), '보험료': won(T.ins), '계통 구분': T.grid, '한전연계비 vat별도': '-' + won(T.kepcoFee), '설계조정부담금(50kW이상)': '' });
+    x = setByLabel(x, '표 7', { '전기안전관리비': won(T.safe), '보험료': won(T.ins), '계통 구분': T.grid, '한전연계비 vat별도': '-' + won(T.kepcoFee), '설계조정부담금(50kW이상)': '' });   // 설계조정부담금은 견적에서 산출(단말통신은 47·48쪽 라벨표에)
     x = setNote(x, note);
     zip.file('ppt/slides/slide49.xml', x);
+    // JSZip 이 만든 폴더 항목(ppt/, ppt/media/ …)이 있으면 파워포인트가 "복구" 를 띄운다 → 전부 뺀다
+    // (zip.remove 는 폴더 아래 파일까지 지워 버린다 → 항목만 빼낸다)
+    Object.keys(zip.files).filter(k => zip.files[k].dir).forEach(k => { delete zip.files[k]; });
     return zip.generateAsync({ type: typeof window !== 'undefined' ? 'blob' : 'nodebuffer', compression: 'STORE' });   // 노드(24+)에도 Blob 이 있어 window 로 가른다
+  }
+
+  /**
+   * 슬라이드 srcNo 를 복제해 바로 뒤에 넣는다(그림 하나짜리 쪽 전용). 새 미디어 파일, 슬라이드 XML·rels, [Content_Types], presentation.xml(.rels) 갱신.
+   * 노트 슬라이드 관계는 복제하지 않는다(두 슬라이드가 한 노트를 가리키면 파워포인트가 복구를 띄운다).
+   */
+  async function addSlideCopy(zip, srcNo, imgName, imgBytes, titleFrom, titleTo) {
+    const files = Object.keys(zip.files);
+    const newNo = Math.max(...files.map(f => (f.match(/^ppt\/slides\/slide(\d+)\.xml$/) || [0, 0])[1] | 0)) + 1;
+    const mNo = Math.max(...files.map(f => (f.match(/^ppt\/media\/image(\d+)\./) || [0, 0])[1] | 0)) + 1;
+    let xml = await zip.file('ppt/slides/slide' + srcNo + '.xml').async('string');
+    let rels = await zip.file('ppt/slides/_rels/slide' + srcNo + '.xml.rels').async('string');
+    rels = rels.replace(imgName, 'image' + mNo + '.png').replace(/<Relationship [^>]*notesSlide[^>]*\/>/g, '');
+    if (titleFrom) xml = xml.replace('<a:t>' + titleFrom + '</a:t>', '<a:t>' + esc(titleTo) + '</a:t>');
+    zip.file('ppt/media/image' + mNo + '.png', imgBytes);
+    zip.file('ppt/slides/slide' + newNo + '.xml', xml);
+    zip.file('ppt/slides/_rels/slide' + newNo + '.xml.rels', rels);
+    let ct = await zip.file('[Content_Types].xml').async('string');
+    if (ct.indexOf('/ppt/slides/slide' + newNo + '.xml') < 0) ct = ct.replace('</Types>', '<Override PartName="/ppt/slides/slide' + newNo + '.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.slide+xml"/></Types>');
+    zip.file('[Content_Types].xml', ct);
+    let prels = await zip.file('ppt/_rels/presentation.xml.rels').async('string');
+    const relEls = prels.match(/<Relationship [^>]*\/>/g) || [];
+    const srcRel = relEls.find(r => r.indexOf('Target="slides/slide' + srcNo + '.xml"') >= 0);
+    const srcRid = srcRel && (srcRel.match(/Id="(rId\d+)"/) || [])[1];
+    const rid = 'rId' + (Math.max(...relEls.map(r => +((r.match(/Id="rId(\d+)"/) || [0, 0])[1]))) + 1);
+    prels = prels.replace('</Relationships>', '<Relationship Id="' + rid + '" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slide" Target="slides/slide' + newNo + '.xml"/></Relationships>');
+    zip.file('ppt/_rels/presentation.xml.rels', prels);
+    let pres = await zip.file('ppt/presentation.xml').async('string');
+    const ids = pres.match(/<p:sldId [^>]*\/>/g) || [];
+    const maxId = Math.max(...ids.map(s => +((s.match(/ id="(\d+)"/) || [0, 0])[1])));
+    const src = ids.find(s => s.indexOf('r:id="' + srcRid + '"') >= 0);
+    if (src) pres = pres.replace(src, src + '<p:sldId id="' + (maxId + 1) + '" r:id="' + rid + '"/>');
+    zip.file('ppt/presentation.xml', pres);
+    return newNo;
+  }
+
+  // ------------------------------------------------------------ 위성 배치도 (앱 지도 화면 꼴)
+  const FONT = '"맑은 고딕", "Malgun Gothic", sans-serif';
+  /** 지붕들만 감싸는 lat/lng 상자 (주변 건물은 범위에 안 넣는다 → 현장만 확대) */
+  function siteBox(d, padRatio) {
+    const pts = [].concat(...d.roofs.map(r => [].concat(...r.rings)));
+    let minLat = Math.min(...pts.map(p => p.lat)), maxLat = Math.max(...pts.map(p => p.lat)), minLng = Math.min(...pts.map(p => p.lng)), maxLng = Math.max(...pts.map(p => p.lng));
+    const pl = (maxLat - minLat) * padRatio, pg = (maxLng - minLng) * padRatio;
+    return { minLat: minLat - pl, maxLat: maxLat + pl, minLng: minLng - pg, maxLng: maxLng + pg };
+  }
+  const mercX = (lng, z) => (lng + 180) / 360 * 256 * Math.pow(2, z);
+  const mercY = (lat, z) => (1 - Math.log(Math.tan(lat * Math.PI / 180) + 1 / Math.cos(lat * Math.PI / 180)) / Math.PI) / 2 * 256 * Math.pow(2, z);
+  function loadTile(url) {
+    return new Promise(res => { const im = new Image(); im.crossOrigin = 'anonymous'; im.onload = () => res(im); im.onerror = () => res(null); im.src = url; setTimeout(() => res(null), 12000); });
+  }
+  /**
+   * 위성사진 위에 모듈·라벨을 얹은 배치도 (앱 화면과 같은 꼴). 1600×1131. 타일은 V-World WMTS Satellite(crossOrigin 허용 확인 2026-10-07).
+   * 타일을 못 받으면(오프라인·키 거부) 회색 바탕으로 그린다.
+   */
+  async function drawPlanMap(d) {
+    const W = 1600, H = 1131;
+    const cv = document.createElement('canvas'); cv.width = W; cv.height = H;
+    const g = cv.getContext('2d');
+    g.fillStyle = '#9aa39a'; g.fillRect(0, 0, W, H);
+    const box = siteBox(d, 0.18);
+    // 줌: 현장 상자가 캔버스 폭·높이의 80% 안에 들어오는 가장 큰 줌(최대 19)
+    let z = 19;
+    for (; z > 14; z--) { const w = mercX(box.maxLng, z) - mercX(box.minLng, z), h = mercY(box.minLat, z) - mercY(box.maxLat, z); if (w <= W * 0.8 && h <= H * 0.8) break; }
+    const cx = (mercX(box.minLng, z) + mercX(box.maxLng, z)) / 2, cy = (mercY(box.minLat, z) + mercY(box.maxLat, z)) / 2;
+    const s = Math.min(W * 0.8 / Math.max(1, mercX(box.maxLng, z) - mercX(box.minLng, z)), H * 0.8 / Math.max(1, mercY(box.minLat, z) - mercY(box.maxLat, z)), 2.5);
+    const X = lng => W / 2 + (mercX(lng, z) - cx) * s, Y = lat => H / 2 + (mercY(lat, z) - cy) * s;
+    const key = (typeof window !== 'undefined' && window.SOLAR_CONFIG && window.SOLAR_CONFIG.VWORLD_KEY) || '';
+    if (key) {
+      const tx0 = Math.floor((cx - W / 2 / s) / 256), tx1 = Math.floor((cx + W / 2 / s) / 256), ty0 = Math.floor((cy - H / 2 / s) / 256), ty1 = Math.floor((cy + H / 2 / s) / 256);
+      const jobs = [];
+      for (let tx = tx0; tx <= tx1; tx++) for (let ty = ty0; ty <= ty1; ty++) jobs.push(loadTile('https://api.vworld.kr/req/wmts/1.0.0/' + key + '/Satellite/' + z + '/' + ty + '/' + tx + '.jpeg').then(im => ({ im, tx, ty })));
+      (await Promise.all(jobs)).forEach(({ im, tx, ty }) => { if (im) g.drawImage(im, W / 2 + (tx * 256 - cx) * s, H / 2 + (ty * 256 - cy) * s, 256 * s + 0.5, 256 * s + 0.5); });
+    }
+    const path = ring => { g.beginPath(); ring.forEach((p, i) => i ? g.lineTo(X(p.lng), Y(p.lat)) : g.moveTo(X(p.lng), Y(p.lat))); g.closePath(); };
+    // 앱 화면과 같은 색: 건물 외곽 빨강, 모듈 자홍(반투명)
+    d.roofs.forEach(r => {
+      r.rings.forEach(rg => { path(rg); g.fillStyle = 'rgba(0,0,0,.05)'; g.fill(); g.strokeStyle = '#ff3b3b'; g.lineWidth = 2.5; g.stroke(); });
+      g.fillStyle = 'rgba(255,102,255,.6)'; g.strokeStyle = '#ff00ff'; g.lineWidth = 1;
+      r.modules.forEach(m => { path(m); g.fill(); g.stroke(); });
+    });
+    d.roofs.forEach(r => {
+      const cx2 = X(r.centroid.lng), cy2 = Y(r.centroid.lat);
+      const t1 = r.kw.toFixed(2) + 'kW', t2 = d.module.w + 'W × ' + r.count + 'EA';
+      g.font = 'bold 30px ' + FONT; const w1 = g.measureText(t1).width; g.font = '18px ' + FONT; const w2 = g.measureText(t2).width;
+      const bw = Math.max(w1, w2) + 28, bh = 72, bx = cx2 - bw / 2, by = cy2 - bh / 2;
+      g.fillStyle = 'rgba(255,255,255,.95)'; g.beginPath(); g.roundRect ? g.roundRect(bx, by, bw, bh, 10) : g.rect(bx, by, bw, bh); g.fill();
+      g.strokeStyle = '#ddd'; g.lineWidth = 1; g.stroke();
+      g.textAlign = 'center'; g.textBaseline = 'middle';
+      g.fillStyle = '#d4145a'; g.font = 'bold 30px ' + FONT; g.fillText(t1, cx2, cy2 - 12);
+      g.fillStyle = '#333'; g.font = '18px ' + FONT; g.fillText(t2, cx2, cy2 + 20);
+    });
+    // 축척·방위·출처
+    const mPerPx = 156543.03 * Math.cos(((box.minLat + box.maxLat) / 2) * Math.PI / 180) / Math.pow(2, z) / s;
+    const barM = [10, 20, 50, 100, 200].find(m => m / mPerPx >= 90) || 200;
+    g.fillStyle = 'rgba(255,255,255,.85)'; g.fillRect(24, H - 60, barM / mPerPx + 90, 36);
+    g.strokeStyle = '#000'; g.lineWidth = 4; g.beginPath(); g.moveTo(36, H - 40); g.lineTo(36 + barM / mPerPx, H - 40); g.stroke();
+    g.fillStyle = '#000'; g.font = '16px ' + FONT; g.textAlign = 'left'; g.fillText(barM + ' m', 46 + barM / mPerPx, H - 40);
+    g.font = 'bold 22px ' + FONT; g.textAlign = 'center'; g.fillStyle = '#fff'; g.strokeStyle = '#000'; g.lineWidth = 3;
+    g.beginPath(); g.moveTo(W - 50, 70); g.lineTo(W - 50, 24); g.stroke(); g.beginPath(); g.moveTo(W - 50, 16); g.lineTo(W - 60, 36); g.lineTo(W - 40, 36); g.closePath(); g.fillStyle = '#000'; g.fill();
+    g.fillStyle = '#fff'; g.fillText('N', W - 50, 92); g.strokeText && 0;
+    g.font = '13px ' + FONT; g.textAlign = 'right'; g.fillStyle = '#fff'; g.fillText('위성 © V-World · 배치 ' + d.site.name + ' · ' + d.kw.toFixed(2) + 'kW', W - 20, H - 16);
+    return cv.toDataURL('image/png');
   }
 
   // ------------------------------------------------------------ CAD 도면 틀 (원본 37·38쪽과 같은 꼴)
@@ -475,16 +607,16 @@ const Proposal = (() => {
     const cols = [12, 300, 480, 760, 870, 1010, 1180, 1500, W - 12];
     cols.slice(1, -1).forEach(x => { g.beginPath(); g.moveTo(x, y0); g.lineTo(x, y0 + h); g.stroke(); });
     g.fillStyle = '#000'; g.textBaseline = 'middle';
-    const small = (t, x, y, a) => { g.font = '13px sans-serif'; g.textAlign = a || 'left'; g.fillText(t, x, y); };
+    const small = (t, x, y, a) => { g.font = '13px ' + FONT; g.textAlign = a || 'left'; g.fillText(t, x, y); };
     small('공 사 명', 20, y0 + 20); small('PROJECT', 20, y0 + 38);
-    g.font = '15px sans-serif'; g.fillText((d.site.addr || d.site.name || ''), 100, y0 + 30); g.fillText(d.site.name && d.site.name !== d.site.addr ? d.site.name : '', 100, y0 + 54);
+    g.font = '15px ' + FONT; g.fillText((d.site.addr || d.site.name || ''), 100, y0 + 30); g.fillText(d.site.name && d.site.name !== d.site.addr ? d.site.name : '', 100, y0 + 54);
     small('시 행 청', 308, y0 + 20);
-    g.font = '13px sans-serif'; g.textAlign = 'center'; g.fillText('그랜드썬기술단', 620, y0 + 18); g.fillText('GRANDSUN ENGINEERING CO., LTD.', 620, y0 + 38); g.fillText('TEL : 051-941-7783   FAX : 051-941-7785', 620, y0 + 58);
+    g.font = '13px ' + FONT; g.textAlign = 'center'; g.fillText('그랜드썬기술단', 620, y0 + 18); g.fillText('GRANDSUN ENGINEERING CO., LTD.', 620, y0 + 38); g.fillText('TEL : 051-941-7783   FAX : 051-941-7785', 620, y0 + 58);
     g.fillText('1 : none', 815, y0 + 38);
     g.textAlign = 'left'; ['책임기술자', '설 계 자', '제 도 자'].forEach((t, i) => { g.fillText(t, 878, y0 + 14 + i * 24); g.beginPath(); g.moveTo(870, y0 + 25 + i * 24); g.lineTo(1180, y0 + 25 + i * 24); g.stroke(); });
     g.beginPath(); g.moveTo(960, y0); g.lineTo(960, y0 + h); g.stroke();
     small('도 면 명', 1188, y0 + 20); small('T I T L E', 1188, y0 + 38);
-    g.font = '16px sans-serif'; g.textAlign = 'center'; g.fillText(titleName, 1340, y0 + 40);
+    g.font = '16px ' + FONT; g.textAlign = 'center'; g.fillText(titleName, 1340, y0 + 40);
     small('도면번호', 1508, y0 + 20);
   }
   function compass(g, x, y) {
@@ -493,7 +625,7 @@ const Proposal = (() => {
     g.beginPath(); g.moveTo(0, -46); g.lineTo(8, 0); g.lineTo(0, 46); g.lineTo(-8, 0); g.closePath(); g.fill();
     g.fillStyle = '#fff'; g.beginPath(); g.moveTo(0, -46); g.lineTo(8, 0); g.lineTo(-8, 0); g.closePath(); g.fill();
     g.strokeStyle = '#000'; g.beginPath(); g.moveTo(0, -46); g.lineTo(8, 0); g.lineTo(0, 46); g.lineTo(-8, 0); g.closePath(); g.stroke();
-    g.fillStyle = '#000'; g.font = 'bold 16px sans-serif'; g.textAlign = 'center'; g.fillText('N', 0, -54); g.restore();
+    g.fillStyle = '#000'; g.font = 'bold 16px ' + FONT; g.textAlign = 'center'; g.fillText('N', 0, -54); g.restore();
   }
   const PALETTE = ['#e0251f', '#19b219', '#1a2fd6', '#e01fd6', '#e08a1f', '#16a3a3'];
 
@@ -506,10 +638,9 @@ const Proposal = (() => {
     const area = { x: 120, y: 60, w: W - 150, h: H - 60 - 88 - 160 };
     g.strokeStyle = '#d33'; g.lineWidth = 1; g.strokeRect(area.x, area.y, area.w, area.h);
     const o = d.origin, all = [];
-    d.roofs.forEach(r => r.rings.forEach(rg => all.push(...toXY(rg, o))));
-    (d.buildings || []).forEach(b => all.push(...toXY(b.ring, o)));
+    d.roofs.forEach(r => r.rings.forEach(rg => all.push(...toXY(rg, o))));   // 주변 건물은 범위에 넣지 않는다(현장만 확대)
     const minX = Math.min(...all.map(p => p.x)), maxX = Math.max(...all.map(p => p.x)), minY = Math.min(...all.map(p => p.y)), maxY = Math.max(...all.map(p => p.y));
-    const pad = 70, sc = Math.min((area.w - pad * 2) / Math.max(1, maxX - minX), (area.h - pad * 2) / Math.max(1, maxY - minY));
+    const pad = 110, sc = Math.min((area.w - pad * 2) / Math.max(1, maxX - minX), (area.h - pad * 2) / Math.max(1, maxY - minY));
     const ox = area.x + (area.w - (maxX - minX) * sc) / 2, oy = area.y + (area.h - (maxY - minY) * sc) / 2;
     const X = x => ox + (x - minX) * sc, Y = y => oy + (maxY - y) * sc;
     const path = ring => { g.beginPath(); ring.forEach((p, i) => i ? g.lineTo(X(p.x), Y(p.y)) : g.moveTo(X(p.x), Y(p.y))); g.closePath(); };
@@ -532,15 +663,15 @@ const Proposal = (() => {
       g.strokeStyle = '#1a2fd6'; g.lineWidth = 1; g.beginPath(); g.moveTo(cx, cy); g.lineTo(right ? bx + bw : bx, by + bh / 2); g.stroke();
       g.fillStyle = '#fff'; g.fillRect(bx, by, bw, bh); g.strokeRect(bx, by, bw, bh);
       g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillStyle = '#000';
-      g.font = '13px sans-serif'; g.fillText((d.site.short || '') + ' ' + String.fromCharCode(65 + i) + '동 · ' + r.typeLabel.split(' ')[0], bx + bw / 2, by + 15);
-      g.font = 'bold 24px sans-serif'; g.fillStyle = '#e0251f'; g.fillText(r.kw.toFixed(2) + 'KW', bx + bw / 2, by + 40);
-      g.font = '13px sans-serif'; g.fillStyle = '#000'; g.fillText('(' + d.module.w + 'W × ' + r.count + 'EA)', bx + bw / 2, by + 61);
+      g.font = '13px ' + FONT; g.fillText((d.site.short || '') + ' ' + String.fromCharCode(65 + i) + '동 · ' + r.typeLabel.split(' ')[0], bx + bw / 2, by + 15);
+      g.font = 'bold 24px ' + FONT; g.fillStyle = '#e0251f'; g.fillText(r.kw.toFixed(2) + 'KW', bx + bw / 2, by + 40);
+      g.font = '13px ' + FONT; g.fillStyle = '#000'; g.fillText('(' + d.module.w + 'W × ' + r.count + 'EA)', bx + bw / 2, by + 61);
     });
     compass(g, area.x + 60, area.y + 70);
     // 하단: 모듈배치도 표시 + 모듈 표
     const ty = area.y + area.h + 20;
     g.strokeStyle = '#e08a1f'; g.lineWidth = 2; g.beginPath(); g.arc(area.x + 50, ty + 55, 22, 0, Math.PI * 2); g.stroke(); g.beginPath(); g.moveTo(area.x + 20, ty + 55); g.lineTo(area.x + 300, ty + 55); g.stroke();
-    g.fillStyle = '#1a2fd6'; g.font = 'bold 20px sans-serif'; g.textAlign = 'left'; g.fillText('모 듈 배 치 도', area.x + 90, ty + 40); g.font = '12px sans-serif'; g.fillText('SCALE: N/S', area.x + 180, ty + 72);
+    g.fillStyle = '#1a2fd6'; g.font = 'bold 20px ' + FONT; g.textAlign = 'left'; g.fillText('모 듈 배 치 도', area.x + 90, ty + 40); g.font = '12px ' + FONT; g.fillText('SCALE: N/S', area.x + 180, ty + 72);
     const tx = W - 30 - 760, tw = [280, 130, 170, 180], th = 56;
     const total = d.roofs.reduce((a, r) => a + r.count, 0);
     const tilts = [...new Set(d.roofs.map(r => r.tilt))].sort((a, b) => a - b);
@@ -548,8 +679,8 @@ const Proposal = (() => {
     g.strokeStyle = '#000'; g.lineWidth = 1.5; g.fillStyle = '#000'; g.textAlign = 'center';
     let x = tx; tw.forEach((w, j) => { g.strokeRect(x, ty, w, th); g.strokeRect(x, ty + th, w, th + 18); x += w; });
     g.strokeRect(tx, ty, tw[0] + tw[1] + tw[2], th);
-    g.font = 'bold 26px sans-serif'; g.fillText('모     듈', tx + (tw[0] + tw[1] + tw[2]) / 2, ty + th / 2); g.fillText('설치각도', tx + tw[0] + tw[1] + tw[2] + tw[3] / 2, ty + th / 2);
-    g.font = '22px sans-serif'; x = tx;
+    g.font = 'bold 26px ' + FONT; g.fillText('모     듈', tx + (tw[0] + tw[1] + tw[2]) / 2, ty + th / 2); g.fillText('설치각도', tx + tw[0] + tw[1] + tw[2] + tw[3] / 2, ty + th / 2);
+    g.font = '22px ' + FONT; x = tx;
     cells[1].forEach((t, j) => { const ls = t.split('|'); ls.forEach((l, k) => g.fillText(l, x + tw[j] / 2, ty + th + (th + 18) / 2 + (k - (ls.length - 1) / 2) * 26)); x += tw[j]; });
     return cv.toDataURL('image/png');
   }
@@ -560,20 +691,19 @@ const Proposal = (() => {
     const cv = document.createElement('canvas'); cv.width = W; cv.height = H;
     const g = cv.getContext('2d');
     sheetFrame(g, W, H, d, '모듈배치측면도');
+    // 안쪽 영역(테두리~표제란)에 단면 2개를 나란히: 각 700×294(1000×420 비율), 아래에 이름표
     const picks = d.roofs.slice().sort((a, b) => b.kw - a.kw).slice(0, 2);
+    const innerW = W - 24, cols = picks.length || 1, cw = innerW / cols;
     picks.forEach((r, i) => {
-      const img = new Image(); img.src = drawSection(r);
-      const x = 60 + i * 760, y = 140, w = 720, h = 520;
-      // drawSection 은 동기 캔버스라 바로 그릴 수 있다 (dataURL 디코딩 전이면 캔버스를 다시 그린다)
-      const sub = document.createElement('canvas'); sub.width = 1000; sub.height = 420;
-      const tmp = drawSectionCanvas(r); g.drawImage(tmp, x, y, w, h * 420 / 520 * 1.24);
-      g.fillStyle = '#1a2fd6'; g.font = 'bold 30px sans-serif'; g.textAlign = 'center';
-      g.fillText('“' + String.fromCharCode(65 + i) + '“-“' + String.fromCharCode(65 + i) + '“측면도  VIEW  SCALE  1:1', x + w / 2, y + 640);
-      g.fillStyle = '#000'; g.font = '18px sans-serif'; g.fillText(r.name + ' · ' + r.typeLabel + ' · ' + r.kw.toFixed(2) + 'kW', x + w / 2, y + 680);
+      const w = Math.min(780, cw - 30), h = w * 0.42, x = 12 + i * cw + (cw - w) / 2, y = 200;
+      g.drawImage(drawSectionCanvas(r), x, y, w, h);
+      g.fillStyle = '#1a2fd6'; g.font = 'bold 28px ' + FONT; g.textAlign = 'center';
+      g.fillText('“' + String.fromCharCode(65 + i) + '“-“' + String.fromCharCode(65 + i) + '“ 측면도  VIEW  SCALE  1:1', x + w / 2, y + h + 70);
+      g.fillStyle = '#000'; g.font = '18px ' + FONT; g.fillText(r.name + ' · ' + r.typeLabel + ' · ' + r.kw.toFixed(2) + 'kW', x + w / 2, y + h + 104);
     });
     return cv.toDataURL('image/png');
   }
 
-  return { build, save, consult, drawPlan, drawSection, drawPlanSheet, drawSectionSheet, fillTemplate, computeTables, kepcoLine, PRICE, genKwh, yearCost };
+  return { build, save, consult, drawPlan, drawSection, drawPlanSheet, drawPlanMap, drawSectionSheet, fillTemplate, computeTables, kepcoLine, kepcoFeeOf, terminalOf, PRICE, genKwh, yearCost, COST_PER_KW };
 })();
 if (typeof module !== 'undefined' && module.exports) module.exports = Proposal;

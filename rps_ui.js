@@ -14,7 +14,7 @@ const RpsUI = (() => {
   const fmt = RPS.formatWon, sfmt = RPS.signedWon, pay = RPS.payLabel;
   const baek = v => (v / 1e6).toFixed(2) + '백';
 
-  let st = Object.assign({}, RPS.DEFAULTS, RPS.SELF_DEFAULTS, { costPerKw: 1000000, capFollows: true });
+  let st = Object.assign({}, RPS.DEFAULTS, RPS.SELF_DEFAULTS, { costPerKw: 1200000, capFollows: true });
   let siteName = '';
   let res = null, selfRes = null;
 
@@ -40,7 +40,7 @@ const RpsUI = (() => {
     BOOL.forEach(k => $('r_' + k).addEventListener('change', () => onChange(k, $('r_' + k).checked)));
     SEL.forEach(k => $('s_' + k).addEventListener('change', () => { st[k] = $('s_' + k).value; renderSelf(); save(); }));
     $('btnPullCap').onclick = () => { st.capFollows = true; if (window.__layoutTotalKw != null) setCapacity(window.__layoutTotalKw, true); };
-    $('btnRpsReset').onclick = () => { const cap = st.capacity; st = Object.assign({}, RPS.DEFAULTS, RPS.SELF_DEFAULTS, { costPerKw: 1000000, capFollows: st.capFollows, capacity: cap }); deriveCost(); render(); save(); };
+    $('btnRpsReset').onclick = () => { const cap = st.capacity; st = Object.assign({}, RPS.DEFAULTS, RPS.SELF_DEFAULTS, { costPerKw: 1200000, capFollows: st.capFollows, capacity: cap }); deriveCost(); render(); save(); };
     $('btnRpsShare').onclick = () => share(false);
     $('btnRpsMail').onclick = () => share(true);
     $('btnSelfShare').onclick = () => shareSelf(false);

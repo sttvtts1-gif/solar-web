@@ -884,19 +884,19 @@
       site: { name: siteName, addr: siteAddr, short: (siteAddr || '').split(' ').slice(-2).join(' ') }, kw: rs.reduce((a, r) => a + r.kw, 0),
       module: { w: moduleCfg.moduleWp, L: moduleCfg.modLmm, S: moduleCfg.modSmm, maker: '현대' },
       roofs: rs, origin, buildings: buildings.filter(b => !srcs.has(b.id) && distM(origin, Layout.centroid(b.ring)) <= 150).map(b => ({ ring: b.ring })),
-      lines: lastKepco, memo, costPerKw: rpsSt.costPerKw || 1000000,
+      lines: lastKepco, memo, costPerKw: rpsSt.costPerKw || Proposal.COST_PER_KW,
     };
     if (templateFile) {
       try {
         hint('원본 제안서 읽는 중… (' + Math.round(templateFile.size / 1048576) + 'MB)');
         const buf = await templateFile.arrayBuffer();
         hint('배치도·측면도 그리고 표 채우는 중…');
-        const imgs = { plan: Proposal.drawPlanSheet(data), section: Proposal.drawSectionSheet(data) };
+        const imgs = { planMap: await Proposal.drawPlanMap(data), plan: Proposal.drawPlanSheet(data), section: Proposal.drawSectionSheet(data) };
         const blob = await Proposal.fillTemplate(buf, data, imgs);
         const name = templateFile.name.replace(/\.pptx$/i, '') + '_' + (siteName || '현장').replace(/[\\/:*?"<>|]/g, '') + '_' + data.kw.toFixed(0) + 'kW.pptx';
         const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = name; document.body.appendChild(a); a.click(); a.remove();
         setTimeout(() => URL.revokeObjectURL(a.href), 60000);
-        hint('완성본을 내려받았습니다: ' + name + ' (37 배치도 · 38 측면도 · 47~49 손익·한전 계통 채움)');
+        hint('완성본을 내려받았습니다: ' + name + ' (37 위성 배치도 · 37-2 도면 배치도 · 38 측면도 · 47~49 손익·한전 계통 채움)');
       } catch (e) { hint('원본 채우기 실패: ' + e.message + ' — 원본이 암호화돼 있으면 풀어서 다시 고르세요.'); }
       return;
     }

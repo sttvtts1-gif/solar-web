@@ -26,7 +26,7 @@ const Layout = (() => {
     //   처마·골 이격 500, 용마루 이격 300, 경사 10°. 북측 블록은 남쪽 면과 같은 면으로 들어 올려 이어 붙인다(lift 는 안 씀).
     //   건물 지붕은 좌우 20열마다 60cm 통로(colBlock/blockGap).
     flush:   { label: '남북지붕 · 원단',       orient: 'portrait', tiers: 1, tierGap: 0.05, tilt: 10, shadeAngle: 22, autoGap: true, arrayGap: 0.05,
-               ridge: true, spans: 1, eaveSetback: 0.5, ridgeSetback: 0.3, lift: 0, colBlock: 20, blockGap: 0.6 },
+               ridge: true, spans: 1, eaveSetback: 0.5, ridgeSetback: 0.3, lift: 0, colBlock: 20, blockGap: 0.6, frontLift: 0.5 },   // frontLift = 앞다리(지붕면에서 띄움)
     // 평슬라브: 정남 경사거치, 줄마다 후면입사각 이격
     slab:    { label: '평슬라브 · 경사거치',   orient: 'portrait', tiers: 1, tierGap: 0.05, tilt: 15, shadeAngle: 22, autoGap: true, arrayGap: 2.5, colBlock: 20, blockGap: 0.6 },
     // 토지(노지): 필지 외곽선 안에 정남 2단 거치. 앞뒤는 후면입사각 22° 이격, 좌우는 30열마다 2m 통로(점검·장비 진입). 경계 이격 3m(펜스).
@@ -335,7 +335,7 @@ const Layout = (() => {
         while (y + d <= y0n - eave + 1e-9) { ys.push(y); y += d + tierGap; n++; }
         const yEnd = n ? ys[ys.length - 1] + d : ridge;
         if (n) blocks.push({ rows: n, from: f2, to: yEnd, gap: 0, lifted: Math.round((yEnd - y0) * tS * 100) / 100 });
-        const hTop = (yEnd - y0) * tS;
+        const hTop = (yEnd - y0) * tS + (Number(opt.frontLift) || 0);   // 앞다리만큼 더 높다
         nextStart = tA + tS > 1e-6 ? (hTop + yEnd * tA + y0n * tS) / (tA + tS) : y0n;
       }
     } else {

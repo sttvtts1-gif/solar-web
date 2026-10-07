@@ -163,7 +163,7 @@ const View3D = (() => {
       const front = new Set(order.slice(0, 2));
       const base = pos.length / 3;
       // 원단(tilt 0)은 지붕면에 밀착(0.12m), 거치는 구조물 위(0.3m) + 뒤쪽을 경사각만큼
-      const lift = roof.tilt ? 0.3 : 0.12;
+      const lift = roof.tilt ? 0.3 : 0.5;    // 원단(tilt 0)은 앞다리 0.5m 로 띄움(사용자 지정)
       c.forEach((p, i) => { pos.push(p.x, surf.modZ(p) + lift + (front.has(i) ? 0 : rise), -p.y); uv.push(i === 0 || i === 3 ? 0 : 1, front.has(i) ? 0 : 1); });
       idx.push(base, base + 1, base + 2, base, base + 2, base + 3);
     });
