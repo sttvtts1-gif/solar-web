@@ -124,7 +124,7 @@ const Proposal = (() => {
       dim(X(depth / n / 2) + 0, eave, ridge, '지붕 ' + mm(ridge - eave), 1);
       dim(X(depth) + 40, 0, top, '북측 끝 ' + mm(top), 1);
       g.fillText('남', X(0) - 30, Y(0) + 24); g.fillText('북', X(depth) + 14, Y(0) + 24);
-      g.fillText('원단 · 용마루 ' + n + '개 · 지붕경사 ' + r.roofSlope + '° · 앞다리 ' + mm(r.frontLift != null ? r.frontLift : 0.5) + ' 띄움, 북면 블록은 같은 면으로 들어올림', 110, 28);
+
     } else if (r.kind === 'gable-ns') {
       // 동서지붕: 박공 위 수평 프레임에 2단 거치
       const n = r.spans, Wd = depth / n, t = Math.tan(r.roofSlope * Math.PI / 180);
@@ -135,7 +135,7 @@ const Proposal = (() => {
       dim(X(0) - 40, 0, eave, '처마 ' + mm(eave), -1);
       dim(X(depth) + 40, 0, top, '모듈 상단 ' + mm(top), 1);
       g.fillText('서', X(0) - 30, Y(0) + 24); g.fillText('동', X(depth) + 14, Y(0) + 24);
-      g.fillText('동서지붕(인삼밭) · 동 ' + n + '개 · 용마루 위 수평 프레임 · ' + r.tiers + '단 ' + r.tilt + '° 정남 · 피치 ' + r.pitch + 'm · 이격 ' + r.gap + 'm', 110, 28);
+
     } else {
       // 평슬라브 · 토지 · 주차장: 수평 기준면 위 경사거치
       const base = r.type === 'parking' ? 2.5 : r.type === 'ground' ? 0.5 : eave;
@@ -146,7 +146,7 @@ const Proposal = (() => {
       if (base > 0) dim(X(0) - 40, 0, base, (r.type === 'parking' ? '캐노피 ' : r.type === 'ground' ? '구조물 ' : '처마 ') + mm(base), -1);
       dim(X(depth) + 40, base, base + 0.3 + ah, '어레이 ' + mm(0.3 + ah), 1);
       g.fillText('남', X(0) - 30, Y(0) + 24); g.fillText('북', X(depth) + 14, Y(0) + 24);
-      g.fillText(r.typeLabel + ' · ' + r.tiers + '단 ' + r.tilt + '° · 피치 ' + r.pitch + 'm · 이격 ' + r.gap + 'm' + (r.slopeNote ? ' · ' + r.slopeNote : ''), 110, 28);
+
     }
     return cv;
   }
@@ -407,12 +407,14 @@ const Proposal = (() => {
   const COST_PER_KW = 1200000;                                 // kW당 공사비 기본(사용자 지정 2026-10-07: 120만원)
 
   /** 손익 수치 일괄 계산 (원본 표 채우기·별도 5쪽 공용) */
-  function computeTables(kw, costPerKw) {
+  function computeTables(kw, costPerKw, opt) {
+    opt = opt || {};
     const invest = kw * (costPerKw || COST_PER_KW);
     const ins = step(INSURANCE, kw), safe = step(SAFETY_MONTHLY, kw) * 12;
-    const lowV = kw <= 100;                                   // 100kW 초과는 고압 연계
-    const grid = lowV ? '저압삼상 공중' : '고압 공중';
-    const kepcoFee = kepcoFeeOf(kw, !lowV, false);
+    const lowV = kw < 500;                                    // 사용자 기준(2026-10-07): 500kW 미만 저압, 500kW 이상 고압
+    const under = !!opt.underground;                          // 지중 지역이면 true (앱에서 물어본다), 아니면 공중(가공)
+    const grid = (lowV ? '저압삼상' : '고압') + ' ' + (under ? '지중' : '공중');
+    const kepcoFee = Math.max(0, kepcoFeeOf(kw, !lowV, under));
     const terminal = terminalOf(kw);
     const t47 = [], t48 = [], t49 = [];
     const S = { a: 0, b: 0, c: 0, k30: 0, k20: 0, r2: 0, sp: 0, a1: 0, a2: 0, aN: 0 };
@@ -460,7 +462,7 @@ const Proposal = (() => {
       else zip.file('ppt/media/image141.png', dataUrlBytes(imgs.plan));
     }
     if (imgs && imgs.section) zip.file('ppt/media/image142.png', dataUrlBytes(imgs.section));
-    const kw = d.kw, T = computeTables(kw, d.costPerKw);
+    const kw = d.kw, T = computeTables(kw, d.costPerKw, { underground: !!d.underground });
     const note = [kepcoLine(d.lines)].concat((d.memo || []).slice(0, 1).map(m => '상담일지: ' + m.slice(0, 70)));
     const get = async n => zip.file('ppt/slides/slide' + n + '.xml').async('string');
     // 47
@@ -468,8 +470,8 @@ const Proposal = (() => {
     x = setTable(x, '표 5', [null].concat(T.t47, [['합계', '', won(T.S.a), won(T.S.b), won(T.S.c), won(T.S.k30)]]));
     x = setByLabel(x, '표 3', { '설비용량(STC)(kW)': kw.toFixed(1), '발전시간(시간)': '3.6', '1등급 공사비': won(T.invest) + ' 원', '1등급 최종 공사비': '',
       '1등급 장기계약(월) 3.6h': won(T.m36) + ' 원', '1등급 장기계약(월) 3.8h': won(T.m38) + ' 원', '1등급 장기계약(월) 4h': won(T.m40) + ' 원',
-      '전기안전관리비(년)': won(T.safe) + ' 원', '보험료(년)': won(T.ins) + ' 원', '계통 구분': T.grid, '한전연계비 vat별도': '-' + won(T.kepcoFee) + ' 원',
-      '한전 단말통신공사(20kW 이상)': T.terminal ? '-' + won(T.terminal) + ' 원' : '',
+      '전기안전관리비(년)': won(T.safe) + ' 원', '보험료(년)': won(T.ins) + ' 원', '계통 구분': T.grid, '한전연계비 vat별도': won(T.kepcoFee) + ' 원',
+      '한전 단말통신공사(20kW 이상)': T.terminal ? won(T.terminal) + ' 원' : '',
       '장기계약 (1등급)': PRICE.g1.toFixed(3), '장기계약 (2등급)': PRICE.g2.toFixed(4), '장기계약 (무등급)': PRICE.gN.toFixed(4) });
     x = setNote(x, note);
     zip.file('ppt/slides/slide47.xml', x);
@@ -478,8 +480,8 @@ const Proposal = (() => {
     x = setTable(x, '표 1', [null, ['0', '100.00%', '', won(-T.invest), '', won(-T.invest), '0']].concat(T.t48, [['합계', '', won(T.cum2), won(T.cum2 - T.invest), won(T.cumSp), won(T.cumSp - T.invest), won(T.S.k30)]]));
     x = setByLabel(x, '표 4', { '설비용량(STC)(kW)': kw.toFixed(1), '발전시간(시간)': '3.6', '2등급 공사비': won(T.invest) + ' 원', '무등급 공사비': won(T.invest) + ' 원',
       '월수익 장기계약': won(T.m2 - T.mk) + ' 원', '월수익 현물': won(T.mSp - T.mk) + ' 원', '장기계약': PRICE.g2.toFixed(3), '현물': PRICE.spot.toFixed(3),
-      '전기안전관리비(년)': won(T.safe) + ' 원', '보험료(년)': won(T.ins) + ' 원', '계통 구분': T.grid, '한전연계비 vat별도': '-' + won(T.kepcoFee) + ' 원',
-      '한전 단말통신공사(50kW 이상)': T.terminal ? '-' + won(T.terminal) + ' 원' : '' });
+      '전기안전관리비(년)': won(T.safe) + ' 원', '보험료(년)': won(T.ins) + ' 원', '계통 구분': T.grid, '한전연계비 vat별도': won(T.kepcoFee) + ' 원',
+      '한전 단말통신공사(50kW 이상)': T.terminal ? won(T.terminal) + ' 원' : '' });
     x = setNote(x, note);
     zip.file('ppt/slides/slide48.xml', x);
     // 49
@@ -487,7 +489,7 @@ const Proposal = (() => {
     x = setTable(x, '표 1', [null].concat(T.t49, [['합계', '', won(T.S.a1), won(T.c1), won(T.S.a2), won(T.c2), won(T.S.aN), T.cN < 0 ? '(' + won(-T.cN) + ')' : won(T.cN), won(T.S.k20)]]));
     x = setTable(x, '표 3', [null, null, [kw.toFixed(1), null, won(T.m1), won(T.m1 - T.mk)], [null, null, won(T.m2), won(T.m2 - T.mk)], [won(T.monthlyGen), null, won(T.mN), won(T.mN - T.mk)]]);
     x = setTable(x, '표 4', [null, null, [null, PRICE.g1.toFixed(3), PRICE.smp.toFixed(3), PRICE.rec1.toFixed(3)], [null, PRICE.g2.toFixed(3), PRICE.smp.toFixed(3), PRICE.rec2.toFixed(3)], [null, PRICE.gN.toFixed(3), PRICE.smp.toFixed(3), PRICE.recN.toFixed(3)]]);
-    x = setByLabel(x, '표 7', { '전기안전관리비': won(T.safe), '보험료': won(T.ins), '계통 구분': T.grid, '한전연계비 vat별도': '-' + won(T.kepcoFee), '설계조정부담금(50kW이상)': '' });   // 설계조정부담금은 견적에서 산출(단말통신은 47·48쪽 라벨표에)
+    x = setByLabel(x, '표 7', { '전기안전관리비': won(T.safe), '보험료': won(T.ins), '계통 구분': T.grid, '한전연계비 vat별도': won(T.kepcoFee), '설계조정부담금(50kW이상)': '' });   // 설계조정부담금은 견적에서 산출(단말통신은 47·48쪽 라벨표에)
     x = setNote(x, note);
     zip.file('ppt/slides/slide49.xml', x);
     // JSZip 이 만든 폴더 항목(ppt/, ppt/media/ …)이 있으면 파워포인트가 "복구" 를 띄운다 → 전부 뺀다
@@ -531,7 +533,7 @@ const Proposal = (() => {
   }
 
   // ------------------------------------------------------------ 위성 배치도 (앱 지도 화면 꼴)
-  const FONT = '"맑은 고딕", "Malgun Gothic", sans-serif';
+  const FONT = '"페이퍼로지 5 Medium", "Paperlogy 5 Medium", Paperlogy, "맑은 고딕", "Malgun Gothic", sans-serif';   // 원본 제안서 서체 우선(설치된 PC 에서만)
   /** 지붕들만 감싸는 lat/lng 상자 (주변 건물은 범위에 안 넣는다 → 현장만 확대) */
   function siteBox(d, padRatio) {
     const pts = [].concat(...d.roofs.map(r => [].concat(...r.rings)));
@@ -629,8 +631,15 @@ const Proposal = (() => {
   }
   const PALETTE = ['#e0251f', '#19b219', '#1a2fd6', '#e01fd6', '#e08a1f', '#16a3a3'];
 
-  /** 원본 37쪽 꼴의 배치도 도면 (1600×1131). 건물 외곽 빨강, 동별 모듈 색, 라벨 상자(주소·동·kW·(W×EA)), 모듈 표, 표제란. */
-  function drawPlanSheet(d) {
+  /** 웹 메르카토르 타일 번호 → 타일 NW 모서리 lat/lng */
+  const tileNW = (tx, ty, z) => { const n = Math.pow(2, z); const lng = tx / n * 360 - 180; const lat = Math.atan(Math.sinh(Math.PI * (1 - 2 * ty / n))) * 180 / Math.PI; return { lat, lng }; };
+
+  /**
+   * 원본 37쪽 꼴의 배치도 도면 (1600×1131). 건물 외곽 빨강, 동별 모듈 색, 라벨 상자(주소·동·kW·(W×EA)), 모듈 표, 표제란.
+   * opt.satellite 면 도면 영역에 V-World 위성 타일을 같은 좌표계로 깔고 모듈은 자홍색(앱 화면 꼴).
+   */
+  async function drawPlanSheet(d, opt) {
+    opt = opt || {};
     const W = 1600, H = 1131;
     const cv = document.createElement('canvas'); cv.width = W; cv.height = H;
     const g = cv.getContext('2d');
@@ -645,12 +654,32 @@ const Proposal = (() => {
     const X = x => ox + (x - minX) * sc, Y = y => oy + (maxY - y) * sc;
     const path = ring => { g.beginPath(); ring.forEach((p, i) => i ? g.lineTo(X(p.x), Y(p.y)) : g.moveTo(X(p.x), Y(p.y))); g.closePath(); };
     g.save(); g.beginPath(); g.rect(area.x, area.y, area.w, area.h); g.clip();
-    g.fillStyle = '#eef0ec'; g.fillRect(area.x, area.y, area.w, area.h);
-    (d.buildings || []).forEach(b => { path(toXY(b.ring, o)); g.fillStyle = '#d9dbd6'; g.fill(); g.strokeStyle = '#9a9c98'; g.lineWidth = 1; g.stroke(); });
+    g.fillStyle = opt.satellite ? '#8f968f' : '#eef0ec'; g.fillRect(area.x, area.y, area.w, area.h);
+    const key = (typeof window !== 'undefined' && window.SOLAR_CONFIG && window.SOLAR_CONFIG.VWORLD_KEY) || '';
+    if (opt.satellite && key) {
+      // 도면 영역이 덮는 lat/lng 범위 → 그 범위의 타일을 받아 같은 좌표계(X/Y)로 깐다. 줌은 타일 1px 이 도면 1px 안팎이 되게.
+      const invX = px => minX + (px - ox) / sc, invY = py => maxY - (py - oy) / sc;
+      const k = 111320 * Math.cos(o.lat * Math.PI / 180);
+      const toLL = (x, y) => ({ lat: o.lat + y / 110574, lng: o.lng + x / k });
+      const nw = toLL(invX(area.x), invY(area.y)), se = toLL(invX(area.x + area.w), invY(area.y + area.h));
+      const mPerPxWanted = 1 / sc;
+      let z = 19; for (; z > 12; z--) { const mpp = 156543.03 * Math.cos(o.lat * Math.PI / 180) / Math.pow(2, z); if (mpp >= mPerPxWanted * 0.9) break; }
+      const n = Math.pow(2, z);
+      const txOf = lng => Math.floor((lng + 180) / 360 * n), tyOf = lat => Math.floor((1 - Math.log(Math.tan(lat * Math.PI / 180) + 1 / Math.cos(lat * Math.PI / 180)) / Math.PI) / 2 * n);
+      const jobs = [];
+      for (let tx = txOf(nw.lng); tx <= txOf(se.lng); tx++) for (let ty = tyOf(nw.lat); ty <= tyOf(se.lat); ty++)
+        jobs.push(loadTile('https://api.vworld.kr/req/wmts/1.0.0/' + key + '/Satellite/' + z + '/' + ty + '/' + tx + '.jpeg').then(im => ({ im, tx, ty })));
+      (await Promise.all(jobs)).forEach(({ im, tx, ty }) => {
+        if (!im) return;
+        const a = toXY([tileNW(tx, ty, z)], o)[0], b = toXY([tileNW(tx + 1, ty + 1, z)], o)[0];
+        g.drawImage(im, X(a.x), Y(a.y), X(b.x) - X(a.x) + 0.5, Y(b.y) - Y(a.y) + 0.5);
+      });
+    }
+    if (!opt.satellite) (d.buildings || []).forEach(b => { path(toXY(b.ring, o)); g.fillStyle = '#d9dbd6'; g.fill(); g.strokeStyle = '#9a9c98'; g.lineWidth = 1; g.stroke(); });
     d.roofs.forEach((r, i) => {
-      const col = PALETTE[i % PALETTE.length];
-      r.rings.forEach(rg => { path(toXY(rg, o)); g.fillStyle = '#f7f7f4'; g.fill(); g.strokeStyle = '#e0251f'; g.lineWidth = 2.5; g.stroke(); });
-      g.fillStyle = col; g.strokeStyle = '#fff'; g.lineWidth = 0.5;
+      const col = opt.satellite ? 'rgba(255,102,255,.65)' : PALETTE[i % PALETTE.length];
+      r.rings.forEach(rg => { path(toXY(rg, o)); g.fillStyle = opt.satellite ? 'rgba(0,0,0,.04)' : '#f7f7f4'; g.fill(); g.strokeStyle = opt.satellite ? '#ff3b3b' : '#e0251f'; g.lineWidth = 2.5; g.stroke(); });
+      g.fillStyle = col; g.strokeStyle = opt.satellite ? '#ff00ff' : '#fff'; g.lineWidth = 0.5;
       r.modules.forEach(m => { path(toXY(m, o)); g.fill(); g.stroke(); });
       if (r.ridges) { g.setLineDash([6, 4]); g.strokeStyle = '#555'; g.lineWidth = 1; r.ridges.forEach(seg => { const s = toXY(seg, o); g.beginPath(); g.moveTo(X(s[0].x), Y(s[0].y)); g.lineTo(X(s[1].x), Y(s[1].y)); g.stroke(); }); g.setLineDash([]); }
     });
@@ -682,6 +711,7 @@ const Proposal = (() => {
     g.font = 'bold 26px ' + FONT; g.fillText('모     듈', tx + (tw[0] + tw[1] + tw[2]) / 2, ty + th / 2); g.fillText('설치각도', tx + tw[0] + tw[1] + tw[2] + tw[3] / 2, ty + th / 2);
     g.font = '22px ' + FONT; x = tx;
     cells[1].forEach((t, j) => { const ls = t.split('|'); ls.forEach((l, k) => g.fillText(l, x + tw[j] / 2, ty + th + (th + 18) / 2 + (k - (ls.length - 1) / 2) * 26)); x += tw[j]; });
+    if (opt.satellite) { g.font = '12px ' + FONT; g.textAlign = 'right'; g.fillStyle = '#444'; g.fillText('위성 © V-World', area.x + area.w - 6, area.y + area.h + 14); }
     return cv.toDataURL('image/png');
   }
 
@@ -693,17 +723,18 @@ const Proposal = (() => {
     sheetFrame(g, W, H, d, '모듈배치측면도');
     // 안쪽 영역(테두리~표제란)에 단면 2개를 나란히: 각 700×294(1000×420 비율), 아래에 이름표
     const picks = d.roofs.slice().sort((a, b) => b.kw - a.kw).slice(0, 2);
-    const innerW = W - 24, cols = picks.length || 1, cw = innerW / cols;
+    // 안쪽 영역(위 테두리 12 ~ 표제란 위 H-88) 가운데에 단면을 나란히. 그림 아래에는 "A"-"A" 측면도 VIEW SCALE 1:1 만.
+    const innerW = W - 24, innerTop = 12, innerBot = H - 88, cols = picks.length || 1, cw = innerW / cols;
     picks.forEach((r, i) => {
-      const w = Math.min(780, cw - 30), h = w * 0.42, x = 12 + i * cw + (cw - w) / 2, y = 200;
+      const w = Math.min(760, cw - 40), h = w * 0.42, x = 12 + i * cw + (cw - w) / 2;
+      const block = h + 90, y = innerTop + (innerBot - innerTop - block) / 2;
       g.drawImage(drawSectionCanvas(r), x, y, w, h);
-      g.fillStyle = '#1a2fd6'; g.font = 'bold 28px ' + FONT; g.textAlign = 'center';
-      g.fillText('“' + String.fromCharCode(65 + i) + '“-“' + String.fromCharCode(65 + i) + '“ 측면도  VIEW  SCALE  1:1', x + w / 2, y + h + 70);
-      g.fillStyle = '#000'; g.font = '18px ' + FONT; g.fillText(r.name + ' · ' + r.typeLabel + ' · ' + r.kw.toFixed(2) + 'kW', x + w / 2, y + h + 104);
+      g.fillStyle = '#1a2fd6'; g.font = 'bold 30px ' + FONT; g.textAlign = 'center'; g.textBaseline = 'middle';
+      g.fillText('“' + String.fromCharCode(65 + i) + '“-“' + String.fromCharCode(65 + i) + '“ 측면도  VIEW  SCALE  1:1', x + w / 2, y + h + 60);
     });
     return cv.toDataURL('image/png');
   }
 
-  return { build, save, consult, drawPlan, drawSection, drawPlanSheet, drawPlanMap, drawSectionSheet, fillTemplate, computeTables, kepcoLine, kepcoFeeOf, terminalOf, PRICE, genKwh, yearCost, COST_PER_KW };
+  return { build, save, consult, drawPlan, drawSection, drawPlanSheet, drawSectionSheet, fillTemplate, computeTables, kepcoLine, kepcoFeeOf, terminalOf, PRICE, genKwh, yearCost, COST_PER_KW };
 })();
 if (typeof module !== 'undefined' && module.exports) module.exports = Proposal;

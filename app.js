@@ -891,7 +891,9 @@
         hint('원본 제안서 읽는 중… (' + Math.round(templateFile.size / 1048576) + 'MB)');
         const buf = await templateFile.arrayBuffer();
         hint('배치도·측면도 그리고 표 채우는 중…');
-        const imgs = { planMap: await Proposal.drawPlanMap(data), plan: Proposal.drawPlanSheet(data), section: Proposal.drawSectionSheet(data) };
+        data.underground = await askOX('한전 계통 — 지중 지역입니까?', '현장 앞 전주·전선이 없고 지중(땅속) 공급 지역이면 「지중」, 전주가 있는 가공(공중) 지역이면 「공중」. 한전연계비 계산에 씁니다.<br><small style="color:var(--muted)">' + (data.kw < 500 ? '500kW 미만 → 저압' : '500kW 이상 → 고압') + ' · 공중 ' + Math.round(Proposal.kepcoFeeOf(data.kw, data.kw >= 500, false)).toLocaleString() + '원 / 지중 ' + Math.round(Proposal.kepcoFeeOf(data.kw, data.kw >= 500, true)).toLocaleString() + '원 (VAT 별도)</small>', '지중', '공중');
+        hint('배치도(위성·도면)·측면도 그리고 표 채우는 중…');
+        const imgs = { planMap: await Proposal.drawPlanSheet(data, { satellite: true }), plan: await Proposal.drawPlanSheet(data), section: Proposal.drawSectionSheet(data) };
         const blob = await Proposal.fillTemplate(buf, data, imgs);
         const name = templateFile.name.replace(/\.pptx$/i, '') + '_' + (siteName || '현장').replace(/[\\/:*?"<>|]/g, '') + '_' + data.kw.toFixed(0) + 'kW.pptx';
         const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = name; document.body.appendChild(a); a.click(); a.remove();
