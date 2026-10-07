@@ -122,15 +122,25 @@
     // 설정 모달 (모듈 규격 · 층고)
     $('btnSettings').onclick = () => {
       $('g_moduleWp').value = moduleCfg.moduleWp; $('g_modL').value = moduleCfg.modLmm; $('g_modS').value = moduleCfg.modSmm; $('g_floorH').value = shade.floorH;
+      const eo = effectiveOpt(curType); $('g_tilt').value = eo.tilt; $('g_shadeAngle').value = eo.shadeAngle;
       $('settingsModal').classList.add('on');
     };
     $('btnSettingsClose').onclick = () => $('settingsModal').classList.remove('on');
-    $('btnSettingsDefault').onclick = () => { $('g_moduleWp').value = MODULE_DEFAULT.moduleWp; $('g_modL').value = MODULE_DEFAULT.modLmm; $('g_modS').value = MODULE_DEFAULT.modSmm; $('g_floorH').value = 3.5; };
+    $('btnSettingsDefault').onclick = () => { $('g_moduleWp').value = MODULE_DEFAULT.moduleWp; $('g_modL').value = MODULE_DEFAULT.modLmm; $('g_modS').value = MODULE_DEFAULT.modSmm; $('g_floorH').value = 3.5;
+      $('g_tilt').value = ''; $('g_shadeAngle').value = ''; Object.keys(settings).forEach(t => { if (settings[t]) { delete settings[t].tilt; delete settings[t].shadeAngle; } }); };
     $('btnSettingsApply').onclick = () => {
       const wp = parseFloat($('g_moduleWp').value), L = parseFloat($('g_modL').value), S = parseFloat($('g_modS').value), fh = parseFloat($('g_floorH').value);
       if (!(wp > 0 && L > 0 && S > 0)) { alert('모듈 출력·치수는 0보다 커야 합니다.'); return; }
       moduleCfg = { moduleWp: wp, modLmm: Math.max(L, S), modSmm: Math.min(L, S) };
       if (fh > 0) shade.floorH = fh;
+      // 경사각·후면입사각: 값을 넣으면 모든 형태에 같은 값(형태별로 다르게는 아래 「상세 설정」). 비우면 형태별 기본값.
+      const gt = parseFloat($('g_tilt').value), ga = parseFloat($('g_shadeAngle').value);
+      Object.keys(Layout.PRESETS).forEach(t => {
+        settings[t] = settings[t] || {};
+        if (isFinite(gt) && gt >= 0) settings[t].tilt = gt; else delete settings[t].tilt;
+        if (isFinite(ga) && ga > 0) settings[t].shadeAngle = ga; else delete settings[t].shadeAngle;
+      });
+      fillSettings();
       $('settingsModal').classList.remove('on');
       roofs.forEach(recompute); renderList(); save();
       hint('모듈 ' + moduleCfg.modLmm + '×' + moduleCfg.modSmm + 'mm · ' + moduleCfg.moduleWp + 'W 로 다시 배치했습니다.');
@@ -139,6 +149,14 @@
     $('btnDraw').onclick = startDraw;
     $('btnParcel').onclick = () => loadParcels();
     $('btnLots').onclick = () => loadLots();
+    $('btn3d').onclick = open3d;
+    $('v3d_close').onclick = () => View3D.close();
+    $('v3d_auto').onclick = () => { $('v3d_auto').classList.toggle('accent', View3D.toggleAuto()); };
+    $('v3d_snap').onclick = () => {
+      const url = View3D.snapshot(); if (!url) return;
+      const a = document.createElement('a'); a.href = url; a.download = '태양광_조감도_' + (siteName || '').replace(/[\\/:*?"<>|]/g, '') + '.png'; document.body.appendChild(a); a.click(); a.remove();
+      hint('조감도 PNG 를 저장했습니다(다운로드).');
+    };
     bindEdit();
     $('btnBuildings').onclick = () => loadBuildings();
 
@@ -840,6 +858,27 @@
     recompute(roof); renderList(); save();
     hint((name || '주차장') + ' 자리에 캐노피 ' + Math.round(areaM2) + '㎡ 를 놓았습니다(직사각형 추정). 꼴이 다르면 「직접 그리기」로 그리고 형태를 주차장으로.');
   }
+  /** 배치 결과를 3D 로. 지붕은 대장 높이(없으면 층수×층고), 토지는 0.5m 구조물, 주차장은 2.5m 캐노피. 주변 건물은 회색. */
+  function open3d() {
+    const done = roofs.filter(r => r.result);
+    if (!done.length) { hint('먼저 배치를 하세요. 배치된 지붕·토지·주차장을 3D 로 띄웁니다.'); return; }
+    const all = [].concat(...done.map(r => r.points));
+    const origin = Layout.centroid(all);
+    const srcs = new Set(done.map(r => r.src));
+    const data = {
+      origin,
+      roofs: done.map(r => {
+        const res = r.result, opt = res.opt || {};
+        return { name: r.name, type: r.type, rings: [r.points].concat(r.extra || []), banned: !!res.banned,
+          baseH: r.type === 'ground' ? 0.5 : r.type === 'parking' ? 2.5 : roofH(r),
+          modules: res.modules || [], rowAngle: res.rowAngle || 0, tilt: Number(opt.tilt) || 0,
+          dSlope: opt.orient === 'portrait' ? opt.modL : opt.modS };
+      }),
+      buildings: buildings.filter(b => !srcs.has(b.id) && distM(origin, Layout.centroid(b.ring)) <= 250).map(b => ({ ring: b.ring, h: bldH(b) })),
+    };
+    View3D.open(data);
+    hint('3D 조감도 — 끌어서 돌리고, 휠·두 손가락으로 확대. 📷 로 PNG 저장.');
+  }
   function clearParcels() {
     parcels.forEach(p => p.gfx && p.gfx.setMap(null));
     parcels = [];
@@ -863,9 +902,8 @@
       .sort((a, b) => Layout.area(Layout.toLocal(ringOf(a), p)) - Layout.area(Layout.toLocal(ringOf(b), p)))[0];
     const roof = smallest(roofs, r => r.points);
     if (roof) {
-      // 같은 지붕을 한 번 더 누르면 지운다(처음 누르면 선택, 선택된 걸 다시 누르면 삭제). 다시 누르면 다시 들어간다.
-      if (roof.id === selectedId) { remove(roof.id); hint(roof.name + ' 지붕을 뺐습니다. 다시 누르면 다시 들어갑니다.'); return; }
-      select(roof.id); return;
+      // 누르면 선택만 한다. (예전엔 선택된 지붕을 다시 누르면 지워져서 그린 직후 실수로 사라졌다 → 삭제는 목록의 「삭제」로만)
+      select(roof.id); fitRoof(roof); return;
     }
     const bd = smallest(buildings, b => b.ring);
     if (bd) { adoptBuilding(bd, curType); renderList(); save(); return; }
@@ -931,15 +969,19 @@
   function cancelDraw() { endDrawUi(); hint(''); }
   function finishDraw() {
     if (pts.length < 3) { hint('점을 3개 이상 찍어야 면이 됩니다.'); return; }
-    const roof = { id: Date.now().toString(36), name: '지붕 ' + (roofs.length + 1), type: curType, points: pts.slice(), floors: 1, gfx: null };
+    const roof = { id: Date.now().toString(36), name: (curType === 'ground' ? '토지 ' : curType === 'parking' ? '주차장 ' : '지붕 ') + (roofs.length + 1), type: curType, points: pts.slice(), floors: curType === 'ground' ? 0 : 1, gfx: null };
     endDrawUi();
-    hint('');
     roofs.push(roof);
     selectedId = roof.id;
-    recompute(roof);
+    lastPick = Date.now() + 400;      // 완료 버튼 뒤에 따라오는 지도 클릭(고스트 탭)이 방금 그린 지붕을 건드리지 않게
+    roofs.forEach(recompute);
     renderList();
     save();
+    const res = roof.result || {};
+    if (!res.count) hint(roof.name + ' — 모듈이 0장입니다. ' + (res.opt && res.opt.margin >= 1 ? '가장자리 이격 ' + res.opt.margin + 'm 를 빼면 자리가 없습니다 (목록의 「이격」이나 상세 설정에서 줄이세요).' : '면이 너무 작거나 좁습니다.'));
+    else hint(roof.name + ' — ' + res.count + '장 ' + res.kw.toFixed(2) + 'kW 배치. 형태를 바꾸려면 위 형태 버튼, 지우려면 목록의 「삭제」.');
     const c = Layout.centroid(roof.points); siteInfoAt(c.lat, c.lng);
+    if (roof.type === 'ground') reviewSite(roof);
   }
 
   // ------------------------------------------------------------ 계산 · 그리기
