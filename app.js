@@ -24,6 +24,7 @@
 
   // V-World 에서 받아온 건물 외곽선. 누르면 지붕으로 들어가고, 음영 계산의 장애물로도 쓴다.
   let buildings = [];      // { id, name, ring, floors, gfx }
+  let parcels = [];        // 「토지 가져오기」로 깐 필지 { pnu, jibun, ring, gfx } — 누르면 토지 배치
   // 음영 고려. 켜면 주변의 더 높은 건물(층수 × 층고) 그림자에 걸리는 모듈을 뺀다.
   let shade = { on: false, floorH: 3.5 };
   let parcelGfx = null;    // 검색한 지번의 필지 외곽선
@@ -134,7 +135,7 @@
     };
 
     $('btnDraw').onclick = startDraw;
-    $('btnParcel').onclick = () => { if (lastParcel) adoptParcel(lastParcel); else hint('먼저 지번을 검색하세요. 검색한 필지가 토지 배치 대상이 됩니다.'); };
+    $('btnParcel').onclick = () => loadParcels();
     bindEdit();
     $('btnBuildings').onclick = () => loadBuildings();
 
@@ -567,7 +568,6 @@
     clearParcel();
     VWorld.parcelAt(lat, lng).then(parcel => {
       lastParcel = parcel || null;
-      $('btnParcel').disabled = !parcel;
       if (parcel) {
         parcelGfx = new kakao.maps.Polygon({
           path: parcel.ring.map(p => new kakao.maps.LatLng(p.lat, p.lng)),
@@ -708,6 +708,42 @@
       .catch(e => { hint(e.message); return []; })
       .finally(() => { $('btnBuildings').disabled = false; });
   }
+  /**
+   * 화면 안 필지(연속지적도)를 전부 노란 점선으로 깐다. 건물 가져오기와 같은 방식 — 누르면 토지(노지 2단)로 들어간다.
+   * 도로·구거·하천·제방·유지 필지(지번 끝 글자)는 발전소 부지가 아니라 깔지 않는다.
+   */
+  function loadParcels() {
+    if (!hasVWorld()) { hint('V-World 인증키가 없습니다. config.js 의 VWORLD_KEY 를 채워야 토지를 가져옵니다.'); return Promise.resolve([]); }
+    if (map.getLevel() > 4) { hint('너무 멀리서 보고 있습니다. 지도를 더 확대한 뒤 눌러 주세요.'); return Promise.resolve([]); }
+    const b = map.getBounds(), sw = b.getSouthWest(), ne = b.getNorthEast();
+    hint('필지 불러오는 중…');
+    $('btnParcel').disabled = true;
+    return VWorld.parcelsInBox({ lat: sw.getLat(), lng: sw.getLng() }, { lat: ne.getLat(), lng: ne.getLng() })
+      .then(list => {
+        clearParcels();
+        let skipped = 0;
+        list.forEach(pc => {
+          const jb = pc.jibun || (pc.props || {}).jibun || '';
+          if (/[도구천제유]$/.test(jb)) { skipped++; return; }
+          const pg = new kakao.maps.Polygon({
+            path: pc.ring.map(p => new kakao.maps.LatLng(p.lat, p.lng)),
+            strokeWeight: 2, strokeColor: '#ffd54a', strokeStyle: 'shortdash', fillColor: '#ffd54a', fillOpacity: 0.08, zIndex: 0,
+          });
+          pg.setMap(map);
+          kakao.maps.event.addListener(pg, 'click', e => { if (!drawing) pickAt(e && e.latLng ? { lat: e.latLng.getLat(), lng: e.latLng.getLng() } : Layout.centroid(pc.ring)); });
+          parcels.push({ pnu: pc.pnu || (pc.props || {}).pnu || '', jibun: jb, ring: pc.ring, props: pc.props, gfx: pg });
+        });
+        hint(parcels.length ? '필지 ' + parcels.length + '개' + (skipped ? ' (도로·구거 등 ' + skipped + '개 제외)' : '') + '. 노란 필지를 누르면 토지(노지 2단)로 배치됩니다. 붙은 필지는 합산 여부를 묻습니다.'
+          : '이 화면 안에 필지 정보가 없습니다.');
+        return parcels;
+      })
+      .catch(e => { hint(e.message); return []; })
+      .finally(() => { $('btnParcel').disabled = false; });
+  }
+  function clearParcels() {
+    parcels.forEach(p => p.gfx && p.gfx.setMap(null));
+    parcels = [];
+  }
   function clearBuildings() {
     buildings.forEach(b => b.gfx && b.gfx.setMap(null));
     buildings = [];
@@ -733,7 +769,9 @@
     }
     const bd = smallest(buildings, b => b.ring);
     if (bd) { adoptBuilding(bd, curType); renderList(); save(); return; }
-    if (buildings.length) hint('누른 곳에 건물 외곽선이 없습니다. 하늘색 건물 안쪽을 누르거나 「직접 그리기」를 쓰세요.');
+    const pc = smallest(parcels, x => x.ring);
+    if (pc) { adoptParcel(pc); return; }
+    if (buildings.length || parcels.length) hint('누른 곳에 건물·필지 외곽선이 없습니다. 하늘색 건물이나 노란 필지 안쪽을 누르거나 「직접 그리기」를 쓰세요.');
   }
 
   function adoptBuilding(bd, type, batch) {
