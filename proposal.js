@@ -85,68 +85,77 @@ const Proposal = (() => {
   // ------------------------------------------------------------ 그림: 측면도
   /** 지붕 하나의 단면(남→북 또는 서→동). 치수는 mm. */
   function drawSection(r) { return drawSectionCanvas(r).toDataURL('image/png'); }
+  /**
+   * 지붕 하나의 단면 (1400×640). 원본 도면처럼: 검정 벽·지붕선, 자홍 모듈선, 빨간 치수선 + 세로로 눕힌 큰 숫자(mm).
+   * 왼쪽에 처마·용마루 높이, 오른쪽에 모듈 상단(북측 끝) 높이, 앞다리는 왼쪽 위에 작게.
+   */
   function drawSectionCanvas(r) {
-    const W = 1000, H = 420;
+    const W = 1400, H = 640;
     const cv = document.createElement('canvas'); cv.width = W; cv.height = H;
     const g = cv.getContext('2d');
     g.fillStyle = '#fff'; g.fillRect(0, 0, W, H);
-    const depth = Math.max(8, r.depthM), eave = r.eaveH, ridge = r.ridgeH, top = r.topH;
-    const sc = Math.min((W - 220) / depth, (H - 120) / Math.max(4, top));
-    const X = m => 110 + m * sc, Y = m => H - 70 - m * sc;
+    // 토지·평슬라브처럼 깊이가 수십 m 면 어레이 3~4줄 구간만 잘라 그린다(아니면 높이 2~3m 가 선 하나로 보인다)
+    const clipDepth = (r.kind === 'flat' && r.depthM > 4 * (r.pitch || 8) + 6) ? 3 * (r.pitch || 8) + (r.arrayDepth || 4) + 2 * ((r.type === 'ground' ? r.margin : 0.5) || 0.5) : r.depthM;
+    const depth = Math.max(8, clipDepth), eave = r.eaveH, ridge = r.ridgeH, top = Math.max(r.topH, eave + 1);
+    const L = 260, R = 180, T = 90, B = 60;                                   // 치수 글씨 자리
+    const sc = Math.min((W - L - R) / depth, (H - T - B) / top);
+    const X = m => L + m * sc, Y = m => H - B - m * sc;
     const mm = v => Math.round(v * 1000).toLocaleString('ko-KR');
-    g.strokeStyle = '#111'; g.lineWidth = 2; g.fillStyle = '#111'; g.font = '15px ' + FONT;
-    // 지면 · 벽
-    g.beginPath(); g.moveTo(X(-1), Y(0)); g.lineTo(X(depth + 1), Y(0)); g.stroke();
-    g.strokeRect(X(0), Y(eave), depth * sc, eave * sc);
-    const dim = (x, y1, y2, text, side) => {   // 세로 치수선
-      g.strokeStyle = '#c0392b'; g.fillStyle = '#c0392b'; g.lineWidth = 1;
+    const BLK = '#111', RED = '#e0251f', MAG = '#d02090';
+    g.lineCap = 'butt';
+    // 지면
+    g.strokeStyle = BLK; g.lineWidth = 2; g.beginPath(); g.moveTo(X(-1.5), Y(0)); g.lineTo(X(depth + 1.5), Y(0)); g.stroke();
+    // 벽
+    g.lineWidth = 2.5; g.beginPath(); g.moveTo(X(0), Y(0)); g.lineTo(X(0), Y(eave)); g.moveTo(X(depth), Y(0)); g.lineTo(X(depth), Y(eave)); g.stroke();
+    /** 세로 치수선: x 위치, y1~y2(m), 글씨. 눕힌 큰 숫자. */
+    const dim = (x, y1, y2, text, size) => {
+      g.strokeStyle = RED; g.fillStyle = RED; g.lineWidth = 1.5;
       g.beginPath(); g.moveTo(x, Y(y1)); g.lineTo(x, Y(y2)); g.stroke();
-      [y1, y2].forEach(y => { g.beginPath(); g.moveTo(x - 6, Y(y)); g.lineTo(x + 6, Y(y)); g.stroke(); });
-      g.save(); g.translate(x + (side < 0 ? -8 : 8), (Y(y1) + Y(y2)) / 2); g.rotate(-Math.PI / 2); g.textAlign = 'center'; g.textBaseline = side < 0 ? 'bottom' : 'top'; g.fillText(text, 0, 0); g.restore();
-      g.strokeStyle = '#111'; g.fillStyle = '#111';
+      [y1, y2].forEach(y => { g.beginPath(); g.moveTo(x - 7, Y(y)); g.lineTo(x + 7, Y(y)); g.stroke(); g.beginPath(); g.moveTo(x - 24, Y(y)); g.lineTo(x + 24, Y(y)); g.lineWidth = 0.8; g.stroke(); g.lineWidth = 1.5; });
+      g.save(); g.translate(x - 6, (Y(y1) + Y(y2)) / 2); g.rotate(-Math.PI / 2);
+      g.font = 'bold ' + (size || 34) + 'px ' + FONT; g.textAlign = 'center'; g.textBaseline = 'bottom'; g.fillText(text, 0, 0); g.restore();
+      g.strokeStyle = BLK; g.fillStyle = BLK;
     };
-    const mod = (x1, y1, x2, y2) => { g.strokeStyle = '#d02090'; g.lineWidth = 5; g.beginPath(); g.moveTo(X(x1), Y(y1)); g.lineTo(X(x2), Y(y2)); g.stroke(); g.strokeStyle = '#111'; g.lineWidth = 2; };
-    const post = (x, y1, y2) => { g.strokeStyle = '#555'; g.lineWidth = 2; g.beginPath(); g.moveTo(X(x), Y(y1)); g.lineTo(X(x), Y(y2)); g.stroke(); g.strokeStyle = '#111'; };
+    const mod = (x1, y1, x2, y2) => { g.strokeStyle = MAG; g.lineWidth = 7; g.beginPath(); g.moveTo(X(x1), Y(y1)); g.lineTo(X(x2), Y(y2)); g.stroke(); g.strokeStyle = BLK; g.lineWidth = 2.5; };
+    const post = (x, y1, y2) => { g.strokeStyle = '#4a2a8a'; g.lineWidth = 2; g.beginPath(); g.moveTo(X(x), Y(y1)); g.lineTo(X(x), Y(y2)); g.stroke(); g.strokeStyle = BLK; g.lineWidth = 2.5; };
+    const lift = r.frontLift != null ? r.frontLift : 0.5;
     if (r.kind === 'gable-ew') {
-      // 원단: 경간마다 남쪽 면 밀착, 북쪽 블록은 같은 면으로 들어 올림
+      // 원단: 경간마다 남쪽 면은 지붕에서 앞다리만큼 띄워 평행, 북쪽 블록은 같은 면으로 이어 올림
       const n = r.spans, D = depth / n, t = Math.tan(r.roofSlope * Math.PI / 180);
       for (let i = 0; i < n; i++) {
         const y0 = i * D, yc = y0 + D / 2, y1 = y0 + D;
         g.beginPath(); g.moveTo(X(y0), Y(eave)); g.lineTo(X(yc), Y(ridge)); g.lineTo(X(y1), Y(eave)); g.stroke();
-        const lift = r.frontLift != null ? r.frontLift : 0.5;   // 앞다리: 지붕면에서 띄우는 높이(사용자 지정 0.5m)
-        for (let k = 0; k <= 2; k++) { const u = 0.5 + (D / 2 - 0.8) * k / 2; post(y0 + u, eave + (D / 2 - Math.abs(u - D / 2)) * t, eave + u * t + lift); }
         mod(y0 + 0.5, eave + 0.5 * t + lift, yc - 0.3, eave + (D / 2 - 0.3) * t + lift);
         mod(yc + 0.3, eave + (D / 2 + 0.3) * t + lift, y1 - 0.5, eave + (D - 0.5) * t + lift);
-        for (let k = 1; k <= 3; k++) { const u = D / 2 + 0.3 + (D / 2 - 0.8) * k / 3; post(y0 + u, eave + (D / 2 - Math.abs(u - D / 2)) * t, eave + u * t + lift); }
+        for (let k = 0; k <= 2; k++) { const u = 0.5 + (D / 2 - 0.8) * k / 2; post(y0 + u, eave + u * t, eave + u * t + lift); }
+        for (let k = 1; k <= 3; k++) { const u = D / 2 + 0.3 + (D / 2 - 0.8) * k / 3; post(y0 + u, eave + (D - u) * t, eave + u * t + lift); }
       }
-      dim(X(0) - 40, 0, eave, '처마 ' + mm(eave), -1);
-      dim(X(0) - 12, eave, eave + 0.5 * t + (r.frontLift != null ? r.frontLift : 0.5), '앞다리 ' + mm(0.5 * t + (r.frontLift != null ? r.frontLift : 0.5)), 1);
-      dim(X(depth / n / 2) + 0, eave, ridge, '지붕 ' + mm(ridge - eave), 1);
-      dim(X(depth) + 40, 0, top, '북측 끝 ' + mm(top), 1);
-      g.fillText('남', X(0) - 30, Y(0) + 24); g.fillText('북', X(depth) + 14, Y(0) + 24);
-
+      dim(X(0) - 150, 0, eave, mm(eave));
+      dim(X(0) - 70, 0, ridge, mm(ridge));
+      dim(X(0) - 20, eave, eave + 0.5 * t + lift, mm(0.5 * t + lift), 26);
+      dim(X(depth) + 90, 0, top, mm(top));
     } else if (r.kind === 'gable-ns') {
-      // 동서지붕: 박공 위 수평 프레임에 2단 거치
+      // 동서지붕: 박공 위 수평 프레임에 2단 거치 (A-A 원본 꼴)
       const n = r.spans, Wd = depth / n, t = Math.tan(r.roofSlope * Math.PI / 180);
       for (let i = 0; i < n; i++) { const x0 = i * Wd, xc = x0 + Wd / 2; g.beginPath(); g.moveTo(X(x0), Y(eave)); g.lineTo(X(xc), Y(ridge)); g.lineTo(X(x0 + Wd), Y(eave)); g.stroke(); }
-      g.strokeStyle = '#555'; g.beginPath(); g.moveTo(X(0), Y(ridge + 0.3)); g.lineTo(X(depth), Y(ridge + 0.3)); g.stroke(); g.strokeStyle = '#111';
-      const aw = r.arrayDepth, ah = r.arrayH;
-      for (let x = 1; x + aw <= depth - 1; x += r.pitch) { mod(x, ridge + 0.3, x + aw, ridge + 0.3 + ah); post(x + aw, ridge + 0.3, ridge + 0.3 + ah); }
-      dim(X(0) - 40, 0, eave, '처마 ' + mm(eave), -1);
-      dim(X(depth) + 40, 0, top, '모듈 상단 ' + mm(top), 1);
-      g.fillText('서', X(0) - 30, Y(0) + 24); g.fillText('동', X(depth) + 14, Y(0) + 24);
-
+      const base = ridge + 0.3, aw = r.arrayDepth, ah = r.arrayH;
+      g.strokeStyle = '#3aa'; g.lineWidth = 2; g.beginPath(); g.moveTo(X(0.5), Y(base)); g.lineTo(X(depth - 0.5), Y(base)); g.stroke(); g.strokeStyle = BLK;
+      for (let x = 1; x + aw <= depth - 1; x += r.pitch) { mod(x, base, x + aw, base + ah); post(x + aw, base, base + ah); post(x + aw / 2, ridge - (Wd / 2) * t * 0.5, base); }
+      dim(X(0) - 150, 0, eave, mm(eave));
+      dim(X(0) - 70, 0, ridge, mm(ridge));
+      dim(X(depth) + 90, 0, top, mm(top));
+      dim(X(0) - 20, eave, top, mm(top - eave), 26);
     } else {
-      // 평슬라브 · 토지 · 주차장: 수평 기준면 위 경사거치
+      // 평슬라브·토지·주차장: 기준면 위 경사거치
       const base = r.type === 'parking' ? 2.5 : r.type === 'ground' ? 0.5 : eave;
-      if (r.type === 'ground') { g.strokeStyle = '#8a6d3b'; g.beginPath(); g.moveTo(X(0), Y(0)); g.lineTo(X(depth), Y(0)); g.stroke(); g.strokeStyle = '#111'; }
       if (r.type === 'parking') { for (let x = 2; x < depth; x += 6) post(x, 0, base); g.beginPath(); g.moveTo(X(0), Y(base)); g.lineTo(X(depth), Y(base)); g.stroke(); }
+      if (r.type !== 'ground' && r.type !== 'parking') { g.beginPath(); g.moveTo(X(0), Y(eave)); g.lineTo(X(depth), Y(eave)); g.stroke(); }
       const aw = r.arrayDepth, ah = r.arrayH;
       for (let x = (r.type === 'ground' ? r.margin : 0.5); x + aw <= depth - 0.5; x += r.pitch) { mod(x, base + 0.3, x + aw, base + 0.3 + ah); post(x + aw, base, base + 0.3 + ah); post(x, base, base + 0.3); }
-      if (base > 0) dim(X(0) - 40, 0, base, (r.type === 'parking' ? '캐노피 ' : r.type === 'ground' ? '구조물 ' : '처마 ') + mm(base), -1);
-      dim(X(depth) + 40, base, base + 0.3 + ah, '어레이 ' + mm(0.3 + ah), 1);
-      g.fillText('남', X(0) - 30, Y(0) + 24); g.fillText('북', X(depth) + 14, Y(0) + 24);
-
+      if (clipDepth < r.depthM) { g.fillStyle = '#666'; g.font = '22px ' + FONT; g.textAlign = 'right'; g.textBaseline = 'top'; g.fillText('(전체 ' + Math.round(r.depthM) + 'm 중 ' + Math.round(depth) + 'm 구간)', X(depth) + 60, 20); g.fillStyle = BLK; }
+      if (base > 0) dim(X(0) - 150, 0, base, mm(base));
+      dim(X(depth) + 90, 0, base + 0.3 + ah, mm(base + 0.3 + ah));
+      dim(X(0) - 20, base, base + 0.3 + ah, mm(0.3 + ah), 26);
     }
     return cv;
   }
@@ -604,6 +613,7 @@ const Proposal = (() => {
   function sheetFrame(g, W, H, d, titleName) {
     g.fillStyle = '#fff'; g.fillRect(0, 0, W, H);
     g.strokeStyle = '#000'; g.lineWidth = 3; g.strokeRect(12, 12, W - 24, H - 24);
+    g.lineWidth = 1.5; g.strokeRect(40, 40, W - 80, H - 88 - 40);              // 안쪽 테두리(원본 도면처럼 이중선)
     // 표제란
     const y0 = H - 88, h = 76; g.lineWidth = 1.5; g.strokeRect(12, y0, W - 24, h);
     const cols = [12, 300, 480, 760, 870, 1010, 1180, 1500, W - 12];
@@ -723,14 +733,14 @@ const Proposal = (() => {
     sheetFrame(g, W, H, d, '모듈배치측면도');
     // 안쪽 영역(테두리~표제란)에 단면 2개를 나란히: 각 700×294(1000×420 비율), 아래에 이름표
     const picks = d.roofs.slice().sort((a, b) => b.kw - a.kw).slice(0, 2);
-    // 안쪽 영역(위 테두리 12 ~ 표제란 위 H-88) 가운데에 단면을 나란히. 그림 아래에는 "A"-"A" 측면도 VIEW SCALE 1:1 만.
-    const innerW = W - 24, innerTop = 12, innerBot = H - 88, cols = picks.length || 1, cw = innerW / cols;
+    // 안쪽 테두리(40 ~ H-128) 안에 단면을 나란히, 세로 가운데. 아래에는 "A"-"A" 측면도 VIEW SCALE 1:1 (원본처럼 파란 큰 글씨).
+    const inL = 40, inR = W - 40, inT = 40, inB = H - 128, cols = picks.length || 1, cw = (inR - inL) / cols;
     picks.forEach((r, i) => {
-      const w = Math.min(760, cw - 40), h = w * 0.42, x = 12 + i * cw + (cw - w) / 2;
-      const block = h + 90, y = innerTop + (innerBot - innerTop - block) / 2;
+      const w = Math.min(700, cw - 50), h = w * (640 / 1400), x = inL + i * cw + (cw - w) / 2;
+      const block = h + 110, y = inT + (inB - inT - block) / 2;
       g.drawImage(drawSectionCanvas(r), x, y, w, h);
-      g.fillStyle = '#1a2fd6'; g.font = 'bold 30px ' + FONT; g.textAlign = 'center'; g.textBaseline = 'middle';
-      g.fillText('“' + String.fromCharCode(65 + i) + '“-“' + String.fromCharCode(65 + i) + '“ 측면도  VIEW  SCALE  1:1', x + w / 2, y + h + 60);
+      g.fillStyle = '#1a2fd6'; g.font = 'bold 34px ' + FONT; g.textAlign = 'center'; g.textBaseline = 'middle';
+      g.fillText('“' + String.fromCharCode(65 + i) + '“-“' + String.fromCharCode(65 + i) + '“측면도  VIEW  SCALE  1:1', x + w / 2, y + h + 70);
     });
     return cv.toDataURL('image/png');
   }
