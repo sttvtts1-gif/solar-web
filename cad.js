@@ -46,7 +46,7 @@ const Cad = (() => {
     // ---- 평면도
     const all = [].concat(...d.roofs.map(r => [].concat(...r.rings.map(rg => toXY(rg, o)))));
     const minX = Math.min(...all.map(p => p.x)), maxX = Math.max(...all.map(p => p.x)), minY = Math.min(...all.map(p => p.y)), maxY = Math.max(...all.map(p => p.y));
-    w.text('TEXT', { x: minX, y: maxY + 6 }, 1.5, '모듈 배치 평면도 — ' + (d.site.name || '') + ' · ' + d.kw.toFixed(2) + 'kW · ' + d.module.w + 'W ' + d.module.L + '×' + d.module.S);
+    w.text('TEXT', { x: minX, y: maxY + 6 }, 1.5, '모듈 배치 평면도 - ' + (d.site.name || '') + ' · ' + d.kw.toFixed(2) + 'kW · ' + d.module.w + 'W ' + d.module.L + '×' + d.module.S);
     w.line('DIM', { x: minX, y: maxY + 3 }, { x: minX, y: maxY + 5.5 }); w.text('DIM', { x: minX + 0.4, y: maxY + 4 }, 0.8, 'N');
     d.roofs.forEach((r, i) => {
       r.rings.forEach(rg => w.poly('BLDG', toXY(rg, o), true));
