@@ -515,7 +515,7 @@
   // 깃허브 Pages 는 화면 파일을 10분 캐시한다. 새로 올린 뒤에도 옛 화면이 나오지 않게,
   // 열 때마다 캐시 없이 index.html 을 다시 받아 버전 표식이 다르면 한 번 새로고침한다.
   // 버전 표식(APP_VER)은 web동기화.sh 가 올릴 때마다 시각으로 바꿔 넣는다.
-  window.APP_VER = '20261007153304';
+  window.APP_VER = '20261007161608';
   (function () {
     if (location.hostname.indexOf('github.io') < 0) return;
     fetch('index.html?nocache=' + Date.now(), { cache: 'no-store' }).then(r => r.text()).then(t => {
@@ -527,20 +527,20 @@
     }).catch(() => {});
   })();
 </script>
-<script src="config.js?v=20261007153304"></script>
-<script src="vendor/pdf.min.js?v=20261007153304"></script>
-<script src="layout.js?v=20261007153304"></script>
-<script src="vworld.js?v=20261007153304"></script>
-<script src="site.js?v=20261007153304"></script>
-<script src="terrain.js?v=20261007153304"></script>
-<script src="vendor/three.min.js?v=20261007153304"></script>
+<script src="config.js?v=20261007161608"></script>
+<script src="vendor/pdf.min.js?v=20261007161608"></script>
+<script src="layout.js?v=20261007161608"></script>
+<script src="vworld.js?v=20261007161608"></script>
+<script src="site.js?v=20261007161608"></script>
+<script src="terrain.js?v=20261007161608"></script>
+<script src="vendor/three.min.js?v=20261007161608"></script>
 <script src="view3d.js"></script>
-<script src="kepco.js?v=20261007153304"></script>
-<script src="bld.js?v=20261007153304"></script>
-<script src="rps.js?v=20261007153304"></script>
-<script src="report.js?v=20261007153304"></script>
-<script src="rps_ui.js?v=20261007153304"></script>
-<script src="policy.js?v=20261007153304"></script>
-<script src="app.js?v=20261007153304"></script>
+<script src="kepco.js?v=20261007161608"></script>
+<script src="bld.js?v=20261007161608"></script>
+<script src="rps.js?v=20261007161608"></script>
+<script src="report.js?v=20261007161608"></script>
+<script src="rps_ui.js?v=20261007161608"></script>
+<script src="policy.js?v=20261007161608"></script>
+<script src="app.js?v=20261007161608"></script>
 </body>
 </html>

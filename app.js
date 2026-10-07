@@ -52,6 +52,7 @@
   let currentTab = 'layout';
   let panelMode = 'normal';   // collapsed | normal | full
   let immersive = false;
+  let siteBld = [];           // 이 필지의 건축물대장 표제부 목록 — 3D 조감도 색(지붕재·구조)에 쓴다
   let siteFloors = null;      // 건축물대장 지상층수(최대). 검색한 필지의 지붕에 음영 계산용으로 쓴다      // 앱 전체화면(시스템 바 숨김) 상태
   const hasVWorld = () => !!(window.SOLAR_CONFIG || {}).VWORLD_KEY;
 
@@ -479,6 +480,7 @@
     if (!bun) { $('bldHead').textContent = '지번을 못 찾음'; return; }
     Bld.title(bcode, mountain, bun, ji).then(list => {
       if (!list.length) { $('bldHead').textContent = '대장 없음 (미등재·무허가일 수 있음)'; return; }
+      siteBld = list;
       const named = list.find(x => x.name && x.name.trim());
       if (named && siteNameSrc !== 'search') setSiteName(named.name, 'bld');
       $('bldHead').textContent = list.length + '동' + (list[0].addr ? ' · ' + list[0].addr : '');
@@ -825,11 +827,15 @@
         const res = r.result, opt = res.opt || {};
         // 지붕 꼴: 원단(남북지붕) = 용마루 동서, 경간 res.spans / 인삼밭(동서지붕) = 용마루 남북, 동 수 r.spans / 평슬라브·토지·주차장 = 평면
         //   원단은 모듈이 지붕면에 붙으니(경사각 = 지붕 경사) 추가로 기울이지 않고, 나머지는 지붕 위에 경사각만큼 세운다.
-        const kind = r.type === 'flush' ? 'gable-ew' : r.type === 'ginseng' ? 'gable-ns' : 'flat';
+        // 동서지붕(인삼밭)은 사용자 지시로 평면 위에 2단 거치로 보인다(지붕 경사 무시). 원단만 박공 + 밀착.
+        const kind = r.type === 'flush' ? 'gable-ew' : 'flat';
+        // 색: 같은 필지 대장의 지붕재·구조(동별 매칭은 대장에 위치가 없어 못 함 → 면적이 제일 비슷한 동)
+        const bd = siteBld.length ? siteBld.slice().sort((p, q) => Math.abs((p.archArea || 0) - res.areaM2) - Math.abs((q.archArea || 0) - res.areaM2))[0] : null;
+        const mat = bd ? { roof: (bd.roof || '') + ' ' + (bd.roofEtc || ''), structure: bd.structure || '' } : null;
         return { name: r.name, type: r.type, rings: [r.points].concat(r.extra || []), banned: !!res.banned,
           baseH: r.type === 'ground' ? 0.5 : r.type === 'parking' ? 2.5 : roofH(r),
           kind, spans: r.type === 'flush' ? (res.spans || 1) : (r.spans || r.spansGuess || 1),
-          roofSlope: r.type === 'flush' ? (Number(opt.tilt) || 0) : r.type === 'ginseng' ? 10 : 0,
+          roofSlope: r.type === 'flush' ? (Number(opt.tilt) || 0) : 0, mat,
           buildingAngle: res.buildingAngle || 0,
           modules: res.modules || [], rowAngle: res.rowAngle || 0, tilt: r.type === 'flush' ? 0 : (Number(opt.tilt) || 0),
           dSlope: opt.orient === 'portrait' ? opt.modL : opt.modS };

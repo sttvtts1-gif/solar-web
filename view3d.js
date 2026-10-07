@@ -15,6 +15,46 @@ const View3D = (() => {
   const view = { az: -35, el: 35, dist: 100, target: null };
 
   const M_LAT = 110574, M_LNG = lat => 111320 * Math.cos(lat * Math.PI / 180);
+
+  /** 건축물대장 지붕재·구조 글자로 색을 고른다. 모르면 무난한 회색. */
+  function colorsOf(mat) {
+    const r = (mat && mat.roof) || '', s = (mat && mat.structure) || '';
+    let roof = 0xaeb6c2, roof2 = 0x98a1ad, wall = 0xd9d4c7;
+    if (/기와/.test(r)) { roof = 0x8a4a3a; roof2 = 0x74392c; }
+    else if (/징크|아연/.test(r)) { roof = 0x7a7f85; roof2 = 0x676c72; }
+    else if (/슁글|아스팔트/.test(r)) { roof = 0x4f4f52; roof2 = 0x3f3f42; }
+    else if (/판넬|패널|샌드위치|금속|철판|강판|칼라/.test(r)) { roof = 0x6f8fb5; roof2 = 0x5c7a9e; }
+    else if (/슬래브|슬라브|콘크리트|평지붕/.test(r)) { roof = 0xb9b9b4; roof2 = 0xa6a6a1; }
+    if (/벽돌|조적/.test(s)) wall = 0xb36b4f;
+    else if (/콘크리트|철근/.test(s)) wall = 0xcfcac0;
+    else if (/철골|판넬|패널|경량/.test(s)) wall = 0xdfe3e8;
+    else if (/목구조|목조/.test(s)) wall = 0xc9a977;
+    return { roof, roof2, wall };
+  }
+
+  // 모듈 셀 무늬(6×12 셀, 은색 선) — 캔버스로 만들어 텍스처로 쓴다(외부 그림 없이 오프라인)
+  let moduleTex = null;
+  function moduleTexture() {
+    if (moduleTex) return moduleTex;
+    const c = document.createElement('canvas'); c.width = 128; c.height = 256;
+    const g = c.getContext('2d');
+    g.fillStyle = '#0f1f5a'; g.fillRect(0, 0, 128, 256);
+    g.strokeStyle = '#8fa0c8'; g.lineWidth = 2;
+    for (let i = 0; i <= 6; i++) { g.beginPath(); g.moveTo(i * 128 / 6, 0); g.lineTo(i * 128 / 6, 256); g.stroke(); }
+    for (let j = 0; j <= 12; j++) { g.beginPath(); g.moveTo(0, j * 256 / 12); g.lineTo(128, j * 256 / 12); g.stroke(); }
+    g.strokeStyle = '#d0d6e0'; g.lineWidth = 4; g.strokeRect(1, 1, 126, 254);
+    moduleTex = new THREE.CanvasTexture(c);
+    return moduleTex;
+  }
+  // 바닥: 흙·풀 얼룩
+  function groundTexture() {
+    const c = document.createElement('canvas'); c.width = c.height = 256;
+    const g = c.getContext('2d');
+    g.fillStyle = '#8b9a74'; g.fillRect(0, 0, 256, 256);
+    for (let i = 0; i < 1400; i++) { g.fillStyle = Math.random() < 0.5 ? 'rgba(90,110,70,.35)' : 'rgba(170,160,120,.3)'; g.fillRect(Math.random() * 256, Math.random() * 256, 2 + Math.random() * 4, 2 + Math.random() * 4); }
+    const t = new THREE.CanvasTexture(c); t.wrapS = t.wrapT = THREE.RepeatWrapping; t.repeat.set(200, 200);
+    return t;
+  }
   function local(ring, o) { const k = M_LNG(o.lat); return ring.map(p => ({ x: (p.lng - o.lng) * k, y: (p.lat - o.lat) * M_LAT })); }
 
   function extrude(ringXY, h, color, opacity) {
@@ -54,7 +94,8 @@ const View3D = (() => {
   function gableMesh(roof, o, surf) {
     const pos = [], idx = [], col = [];
     const push = (pts, color) => { const b = pos.length / 3; pts.forEach(p => { const w = rot({ x: p.x, y: p.y }, roof.buildingAngle); pos.push(w.x, p.z, -w.y); col.push(color.r, color.g, color.b); }); for (let i = 1; i + 1 < pts.length; i++) idx.push(b, b + i, b + i + 1); };
-    const face = new THREE.Color(0xaeb6c2), face2 = new THREE.Color(0x98a1ad), wall = new THREE.Color(0xd9d4c7);
+    const cs = colorsOf(roof.mat);
+    const face = new THREE.Color(cs.roof), face2 = new THREE.Color(cs.roof2), wall = new THREE.Color(cs.wall);
     const { minX, maxX, minY, maxY, n, t } = surf, h0 = roof.baseH;
     if (roof.kind === 'gable-ew') {
       const D = (maxY - minY) / n, hr = h0 + D / 2 * t;
@@ -88,22 +129,24 @@ const View3D = (() => {
   function modulesMesh(roof, o, surf) {
     const th = roof.rowAngle * Math.PI / 180, fx = Math.sin(th), fy = -Math.cos(th);   // 앞면이 보는 방향
     const rise = roof.dSlope * Math.sin(roof.tilt * Math.PI / 180);
-    const pos = [], idx = [];
+    const pos = [], idx = [], uv = [];
     roof.modules.forEach(m => {
       const c = local(m, o);
       const s = c.map(p => p.x * fx + p.y * fy);
       const order = [0, 1, 2, 3].sort((a, b) => s[b] - s[a]);
       const front = new Set(order.slice(0, 2));
       const base = pos.length / 3;
-      // 지붕면이 기울어 있으면(원단) 판 전체를 지붕면 위 같은 높이차로 얹는다: 각 꼭짓점의 지붕 높이 + 0.3
-      c.forEach((p, i) => pos.push(p.x, surf.z(p) + 0.3 + (front.has(i) ? 0 : rise), -p.y));
+      // 원단(tilt 0)은 지붕면에 밀착(0.12m), 거치는 구조물 위(0.3m) + 뒤쪽을 경사각만큼
+      const lift = roof.tilt ? 0.3 : 0.12;
+      c.forEach((p, i) => { pos.push(p.x, surf.z(p) + lift + (front.has(i) ? 0 : rise), -p.y); uv.push(i === 0 || i === 3 ? 0 : 1, front.has(i) ? 0 : 1); });
       idx.push(base, base + 1, base + 2, base, base + 2, base + 3);
     });
     const geo = new THREE.BufferGeometry();
     geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+    geo.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
     geo.setIndex(idx);
     geo.computeVertexNormals();
-    const mat = new THREE.MeshLambertMaterial({ color: roof.banned ? 0x7a2a2a : 0x1b2f7a, side: THREE.DoubleSide });
+    const mat = new THREE.MeshLambertMaterial({ map: moduleTexture(), color: roof.banned ? 0xff8080 : 0xffffff, side: THREE.DoubleSide });
     const mesh = new THREE.Mesh(geo, mat);
     mesh.castShadow = true; mesh.receiveShadow = true;
     return mesh;
@@ -112,9 +155,10 @@ const View3D = (() => {
   function build(data) {
     const o = data.origin;
     scene = new THREE.Scene();
-    scene.background = new THREE.Color(0xcfe3f5);
-    scene.fog = new THREE.Fog(0xcfe3f5, 600, 2000);
-    scene.add(new THREE.AmbientLight(0xffffff, 0.55));
+    scene.background = new THREE.Color(0xbfdcf3);
+    scene.fog = new THREE.Fog(0xbfdcf3, 500, 1800);
+    scene.add(new THREE.HemisphereLight(0xdfefff, 0x6b7a55, 0.75));   // 하늘빛 + 땅 반사
+    scene.add(new THREE.AmbientLight(0xffffff, 0.25));
     const sun = new THREE.DirectionalLight(0xfff4e0, 0.9);
     sun.position.set(120, 220, 160);                 // 남동쪽 위 (z+ 가 남)
     sun.castShadow = true;
@@ -122,7 +166,7 @@ const View3D = (() => {
     const sc = sun.shadow.camera; sc.left = -400; sc.right = 400; sc.top = 400; sc.bottom = -400; sc.near = 1; sc.far = 1000;
     scene.add(sun);
 
-    const ground = new THREE.Mesh(new THREE.PlaneGeometry(4000, 4000), new THREE.MeshLambertMaterial({ color: 0x8e9b7a }));
+    const ground = new THREE.Mesh(new THREE.PlaneGeometry(4000, 4000), new THREE.MeshLambertMaterial({ map: groundTexture() }));
     ground.rotation.x = -Math.PI / 2; ground.receiveShadow = true;
     scene.add(ground);
     const grid = new THREE.GridHelper(2000, 200, 0x7a8a6a, 0x7a8a6a);
@@ -143,7 +187,11 @@ const View3D = (() => {
         const xy = local(rg, o); ext(xy);
         if (r.type === 'ground') scene.add(extrude(xy, 0.15, r.banned ? 0xc96a6a : 0xb9a77a, 0.95));
         else if (r.type === 'parking') { scene.add(extrude(xy, 0.1, 0x9a9a9a, 1)); const top = extrude(xy, 0.15, 0x6d7f99, 0.85); top.position.y = r.baseH; scene.add(top); }
-        else scene.add(extrude(xy, r.baseH, 0xd9d4c7, 1));                       // 벽(처마 높이까지)
+        else {
+          const cs = colorsOf(r.mat);
+          scene.add(extrude(xy, r.baseH, cs.wall, 1));                                // 벽(처마 높이까지)
+          if (r.kind === 'flat') { const top = extrude(xy, 0.12, cs.roof, 1); top.position.y = r.baseH; scene.add(top); }   // 평지붕 면
+        }
       });
       if (r.kind !== 'flat' && surf.t) scene.add(gableMesh(r, o, surf));           // 박공지붕
       if (r.modules && r.modules.length) scene.add(modulesMesh(r, o, surf));
