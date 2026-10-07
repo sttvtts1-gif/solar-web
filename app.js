@@ -148,6 +148,7 @@
     };
 
     $('btnDraw').onclick = startDraw;
+    bindDragMove();
     $('btnParcel').onclick = () => loadParcels();
     $('btn3d').onclick = open3d;
     // 웹(PC): 원본 제안서 파일을 골라 그 안을 채운다. APK 나 파일을 고를 수 없으면 5쪽 별도 파일.
@@ -836,6 +837,69 @@
       .catch(e => { hint(e.message); return []; })
       .finally(() => { $('btnParcel').disabled = false; });
   }
+  // ------------------------------------------------------------ 지붕 꾸욱 눌러 끌기
+  /**
+   * 지붕 안을 0.55초 꾸욱 누르면 "이동 모드": 지도는 멈추고 손가락을 따라 외곽선이 움직인다. 떼면 그 자리로 옮기고(moveRoof) 모듈을 다시 깐다.
+   * 자동보정이 안 맞을 때 손으로 맞추는 용도. 그리기·편집 중엔 안 된다. 끌기 중엔 외곽선만 움직여(모듈은 떼고 나서) 큰 건물도 가볍다.
+   */
+  function bindDragMove() {
+    const el = $('map');
+    let hold = null, moving = null, down = null;
+    const toLL = e => { const r = el.getBoundingClientRect(); return map.getProjection().coordsFromContainerPoint(new kakao.maps.Point(e.clientX - r.left, e.clientY - r.top)); };
+    const findRoof = ll => {
+      const p = { lat: ll.getLat(), lng: ll.getLng() };
+      const sel = roofs.find(r => r.id === selectedId);
+      if (sel && [sel.points].concat(sel.extra || []).some(rg => Layout.containsGeo(rg, p))) return sel;
+      return roofs.filter(r => [r.points].concat(r.extra || []).some(rg => Layout.containsGeo(rg, p)))
+        .sort((a, b) => Layout.area(Layout.toLocal(a.points, p)) - Layout.area(Layout.toLocal(b.points, p)))[0] || null;
+    };
+    const stopHold = () => { if (hold) { clearTimeout(hold); hold = null; } };
+    el.addEventListener('pointerdown', e => {
+      if (drawing || editing || !e.isPrimary) return;
+      down = { x: e.clientX, y: e.clientY, id: e.pointerId };
+      const roof = findRoof(toLL(e));
+      if (!roof) return;
+      stopHold();
+      hold = setTimeout(() => {
+        hold = null;
+        const ll = toLL(e);
+        moving = { roof, start: ll, last: ll, orig: roof.points.slice(), origExtra: (roof.extra || []).map(rg => rg.slice()) };
+        try { el.setPointerCapture(e.pointerId); } catch (x) {}
+        map.setDraggable(false); map.setZoomable(false);
+        if (navigator.vibrate) navigator.vibrate(40);
+        if (roof.gfx && roof.gfx.outline) roof.gfx.outline.setOptions({ strokeColor: '#00e5ff', strokeWeight: 4 });
+        hint(roof.name + ' — 끌어서 옮기세요. 손을 떼면 그 자리에 다시 배치합니다.');
+      }, 550);
+    });
+    el.addEventListener('pointermove', e => {
+      if (hold && down && Math.hypot(e.clientX - down.x, e.clientY - down.y) > 8) stopHold();     // 움직이면 그냥 지도 끌기
+      if (!moving) return;
+      e.preventDefault();
+      const ll = toLL(e);
+      const dLat = ll.getLat() - moving.start.getLat(), dLng = ll.getLng() - moving.start.getLng();
+      const sh = rg => rg.map(p => ({ lat: p.lat + dLat, lng: p.lng + dLng }));
+      const r = moving.roof;
+      r.points = sh(moving.orig); if (moving.origExtra.length) r.extra = moving.origExtra.map(sh);
+      if (r.gfx && r.gfx.outline) { const toLL2 = rg => rg.map(p => new kakao.maps.LatLng(p.lat, p.lng)); r.gfx.outline.setPath(r.extra && r.extra.length ? [r.points].concat(r.extra).map(toLL2) : toLL2(r.points)); }
+      moving.last = ll;
+    });
+    const end = e => {
+      stopHold();
+      if (!moving) return;
+      const r = moving.roof, ll = moving.last;
+      const lat = Layout.centroid(moving.orig).lat;
+      const dyM = (ll.getLat() - moving.start.getLat()) * 110574, dxM = (ll.getLng() - moving.start.getLng()) * 111320 * Math.cos(lat * Math.PI / 180);
+      r.points = moving.orig; r.extra = moving.origExtra;          // moveRoof 가 원본에서 다시 옮긴다(누적 기록용)
+      moving = null;
+      map.setDraggable(true); map.setZoomable(true);
+      lastPick = Date.now() + 700;                                  // 손 뗄 때 따라오는 지도 클릭이 선택/해제하지 않게
+      if (Math.hypot(dxM, dyM) < 0.2) { recompute(r); renderList(); hint(r.name + ' — 제자리입니다.'); return; }
+      moveRoof(r, dxM, dyM);
+      hint(r.name + ' — 동 ' + dxM.toFixed(1) + 'm · 북 ' + dyM.toFixed(1) + 'm 옮기고 다시 배치했습니다. 「위치」에서 "0 0" 을 넣으면 원래 자리로.');
+    };
+    el.addEventListener('pointerup', end); el.addEventListener('pointercancel', end);
+  }
+
   // ------------------------------------------------------------ 지붕 위치 보정
   /** 지붕(과 합산 링)을 동쪽 dxM · 북쪽 dyM 만큼 옮긴다 */
   function moveRoof(r, dxM, dyM) {
