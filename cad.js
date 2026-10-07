@@ -13,17 +13,20 @@ const Cad = (() => {
 
   function writer() {
     const e = [];
-    const poly = (layer, pts, closed) => { e.push('0', 'LWPOLYLINE', '8', layer, '90', String(pts.length), '70', closed ? '1' : '0'); pts.forEach(p => e.push('10', f(p.x), '20', f(p.y))); };
+    // R12 꼴 POLYLINE/VERTEX/SEQEND (LWPOLYLINE + AC1015 머리는 이 PC AutoCAD 2021 이 거부 — 2026-10-08 확인)
+    const poly = (layer, pts, closed) => { e.push('0', 'POLYLINE', '8', layer, '66', '1', '70', closed ? '1' : '0'); pts.forEach(p => e.push('0', 'VERTEX', '8', layer, '10', f(p.x), '20', f(p.y), '30', '0')); e.push('0', 'SEQEND', '8', layer); };
+    // 한글은 그대로 두고, 파일로 낼 때 CP949 바이트로 바꾼다(cp949.js). R12 DXF 는 ANSI 코드페이지로 읽혀 UTF-8·\U+ 둘 다 안 된다(2026-10-08 확인).
+    const uesc = s => String(s).replace(/[\r\n]/g, ' ');
     const line = (layer, a, b) => e.push('0', 'LINE', '8', layer, '10', f(a.x), '20', f(a.y), '30', '0', '11', f(b.x), '21', f(b.y), '31', '0');
-    const text = (layer, p, h, s, rot, align) => { e.push('0', 'TEXT', '8', layer, '10', f(p.x), '20', f(p.y), '30', '0', '40', f(h), '1', String(s).replace(/[\r\n]/g, ' '), '50', String(rot || 0)); if (align) { e.push('72', '1', '11', f(p.x), '21', f(p.y), '31', '0'); } };
+    const text = (layer, p, h, s, rot, align) => { e.push('0', 'TEXT', '8', layer, '10', f(p.x), '20', f(p.y), '30', '0', '40', f(h), '1', uesc(s), '50', String(rot || 0)); if (align) { e.push('72', '1', '11', f(p.x), '21', f(p.y), '31', '0'); } };
     const circle = (layer, c, r) => e.push('0', 'CIRCLE', '8', layer, '10', f(c.x), '20', f(c.y), '30', '0', '40', f(r));
     /** 세로 치수: 치수선 + 양끝 눈금 + 눕힌 글 */
     const vdim = (x, y1, y2, label, h) => { line('DIM', { x, y: y1 }, { x, y: y2 }); [y1, y2].forEach(y => line('DIM', { x: x - 0.4, y }, { x: x + 0.4, y })); text('DIM', { x: x - 0.3, y: (y1 + y2) / 2 }, h || 0.6, label, 90, true); };
     const hdim = (y, x1, x2, label, h) => { line('DIM', { x: x1, y }, { x: x2, y }); [x1, x2].forEach(x => line('DIM', { x, y: y - 0.4 }, { x, y: y + 0.4 })); text('DIM', { x: (x1 + x2) / 2, y: y + 0.3 }, h || 0.6, label, 0, true); };
     function dump() {
       const layers = [['BLDG', 7], ['MODULE', 6], ['RIDGE', 2], ['DIM', 1], ['TEXT', 3], ['FRAME', 8]];
-      const out = ['0', 'SECTION', '2', 'HEADER', '9', '$ACADVER', '1', 'AC1015', '9', '$INSUNITS', '70', '6', '0', 'ENDSEC',
-        '0', 'SECTION', '2', 'TABLES', '0', 'TABLE', '2', 'LAYER', '70', String(layers.length)];
+      // HEADER 없음 = AutoCAD 가 R12 로 읽는다(버전 선언 + LWPOLYLINE 은 핸들 없음 등으로 거부). 단위(m)는 그림 글에 적는다.
+      const out = ['0', 'SECTION', '2', 'TABLES', '0', 'TABLE', '2', 'LAYER', '70', String(layers.length)];
       layers.forEach(([n, c]) => out.push('0', 'LAYER', '2', n, '70', '0', '62', String(c), '6', 'CONTINUOUS'));
       out.push('0', 'ENDTAB', '0', 'ENDSEC', '0', 'SECTION', '2', 'ENTITIES');
       for (const x of e) out.push(x);   // 전개(...)는 수만 개면 스택이 넘친다

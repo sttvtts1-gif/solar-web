@@ -154,10 +154,10 @@
     // 웹(PC): 원본 제안서 파일을 골라 그 안을 채운다. APK 나 파일을 고를 수 없으면 5쪽 별도 파일.
     $('btnCad').onclick = async () => {
       const data = await proposalData(false); if (!data) return;
-      const text = Cad.dxf(data);
+      const bytes = Cp949.encode(Cad.dxf(data));                 // R12 DXF: 한글은 CP949(ANSI) 바이트
       const name = '배치도면_' + (siteName || '현장').replace(/[\\/:*?"<>|]/g, '') + '_' + data.kw.toFixed(0) + 'kW.dxf';
-      if (window.Native && window.Native.mail) { Native.mail('', 'CAD 도면 — ' + name, '배치 평면도·측면도·배면도 DXF', JSON.stringify([{ name, dataUrl: 'data:application/dxf;base64,' + btoa(unescape(encodeURIComponent(text))) }])); hint('DXF 를 메일 첨부로 보냈습니다: ' + name); return; }
-      const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([text], { type: 'application/dxf' })); a.download = name; document.body.appendChild(a); a.click(); a.remove();
+      if (window.Native && window.Native.mail) { let bin = ''; bytes.forEach(b => { bin += String.fromCharCode(b); }); Native.mail('', 'CAD 도면 — ' + name, '배치 평면도·측면도·배면도 DXF (AutoCAD 에서 열어 DWG 로 저장)', JSON.stringify([{ name, dataUrl: 'data:application/dxf;base64,' + btoa(bin) }])); hint('DXF 를 메일 첨부로 보냈습니다: ' + name); return; }
+      const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([bytes], { type: 'application/dxf' })); a.download = name; document.body.appendChild(a); a.click(); a.remove();
       hint('CAD 파일을 내려받았습니다: ' + name + ' (평면도 · 측면도 · 배면도, 단위 m, 레이어 BLDG/MODULE/RIDGE/DIM/TEXT)');
     };
     $('btnAlign').onclick = () => alignAll();
