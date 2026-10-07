@@ -288,7 +288,17 @@ const Layout = (() => {
     const arraySlope = tiers * dSlope + (tiers - 1) * opt.tierGap;
     const arrayH = arraySlope * Math.sin(tilt);
     const shadeA = Math.max(1, Number(opt.shadeAngle) || 22) * D2R;
-    const arrayGap = (opt.autoGap && tilt > 0) ? arrayH / Math.tan(shadeA) : opt.arrayGap;
+    let arrayGap = (opt.autoGap && tilt > 0) ? arrayH / Math.tan(shadeA) : opt.arrayGap;
+    // 지면 경사(토지): 앞면이 보는 쪽의 반대(뒤)로 땅이 오르면(남사면) 그림자가 짧아지고, 내리면(북사면) 길어진다.
+    //   그림자 길이 ℓ = H / (tan α + tan β), β = 뒤쪽으로의 지면 기울기(오르면 +). 분모가 0.05 아래로 가면 20H 로 막는다.
+    let backRise = 0;
+    const gN = Number(opt.groundGradN) || 0, gE = Number(opt.groundGradE) || 0;
+    if ((gN || gE) && opt.autoGap && tilt > 0) {
+      const th = row.angle * D2R, fx = Math.sin(th), fy = -Math.cos(th);   // 앞면이 보는 방향
+      backRise = -(gE * fx + gN * fy);
+      const den = Math.tan(shadeA) + backRise;
+      arrayGap = arrayH / Math.max(0.05, den);
+    }
 
     // 1) 줄의 y 위치를 먼저 다 구한다. 그래야 남는 높이를 위아래로 반씩 나눠 가운데 맞출 수 있다.
     const ys = [];
@@ -394,6 +404,7 @@ const Layout = (() => {
       pitch: Math.round((d * tiers + tierGap * (tiers - 1) + arrayGap) * 100) / 100,
       arrayGap: Math.round(arrayGap * 100) / 100,
       arrayH: Math.round(arrayH * 100) / 100,
+      backRiseDeg: Math.round(Math.atan(backRise) * 180 / Math.PI * 10) / 10,   // 뒤쪽으로 지면이 오르는 각(+ 남사면 쪽)
       spans, blocks,
       aisles, colBlock, blockGap,
       // 합산 토지의 바깥 경계(공유 경계 제외) — 지도에 이것만 그려 한 덩어리로 보이게

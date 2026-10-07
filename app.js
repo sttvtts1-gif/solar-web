@@ -25,6 +25,8 @@
   // V-World 에서 받아온 건물 외곽선. 누르면 지붕으로 들어가고, 음영 계산의 장애물로도 쓴다.
   let buildings = [];      // { id, name, ring, floors, gfx }
   let parcels = [];        // 「토지 가져오기」로 깐 필지 { pnu, jibun, ring, gfx } — 누르면 토지 배치
+  let lots = [];           // 「주차장 가져오기」로 띄운 주차장 장소(카카오 PK6) 오버레이
+  let siteParkArea = 0;    // 건축물대장 옥외 주차장 면적(㎡) — 주차장 가져오기의 기본 면적
   // 음영 고려. 켜면 주변의 더 높은 건물(층수 × 층고) 그림자에 걸리는 모듈을 뺀다.
   let shade = { on: false, floorH: 3.5 };
   let parcelGfx = null;    // 검색한 지번의 필지 외곽선
@@ -136,6 +138,7 @@
 
     $('btnDraw').onclick = startDraw;
     $('btnParcel').onclick = () => loadParcels();
+    $('btnLots').onclick = () => loadLots();
     bindEdit();
     $('btnBuildings').onclick = () => loadBuildings();
 
@@ -479,6 +482,7 @@
           + '</div>';
       }).join('');
       $('bldBody').querySelectorAll('[data-park]').forEach(btn => btn.onclick = () => placeParking(parseFloat(btn.dataset.park), btn.dataset.dong));
+      siteParkArea = list.reduce((a, x) => a + (x.parkOutArea || 0), 0);
       $('bldBody').querySelectorAll('[data-sug]').forEach(btn => btn.onclick = () => {
         const t = btn.dataset.sug;
         roofs.forEach(r => { r.type = t; }); curType = t; renderTypes(); fillSettings(); roofs.forEach(recompute); renderList(); save();
@@ -702,7 +706,12 @@
     r.review = { pending: true };
     renderReview(r);
     const area = r.result ? r.result.areaM2 : 0;
-    Site.review(parcels, area).then(rv => {
+    const rings = [r.points].concat(r.extra || []);
+    Terrain.plane(rings).catch(() => null).then(t => {
+      r.terrain = t || null;
+      if (t) { recompute(r); renderList(); }
+      return Site.review(parcels, area, t);
+    }).then(rv => {
       r.review = rv;
       recompute(r); renderList(); save();
       renderReview(r);
@@ -718,7 +727,8 @@
       : rv.verdict === 'warn' ? '<span class="badge" style="background:#ff9800;color:#000">확인 필요</span>'
       : '<span class="badge" style="background:var(--ok)">양호</span>';
     head.innerHTML = badge + (r.force && rv.verdict === 'ban' ? ' <small>(그래도 배치 중)</small>' : '');
-    const line = [h.zone && ('용도지역 ' + h.zone), h.jimok && ('지목 ' + h.jimok), h.use && ('이용 ' + h.use), h.slope && ('지형 ' + h.slope), h.road && ('도로 ' + h.road),
+    const line = [h.zone && ('용도지역 ' + h.zone), h.jimok && ('지목 ' + h.jimok), h.owner && ('소유 ' + h.owner), h.use && ('이용 ' + h.use),
+      h.terrain && ('경사 ' + h.terrain.slopeDeg + '° ' + h.terrain.name), h.slope && ('지형 ' + h.slope), h.road && ('도로 ' + h.road),
       h.ledgerArea && ('대장 ' + Math.round(h.ledgerArea).toLocaleString('ko-KR') + '㎡')].filter(Boolean).join(' · ');
     const color = { ban: 'var(--danger)', warn: '#ff9800', info: 'var(--muted)' };
     const mark = { ban: '✖', warn: '▲', info: '·' };
@@ -787,6 +797,48 @@
       })
       .catch(e => { hint(e.message); return []; })
       .finally(() => { $('btnParcel').disabled = false; });
+  }
+  /**
+   * 화면 안 주차장 장소(카카오 카테고리 PK6)를 🅿 로 띄운다. 위성사진의 주차칸 선을 읽는 기능은 없다 — 장소 위치 + 대장 면적으로
+   * 캐노피 직사각형을 놓고, 자리가 다르면 직접 그린다. 누르면 면적을 물어본 뒤(기본: 대장 옥외 주차장 면적) 그 자리에 놓는다.
+   */
+  function loadLots() {
+    if (map.getLevel() > 5) { hint('너무 멀리서 보고 있습니다. 지도를 더 확대한 뒤 눌러 주세요.'); return; }
+    clearLots();
+    hint('주차장 장소 찾는 중…');
+    places.categorySearch('PK6', (res, status) => {
+      if (status !== kakao.maps.services.Status.OK || !res.length) { hint('이 화면 안에 등록된 주차장 장소가 없습니다. 주차장 자리를 「직접 그리기」로 그리고 형태를 주차장으로 두세요.'); return; }
+      res.forEach(pl => {
+        const el = document.createElement('div');
+        el.className = 'lotPin'; el.textContent = '🅿'; el.title = pl.place_name;
+        el.onclick = ev => { ev.stopPropagation(); placeParkingAt(parseFloat(pl.y), parseFloat(pl.x), pl.place_name); };
+        const ov = new kakao.maps.CustomOverlay({ position: new kakao.maps.LatLng(pl.y, pl.x), content: el, zIndex: 15, yAnchor: 1 });
+        ov.setMap(map);
+        lots.push(ov);
+      });
+      hint('주차장 ' + res.length + '곳. 🅿 를 누르면 그 자리에 캐노피를 놓습니다(면적은 물어봄, 기본은 대장 옥외 주차장 면적).');
+    }, { bounds: map.getBounds() });
+  }
+  function clearLots() { lots.forEach(o => o.setMap(null)); lots = []; }
+  /** 점 위치에 주차장 캐노피 직사각형(깊이 16m). 줄은 150m 안 가장 가까운 건물 축에 맞춘다. */
+  function placeParkingAt(lat, lng, name) {
+    const s = prompt((name || '주차장') + ' 면적 (㎡)' + (siteParkArea ? ' — 대장 옥외 주차장 ' + Math.round(siteParkArea) + '㎡' : ''), siteParkArea ? Math.round(siteParkArea) : 500);
+    if (s === null) return;
+    const areaM2 = parseFloat(s);
+    if (!(areaM2 > 0)) return;
+    const o = { lat, lng };
+    let ang = 0;
+    const near = buildings.map(b => ({ b, d: distM(o, Layout.centroid(b.ring)) })).filter(x => x.d <= 150).sort((a, b) => a.d - b.d)[0];
+    if (near) { const rc = Layout.minRect(Layout.toLocal(near.b.ring, Layout.centroid(near.b.ring))); ang = rc.w >= rc.h ? rc.angle : rc.angle + 90; }
+    let D = areaM2 < 256 ? Math.sqrt(areaM2) : 16, W = areaM2 / D;
+    const box = [{ x: -W / 2, y: -D / 2 }, { x: W / 2, y: -D / 2 }, { x: W / 2, y: D / 2 }, { x: -W / 2, y: D / 2 }].map(p => Layout.rotate(p, ang));
+    const roof = { id: Date.now().toString(36) + Math.random().toString(36).slice(2, 5), name: (name || '주차장') + ' ' + Math.round(areaM2) + '㎡', type: 'parking',
+      points: Layout.toGeo(box, o), src: 'lot:' + lat.toFixed(5) + ',' + lng.toFixed(5), floors: 1, gfx: null, parkArea: areaM2 };
+    roofs.push(roof);
+    selectedId = roof.id;
+    curType = 'parking'; renderTypes(); fillSettings();
+    recompute(roof); renderList(); save();
+    hint((name || '주차장') + ' 자리에 캐노피 ' + Math.round(areaM2) + '㎡ 를 놓았습니다(직사각형 추정). 꼴이 다르면 「직접 그리기」로 그리고 형태를 주차장으로.');
   }
   function clearParcels() {
     parcels.forEach(p => p.gfx && p.gfx.setMap(null));
@@ -1123,6 +1175,7 @@
     opt.vent = !!r.vent; opt.ventH = 1;
     // 토지·주차장은 지붕마다 방위각·경계 이격·단수를 따로 둘 수 있다(목록의 버튼)
     if (r.azimuth != null) { opt.azimuth = r.azimuth; opt.align = 'south'; }   // 방위각을 주면 정남 기준으로 돈다 (주차장은 기본 자동 맞춤)
+    if (r.type === 'ground' && r.terrain) { opt.groundGradN = r.terrain.gradN; opt.groundGradE = r.terrain.gradE; }   // 지면 경사로 이격 보정
     if (r.margin != null) opt.margin = r.margin;
     if (r.tiers) opt.tiers = r.tiers;
     if (r.extra && r.extra.length) opt.extraRings = r.extra;
@@ -1240,6 +1293,7 @@
           + (res.blocked ? ' · <span style="color:#ff9800">지장물·벤츄 −' + res.blocked + '장</span>' : '')
           + (r.vent ? ' · 벤츄레이터 ' + (res.vents ? res.vents.length : 0) + '줄(1m)' : '')
           + (r.type === 'ground' ? ' · 통로 ' + (res.aisles || 0) + '개(' + res.colBlock + '열마다 ' + res.blockGap + 'm)' : '')
+          + (r.type === 'ground' && r.terrain ? ' · <span style="color:' + (r.terrain.slopeDeg >= 15 ? 'var(--danger)' : r.terrain.slopeDeg >= 10 ? '#ff9800' : 'var(--muted)') + '">경사 ' + r.terrain.slopeDeg + '° ' + r.terrain.name + (res.backRiseDeg ? ' (이격 보정 ' + (res.backRiseDeg > 0 ? '−' : '+') + ')' : '') + '</span>' : '')
           + (r.type === 'ginseng' ? ' · 동 ' + (r.spans || r.spansGuess || 1) + '개' + (r.spans ? '' : '(추정)') : '') + (r.type === 'ground' ? '' : ' · ' + (r.floors || 1) + '층') + shadeTxt + '</small></span>'
         + '<span class="kw">' + (res.banned ? '—' : (res.kw || 0).toFixed(2) + 'kW') + '</span>';
       if (r.type === 'ground' && r.review && !r.review.pending) {
@@ -1259,11 +1313,20 @@
       if (r.type === 'ground' || r.type === 'parking') {
         // 방위각: 1° 씩 돌리는 버튼 + 숫자 입력(정남 0, 서 +, 동 −)
         const stop = e => e.stopPropagation();
-        const turn = dv => { r.azimuth = Math.max(-90, Math.min(90, Math.round(((r.azimuth || 0) + dv)))); recompute(r); renderList(); save(); };
-        const bl = document.createElement('button'); bl.className = 'btn ghost'; bl.textContent = '↶1°'; bl.title = '동쪽으로 1°'; bl.onclick = e => { stop(e); turn(-1); };
-        const bz = document.createElement('button'); bz.className = 'btn ghost'; bz.textContent = r.azimuth == null && r.type === 'parking' ? '방위 자동' : '방위 ' + (r.azimuth || 0) + '°'; bz.title = '방위각 직접 입력 (정남 0 · 서 + · 동 −). 주차장은 비우면 주차장 방향에 자동 맞춤';
-        bz.onclick = e => { stop(e); const s = prompt(r.name + ' 방위각 (°) — 정남 0, 서쪽 +, 동쪽 − (±90)' + (r.type === 'parking' ? '. 비우면 주차장 방향 자동' : ''), r.azimuth == null ? '' : r.azimuth); if (s === null) return; const v = parseFloat(s); if (s.trim() === '' && r.type === 'parking') { r.azimuth = null; recompute(r); renderList(); save(); } else if (isFinite(v)) { r.azimuth = 0; turn(v); } };
-        const br = document.createElement('button'); br.className = 'btn ghost'; br.textContent = '1°↷'; br.title = '서쪽으로 1°'; br.onclick = e => { stop(e); turn(1); };
+        let bz = null;
+        const turn = dv => { r.azimuth = Math.max(-90, Math.min(90, Math.round(((r.azimuth || 0) + dv)))); recompute(r); if (bz) bz.textContent = '방위 ' + r.azimuth + '°'; save(); };
+        // 한 번 누르면 1°, 꾹 누르면 0.35초 뒤부터 빠르게(90ms 마다 1°, 1.5초 지나면 3°씩)
+        const hold = (btn, dv) => {
+          let timer = null, ticks = 0, fired = false;
+          const start = e => { stop(e); e.preventDefault(); fired = false; ticks = 0; timer = setTimeout(function rep() { fired = true; ticks++; turn(dv * (ticks > 15 ? 3 : 1)); timer = setTimeout(rep, 90); }, 350); };
+          const end = e => { if (timer) { clearTimeout(timer); timer = null; } if (e && e.type === 'pointerup' && !fired) turn(dv); fired = false; };
+          btn.addEventListener('pointerdown', start); btn.addEventListener('pointerup', end); btn.addEventListener('pointerleave', end); btn.addEventListener('pointercancel', end);
+          btn.onclick = stop; btn.oncontextmenu = e => e.preventDefault(); btn.style.touchAction = 'none';
+        };
+        const bl = document.createElement('button'); bl.className = 'btn ghost'; bl.textContent = '↶1°'; bl.title = '동쪽으로 1° (꾹 누르면 빠르게)'; hold(bl, -1);
+        bz = document.createElement('button'); bz.className = 'btn ghost'; bz.textContent = r.azimuth == null && r.type === 'parking' ? '방위 자동' : '방위 ' + (r.azimuth || 0) + '°'; bz.title = '방위각 직접 입력 (정남 0 · 서 + · 동 −). 주차장은 비우면 주차장 방향에 자동 맞춤';
+        bz.onclick = e => { stop(e); const s = prompt(r.name + ' 방위각 (°) — 정남 0, 서쪽 +, 동쪽 − (±90)' + (r.type === 'parking' ? '. 비우면 주차장 방향 자동' : ''), r.azimuth == null ? '' : r.azimuth); if (s === null) return; const v = parseFloat(s); if (s.trim() === '' && r.type === 'parking') { r.azimuth = null; recompute(r); renderList(); save(); } else if (isFinite(v)) { r.azimuth = 0; turn(v); renderList(); } };
+        const br = document.createElement('button'); br.className = 'btn ghost'; br.textContent = '1°↷'; br.title = '서쪽으로 1° (꾹 누르면 빠르게)'; hold(br, 1);
         d.appendChild(bl); d.appendChild(bz); d.appendChild(br);
         const mk = (label, vals, cur, fmt, on) => {
           const s = document.createElement('select'); s.className = 'btn ghost'; s.title = label; s.onclick = stop;
@@ -1342,7 +1405,7 @@
         curType, settings, siteName, shade, moduleCfg, edits,
         roofs: roofs.map(r => ({ id: r.id, name: r.name, type: r.type, points: r.points, src: r.src, floors: r.floors, floorsManual: r.floorsManual, spans: r.spans, vent: r.vent,
           parcels: r.parcels, extra: r.extra, review: r.review && !r.review.pending ? r.review : undefined, force: r.force,
-          azimuth: r.azimuth, margin: r.margin, tiers: r.tiers })),
+          azimuth: r.azimuth, margin: r.margin, tiers: r.tiers, terrain: r.terrain })),
         // 음영 장애물로 다시 쓰려고 주변 건물도 남긴다 (그림은 다시 그리지 않는다)
         buildings: buildings.map(b => ({ id: b.id, name: b.name, ring: b.ring, floors: b.floors })),
       }));

@@ -58,12 +58,21 @@ const Site = (() => {
         };
       });
   }
+  /** 토지임야정보 — 소유구분(개인·법인·국유·공유 등)과 공유인 수. 소유자 이름은 공개 API 에 없다(등기부·토지대장 발급으로만). */
+  function ladfrl(pnu) {
+    return VWorld.ned('ladfrlList', { pnu, numOfRows: '5', pageNo: '1' }).then(res => {
+      const v = res && res.ladfrlVOList && res.ladfrlVOList.ladfrlVOList;
+      const x = Array.isArray(v) ? v[0] : v;
+      if (!x) return null;
+      return { owner: x.posesnSeCodeNm || '', coOwners: parseInt(x.cnrsPsnCo, 10) || 0, area: parseFloat(x.lndpclAr) || 0 };
+    });
+  }
   /** 필지 하나의 자료 (캐시). 실패해도 가진 것만으로 검토한다. */
   function lookup(pnu) {
-    if (!pnu) return Promise.resolve({ use: [], ch: null });
+    if (!pnu) return Promise.resolve({ use: [], ch: null, own: null });
     if (cache[pnu]) return cache[pnu];
-    cache[pnu] = Promise.all([landUse(pnu).catch(() => null), landChar(pnu).catch(() => null)])
-      .then(([use, ch]) => ({ use: use || [], ch, failed: !use && !ch }));
+    cache[pnu] = Promise.all([landUse(pnu).catch(() => null), landChar(pnu).catch(() => null), ladfrl(pnu).catch(() => null)])
+      .then(([use, ch, own]) => ({ use: use || [], ch, own, failed: !use && !ch }));
     return cache[pnu];
   }
 
@@ -114,7 +123,7 @@ const Site = (() => {
    * parcels : [{ pnu, jibun, ring }]   areaM2 : 배치 면적(합산)
    * → { verdict:'ban'|'warn'|'ok', items:[{ level, text }], head:{zone,jimok,slope,road,...} }
    */
-  function review(parcels, areaM2) {
+  function review(parcels, areaM2, terrain) {
     const items = [];
     const push = (level, text) => items.push({ level, text });
     return Promise.all(parcels.map(p => lookup(p.pnu))).then(infos => {
@@ -129,7 +138,9 @@ const Site = (() => {
       const slope = [...new Set(chars.map(c => c.slope).filter(Boolean))].join(' / ');
       const road = [...new Set(chars.map(c => c.road).filter(Boolean))].join(' / ');
       const use = [...new Set(chars.map(c => c.use).filter(Boolean))].join(' / ');
-      const head = { zone, jimok, slope, road, use, year: chars[0] && chars[0].year, ledgerArea: chars.reduce((a, c) => a + c.area, 0) };
+      const owners = [...new Set(infos.map(i => i.own && (i.own.owner + (i.own.coOwners > 1 ? ' 공유 ' + i.own.coOwners + '인' : ''))).filter(Boolean))].join(' / ');
+      const head = { zone, jimok, slope, road, use, owner: owners, year: chars[0] && chars[0].year, ledgerArea: chars.reduce((a, c) => a + c.area, 0), terrain: terrain || null };
+      if (owners) push('info', '소유구분: ' + owners + ' — 소유자 이름은 공개 API 에 없음(등기부등본·토지대장으로 확인)');
 
       // 1) 지역지구 — 설치불가 / 행위제한
       const seen = {};
@@ -144,10 +155,16 @@ const Site = (() => {
       });
       if (zone.indexOf('보전녹지') >= 0 && !seen['보전녹지지역']) push('warn', '보전녹지지역 — 발전시설 허용 여부는 도시계획조례에 따름, 확인 필요');
 
-      // 2) 경사
-      if (slope.indexOf('급경사') >= 0) push('ban', '급경사(15° 초과) — 배치불가 안내. 산지 태양광은 평균경사도 15° 이하만 허가 (산지관리법 시행령)');
-      else if (slope.indexOf('완경사') >= 0) push('warn', '완경사(15° 이하) — 경계선상일 수 있어 평균경사도 실측 필요');
-      else if (slope) push('info', '지형: ' + slope);
+      // 2) 경사 — 표고(DEM) 평면 맞춤 평균 경사가 있으면 그걸 우선, 토지특성 지형고저는 보조
+      if (terrain && isFinite(terrain.slopeDeg)) {
+        const t = '표고 기준 평균 경사 ' + terrain.slopeDeg + '° · ' + terrain.name + ' (고저차 ' + Math.round(terrain.zMax - terrain.zMin) + 'm, 90m DEM 이라 작은 필지는 주변 경사)';
+        if (terrain.slopeDeg >= 15) push('ban', t + ' — 15° 이상 배치불가 안내 (산지관리법 시행령: 평균경사도 15° 이하)');
+        else if (terrain.slopeDeg >= 10) push('warn', t + ' — 15° 에 가까워 실측 필요. 이격은 사면 방향으로 보정됨');
+        else push('info', t + (terrain.slopeDeg >= 1 ? ' — 어레이 이격을 사면 방향으로 보정함' : ''));
+      }
+      if (slope.indexOf('급경사') >= 0) push(terrain && terrain.slopeDeg < 15 ? 'warn' : 'ban', '토지특성 지형고저 급경사(15° 초과)' + (terrain ? ' — 표고 계산과 다르면 실측 필요' : ' — 배치불가 안내 (산지관리법 시행령)'));
+      else if (slope.indexOf('완경사') >= 0) push('warn', '토지특성 지형고저 완경사(15° 이하) — 경계선상일 수 있어 평균경사도 실측 필요');
+      else if (slope) push('info', '토지특성 지형: ' + slope);
 
       // 3) 지목
       if (/전|답|과수원/.test(jimok)) push('info', '지목 ' + jimok + ' — 농지전용허가(농지법) 대상. 농업진흥지역 여부는 위 지역지구 참고');
