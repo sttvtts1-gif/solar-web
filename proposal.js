@@ -468,7 +468,7 @@ const Proposal = (() => {
     // 47
     let x = await get(47);
     x = setTable(x, '표 5', [null].concat(T.t47, [['합계', '', won(T.S.a), won(T.S.b), won(T.S.c), won(T.S.k30)]]));
-    x = setByLabel(x, '표 3', { '설비용량(STC)(kW)': kw.toFixed(1), '발전시간(시간)': '3.6', '1등급 공사비': won(T.invest) + ' 원', '1등급 최종 공사비': '',
+    x = setByLabel(x, '표 3', { '설비용량(STC)(kW)': kw.toFixed(3), '발전시간(시간)': '3.6', '1등급 공사비': won(T.invest) + ' 원', '1등급 최종 공사비': '',
       '1등급 장기계약(월) 3.6h': won(T.m36) + ' 원', '1등급 장기계약(월) 3.8h': won(T.m38) + ' 원', '1등급 장기계약(월) 4h': won(T.m40) + ' 원',
       '전기안전관리비(년)': won(T.safe) + ' 원', '보험료(년)': won(T.ins) + ' 원', '계통 구분': T.grid, '한전연계비 vat별도': won(T.kepcoFee) + ' 원',
       '한전 단말통신공사(20kW 이상)': T.terminal ? won(T.terminal) + ' 원' : '',
@@ -478,7 +478,7 @@ const Proposal = (() => {
     // 48
     x = await get(48);
     x = setTable(x, '표 1', [null, ['0', '100.00%', '', won(-T.invest), '', won(-T.invest), '0']].concat(T.t48, [['합계', '', won(T.cum2), won(T.cum2 - T.invest), won(T.cumSp), won(T.cumSp - T.invest), won(T.S.k30)]]));
-    x = setByLabel(x, '표 4', { '설비용량(STC)(kW)': kw.toFixed(1), '발전시간(시간)': '3.6', '2등급 공사비': won(T.invest) + ' 원', '무등급 공사비': won(T.invest) + ' 원',
+    x = setByLabel(x, '표 4', { '설비용량(STC)(kW)': kw.toFixed(3), '발전시간(시간)': '3.6', '2등급 공사비': won(T.invest) + ' 원', '무등급 공사비': won(T.invest) + ' 원',
       '월수익 장기계약': won(T.m2 - T.mk) + ' 원', '월수익 현물': won(T.mSp - T.mk) + ' 원', '장기계약': PRICE.g2.toFixed(3), '현물': PRICE.spot.toFixed(3),
       '전기안전관리비(년)': won(T.safe) + ' 원', '보험료(년)': won(T.ins) + ' 원', '계통 구분': T.grid, '한전연계비 vat별도': won(T.kepcoFee) + ' 원',
       '한전 단말통신공사(50kW 이상)': T.terminal ? won(T.terminal) + ' 원' : '' });
@@ -487,7 +487,7 @@ const Proposal = (() => {
     // 49
     x = await get(49);
     x = setTable(x, '표 1', [null].concat(T.t49, [['합계', '', won(T.S.a1), won(T.c1), won(T.S.a2), won(T.c2), won(T.S.aN), T.cN < 0 ? '(' + won(-T.cN) + ')' : won(T.cN), won(T.S.k20)]]));
-    x = setTable(x, '표 3', [null, null, [kw.toFixed(1), null, won(T.m1), won(T.m1 - T.mk)], [null, null, won(T.m2), won(T.m2 - T.mk)], [won(T.monthlyGen), null, won(T.mN), won(T.mN - T.mk)]]);
+    x = setTable(x, '표 3', [null, null, [kw.toFixed(3), null, won(T.m1), won(T.m1 - T.mk)], [null, null, won(T.m2), won(T.m2 - T.mk)], [won(T.monthlyGen), null, won(T.mN), won(T.mN - T.mk)]]);
     x = setTable(x, '표 4', [null, null, [null, PRICE.g1.toFixed(3), PRICE.smp.toFixed(3), PRICE.rec1.toFixed(3)], [null, PRICE.g2.toFixed(3), PRICE.smp.toFixed(3), PRICE.rec2.toFixed(3)], [null, PRICE.gN.toFixed(3), PRICE.smp.toFixed(3), PRICE.recN.toFixed(3)]]);
     x = setByLabel(x, '표 7', { '전기안전관리비': won(T.safe), '보험료': won(T.ins), '계통 구분': T.grid, '한전연계비 vat별도': won(T.kepcoFee), '설계조정부담금(50kW이상)': '' });   // 설계조정부담금은 견적에서 산출(단말통신은 47·48쪽 라벨표에)
     x = setNote(x, note);
