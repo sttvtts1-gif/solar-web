@@ -113,7 +113,7 @@ const Proposal = (() => {
       g.beginPath(); g.moveTo(x, Y(y1)); g.lineTo(x, Y(y2)); g.stroke();
       [y1, y2].forEach(y => { g.beginPath(); g.moveTo(x - 7, Y(y)); g.lineTo(x + 7, Y(y)); g.stroke(); g.beginPath(); g.moveTo(x - 24, Y(y)); g.lineTo(x + 24, Y(y)); g.lineWidth = 0.8; g.stroke(); g.lineWidth = 1.5; });
       g.save(); g.translate(x - 6, (Y(y1) + Y(y2)) / 2); g.rotate(-Math.PI / 2);
-      g.font = 'bold ' + (size || 34) + 'px ' + FONT; g.textAlign = 'center'; g.textBaseline = 'bottom'; g.fillText(text, 0, 0); g.restore();
+      g.font = 'bold ' + (size || 40) + 'px ' + FONT; g.textAlign = 'center'; g.textBaseline = 'bottom'; g.fillText(text, 0, 0); g.restore();
       g.strokeStyle = BLK; g.fillStyle = BLK;
     };
     const mod = (x1, y1, x2, y2) => { g.strokeStyle = MAG; g.lineWidth = 7; g.beginPath(); g.moveTo(X(x1), Y(y1)); g.lineTo(X(x2), Y(y2)); g.stroke(); g.strokeStyle = BLK; g.lineWidth = 2.5; };
@@ -134,6 +134,7 @@ const Proposal = (() => {
       dim(X(0) - 70, 0, ridge, mm(ridge));
       dim(X(0) - 20, eave, eave + 0.5 * t + lift, mm(0.5 * t + lift), 26);
       dim(X(depth) + 90, 0, top, mm(top));
+      dim(X(depth) + 40, eave, top, mm(top - eave), 28);        // 북측 끝: 지붕(처마)에서 모듈 상단까지
     } else if (r.kind === 'gable-ns') {
       // 동서지붕: 박공 위 수평 프레임에 2단 거치 (A-A 원본 꼴)
       const n = r.spans, Wd = depth / n, t = Math.tan(r.roofSlope * Math.PI / 180);
