@@ -134,7 +134,8 @@ const Proposal = (() => {
       dim(X(0) - 70, 0, ridge, mm(ridge));
       dim(X(0) - 20, eave, eave + 0.5 * t + lift, mm(0.5 * t + lift), 26);
       dim(X(depth) + 90, 0, top, mm(top));
-      dim(X(depth) + 40, eave, top, mm(top - eave), 28);        // 북측 끝: 지붕(처마)에서 모듈 상단까지
+      { const x = X(depth) + 34; dim(x, eave, top, mm(top - eave), 30);        // 북측 끝: 지붕(처마)에서 모듈 상단까지, 화살촉
+        g.fillStyle = RED; [[Y(eave), -1], [Y(top), 1]].forEach(([y, s]) => { g.beginPath(); g.moveTo(x, y); g.lineTo(x - 7, y + s * 16); g.lineTo(x + 7, y + s * 16); g.closePath(); g.fill(); }); g.fillStyle = BLK; }
     } else if (r.kind === 'gable-ns') {
       // 동서지붕: 박공 위 수평 프레임에 2단 거치 (A-A 원본 꼴)
       const n = r.spans, Wd = depth / n, t = Math.tan(r.roofSlope * Math.PI / 180);
@@ -660,7 +661,8 @@ const Proposal = (() => {
     const o = d.origin, all = [];
     d.roofs.forEach(r => r.rings.forEach(rg => all.push(...toXY(rg, o))));   // 주변 건물은 범위에 넣지 않는다(현장만 확대)
     const minX = Math.min(...all.map(p => p.x)), maxX = Math.max(...all.map(p => p.x)), minY = Math.min(...all.map(p => p.y)), maxY = Math.max(...all.map(p => p.y));
-    const pad = 110, sc = Math.min((area.w - pad * 2) / Math.max(1, maxX - minX), (area.h - pad * 2) / Math.max(1, maxY - minY));
+    const padX = 300, padY = 90;                     // 좌우 여백에 라벨 상자(폭 190)를 둔다
+    const sc = Math.min((area.w - padX * 2) / Math.max(1, maxX - minX), (area.h - padY * 2) / Math.max(1, maxY - minY));
     const ox = area.x + (area.w - (maxX - minX) * sc) / 2, oy = area.y + (area.h - (maxY - minY) * sc) / 2;
     const X = x => ox + (x - minX) * sc, Y = y => oy + (maxY - y) * sc;
     const path = ring => { g.beginPath(); ring.forEach((p, i) => i ? g.lineTo(X(p.x), Y(p.y)) : g.moveTo(X(p.x), Y(p.y))); g.closePath(); };
@@ -695,13 +697,27 @@ const Proposal = (() => {
       if (r.ridges) { g.setLineDash([6, 4]); g.strokeStyle = '#555'; g.lineWidth = 1; r.ridges.forEach(seg => { const s = toXY(seg, o); g.beginPath(); g.moveTo(X(s[0].x), Y(s[0].y)); g.lineTo(X(s[1].x), Y(s[1].y)); g.stroke(); }); g.setLineDash([]); }
     });
     g.restore();
-    // 라벨 상자: 동 이름 / kW(빨강) / (W × EA). 그림 바깥쪽으로 번갈아 띄우고 지시선.
-    d.roofs.forEach((r, i) => {
-      const c = toXY([r.centroid], o)[0], cx = X(c.x), cy = Y(c.y);
-      const bw = 190, bh = 74, right = cx < area.x + area.w / 2;
-      const bx = Math.max(area.x + 8, Math.min(area.x + area.w - bw - 8, cx + (right ? -bw - 70 : 70))), by = Math.max(area.y + 8, Math.min(area.y + area.h - bh - 8, cy - bh / 2 + (i % 2 ? 60 : -60)));
-      g.strokeStyle = '#1a2fd6'; g.lineWidth = 1; g.beginPath(); g.moveTo(cx, cy); g.lineTo(right ? bx + bw : bx, by + bh / 2); g.stroke();
-      g.fillStyle = '#fff'; g.fillRect(bx, by, bw, bh); g.strokeRect(bx, by, bw, bh);
+    // 라벨 상자: 동 이름 / kW(빨강) / (W × EA). 배치를 가리지 않게 도면 영역 좌·우 여백에 세우고, 지붕 외곽의 가장 가까운 점까지 지시선.
+    const bw = 190, bh = 74, cxA = area.x + area.w / 2;
+    const items = d.roofs.map((r, i) => { const c = toXY([r.centroid], o)[0]; return { r, i, cx: X(c.x), cy: Y(c.y), left: X(c.x) < cxA }; });
+    ['L', 'R'].forEach(side => {
+      const list = items.filter(it => (side === 'L') === it.left).sort((p, q) => p.cy - q.cy);
+      let lastBottom = side === 'L' ? area.y + 120 : area.y + 10;              // 왼쪽 위 방위표 아래부터
+      list.forEach(it => {
+        it.bx = side === 'L' ? area.x + 14 : area.x + area.w - bw - 14;
+        it.by = Math.max(lastBottom + 10, Math.min(area.y + area.h - bh - 10, it.cy - bh / 2));
+        lastBottom = it.by + bh;
+      });
+    });
+    items.forEach(it => {
+      const { r, i, bx, by } = it;
+      // 지시선: 상자 안쪽 가장자리 가운데 → 지붕 외곽선에서 상자에 가장 가까운 꼭짓점
+      const ax = it.left ? bx + bw : bx, ay = by + bh / 2;
+      let best = null, bd = Infinity;
+      r.rings[0].forEach(p => { const q = toXY([p], o)[0]; const dx = X(q.x) - ax, dy = Y(q.y) - ay; const dd = dx * dx + dy * dy; if (dd < bd) { bd = dd; best = { x: X(q.x), y: Y(q.y) }; } });
+      g.strokeStyle = '#1a2fd6'; g.lineWidth = 1.2; g.beginPath(); g.moveTo(ax, ay); g.lineTo(best.x, best.y); g.stroke();
+      g.fillStyle = '#1a2fd6'; g.beginPath(); g.arc(best.x, best.y, 3, 0, Math.PI * 2); g.fill();
+      g.fillStyle = '#fff'; g.fillRect(bx, by, bw, bh); g.strokeStyle = '#1a2fd6'; g.strokeRect(bx, by, bw, bh);
       g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillStyle = '#000';
       g.font = '13px ' + FONT; g.fillText((d.site.short || '') + ' ' + String.fromCharCode(65 + i) + '동 · ' + r.typeLabel.split(' ')[0], bx + bw / 2, by + 15);
       g.font = 'bold 24px ' + FONT; g.fillStyle = '#e0251f'; g.fillText(r.kw.toFixed(2) + 'KW', bx + bw / 2, by + 40);
