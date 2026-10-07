@@ -269,5 +269,5 @@ const RpsUI = (() => {
     try { const s = JSON.parse(localStorage.getItem(STORE) || 'null'); if (s) st = Object.assign(st, s); } catch (e) {}
   }
 
-  return { init, setCapacity, setSite, render, renderSelf };
+  return { init, setCapacity, setSite, render, renderSelf, getState: () => st };
 })();

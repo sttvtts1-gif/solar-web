@@ -53,6 +53,8 @@
   let panelMode = 'normal';   // collapsed | normal | full
   let immersive = false;
   let siteBld = [];           // 이 필지의 건축물대장 표제부 목록 — 3D 조감도 색(지붕재·구조)에 쓴다
+  let siteAddr = '';          // 지번 주소(카카오 역지오코딩) — 제안서·상담일지 검색
+  let lastKepco = null;       // 마지막 한전 선로 조회 결과 { level, basis, rows } — 제안서에 넣는다
   let siteFloors = null;      // 건축물대장 지상층수(최대). 검색한 필지의 지붕에 음영 계산용으로 쓴다      // 앱 전체화면(시스템 바 숨김) 상태
   const hasVWorld = () => !!(window.SOLAR_CONFIG || {}).VWORLD_KEY;
 
@@ -148,6 +150,7 @@
     $('btnDraw').onclick = startDraw;
     $('btnParcel').onclick = () => loadParcels();
     $('btn3d').onclick = open3d;
+    $('btnProposal').onclick = makeProposal;
     $('v3d_close').onclick = () => View3D.close();
     $('v3d_auto').onclick = () => { $('v3d_auto').classList.toggle('accent', View3D.toggleAuto()); };
     $('v3d_snap').onclick = () => {
@@ -448,6 +451,7 @@
       if (!b) { $('bldHead').textContent = $('kepcoHead').textContent = '법정동을 못 찾음'; return; }
       geocoder.coord2Address(lng, lat, (ar, st) => {
         const ad = st === kakao.maps.services.Status.OK && ar[0] && ar[0].address;
+        if (ad) siteAddr = ad.address_name;
         if (siteNameSrc !== 'search') {
           const road = st === kakao.maps.services.Status.OK && ar[0] && ar[0].road_address;
           if (road && road.building_name) setSiteName(road.building_name, 'kakao');
@@ -516,6 +520,7 @@
     Kepco.lines(bcode, dong, jibun, msg => { if (reqKey === siteKey) $('kepcoHead').textContent = msg; }, nearLots)
       .then(res => {
         const { level, basis, rows } = res;
+        lastKepco = res;
         if (reqKey !== siteKey) return;
         if (!rows.length) { $('kepcoHead').textContent = dong + ' — 자료 없음'; return; }
         const f = v => v === null ? '-' : v.toLocaleString('ko-KR');
@@ -817,6 +822,72 @@
       .catch(e => { hint(e.message); return []; })
       .finally(() => { $('btnParcel').disabled = false; });
   }
+  // ------------------------------------------------------------ 제안서 PPT
+  /** 배치·높이·손익·한전 선로를 모아 제안서 5쪽(.pptx)을 만든다. 원본 제안서는 암호화돼 못 열어서 별도 파일 → 「슬라이드 재사용」으로 삽입. */
+  async function makeProposal() {
+    const done = roofs.filter(r => r.result && r.result.count);
+    if (!done.length) { hint('먼저 배치를 하세요. 배치된 지붕·토지의 용량으로 제안서를 만듭니다.'); return; }
+    if (typeof PptxGenJS === 'undefined') { hint('PPT 라이브러리(vendor/pptxgen.bundle.js)가 없습니다.'); return; }
+    hint('제안서 만드는 중… (상담일지 선로 메모 조회)');
+    const all = [].concat(...done.map(r => r.points));
+    const origin = Layout.centroid(all);
+    const srcs = new Set(done.map(r => r.src));
+    const LABEL = { flush: '남북지붕 원단', ginseng: '동서지붕 인삼밭 2단', slab: '평슬라브 경사거치', ground: '토지 노지 2단', parking: '주차장 캐노피' };
+    const rs = done.map(r => {
+      const res = r.result, opt = res.opt || {};
+      const kind = r.type === 'flush' ? 'gable-ew' : r.type === 'ginseng' ? 'gable-ns' : 'flat';
+      const spans = r.type === 'flush' ? (res.spans || 1) : (r.spans || r.spansGuess || 1);
+      const roofSlope = r.type === 'flush' ? (Number(opt.tilt) || 0) : r.type === 'ginseng' ? 10 : 0;
+      const eaveH = r.type === 'ground' ? 0 : r.type === 'parking' ? 0 : roofH(r);
+      const span = kind === 'gable-ew' ? res.depthM / spans : kind === 'gable-ns' ? res.widthM / spans : 0;
+      const ridgeH = kind === 'flat' ? eaveH : eaveH + span / 2 * Math.tan(roofSlope * Math.PI / 180);
+      const dSlope = opt.orient === 'portrait' ? opt.modL : opt.modS;
+      const tiers = Math.max(1, opt.tiers | 0), tilt = r.type === 'flush' ? 0 : (Number(opt.tilt) || 0);
+      const arraySlope = tiers * dSlope + (tiers - 1) * (opt.tierGap || 0);
+      const arrayH = r.type === 'flush' ? 0.15 : arraySlope * Math.sin(tilt * Math.PI / 180);
+      const arrayDepth = r.type === 'flush' ? dSlope : arraySlope * Math.cos(tilt * Math.PI / 180);
+      const topH = kind === 'gable-ew' ? eaveH + span * Math.tan(roofSlope * Math.PI / 180) + 0.15
+        : kind === 'gable-ns' ? ridgeH + 0.3 + arrayH
+        : (r.type === 'parking' ? 2.5 : r.type === 'ground' ? 0.5 : eaveH) + 0.3 + arrayH;
+      const ridges = [];
+      if (kind === 'gable-ew' || kind === 'gable-ns') {
+        // 용마루 선: 건물 축으로 돌린 틀에서 경간 가운데. 배치도에 점선으로.
+        const o = Layout.centroid(r.points), local = Layout.toLocal(r.points, o);
+        const ang = res.buildingAngle || 0, rot = local.map(p => Layout.rotate(p, -ang));
+        const minX = Math.min(...rot.map(p => p.x)), maxX = Math.max(...rot.map(p => p.x)), minY = Math.min(...rot.map(p => p.y)), maxY = Math.max(...rot.map(p => p.y));
+        for (let i = 0; i < spans; i++) {
+          const seg = kind === 'gable-ew'
+            ? [{ x: minX, y: minY + (i + 0.5) * (maxY - minY) / spans }, { x: maxX, y: minY + (i + 0.5) * (maxY - minY) / spans }]
+            : [{ x: minX + (i + 0.5) * (maxX - minX) / spans, y: minY }, { x: minX + (i + 0.5) * (maxX - minX) / spans, y: maxY }];
+          ridges.push(Layout.toGeo(seg.map(p => Layout.rotate(p, ang)), o));
+        }
+      }
+      const az = res.azimuth || 0;
+      return {
+        name: r.name, type: r.type, typeLabel: LABEL[r.type] || r.type, rings: [r.points].concat(r.extra || []), centroid: Layout.centroid(r.points),
+        modules: res.modules || [], count: res.count, kw: res.kw, areaM2: res.areaM2, rows: res.rows, aisles: res.aisles || 0,
+        tilt: r.type === 'flush' ? (Number(opt.tilt) || 0) : tilt, tiers, dir: res.aligned ? '건물맞춤 ' + res.rowAngle + '°' : (az ? '방위 ' + az + '°' : '정남'),
+        pitch: res.pitch, gap: res.arrayGap, margin: Number(opt.margin) || 0,
+        kind, spans, roofSlope, eaveH, ridgeH, topH, arrayH, arrayDepth, depthM: kind === 'gable-ns' ? res.widthM : res.depthM, ridges,
+        slopeNote: r.terrain ? '지면 경사 ' + r.terrain.slopeDeg + '° ' + r.terrain.name : '',
+      };
+    });
+    const memoRes = await Proposal.consult(siteAddr || siteName).catch(() => null);
+    const memo = memoRes && memoRes.hits ? memoRes.hits.map(h => (h.tab ? '[' + h.tab + '] ' : '') + h.text).slice(0, 4) : [];
+    const rpsSt = (window.RpsUI && RpsUI.getState) ? RpsUI.getState() : {};
+    const data = {
+      site: { name: siteName, addr: siteAddr }, kw: rs.reduce((a, r) => a + r.kw, 0),
+      module: { w: moduleCfg.moduleWp, L: moduleCfg.modLmm, S: moduleCfg.modSmm },
+      roofs: rs, origin, buildings: buildings.filter(b => !srcs.has(b.id) && distM(origin, Layout.centroid(b.ring)) <= 150).map(b => ({ ring: b.ring })),
+      lines: lastKepco, memo, costPerKw: rpsSt.costPerKw || 1000000,
+    };
+    try {
+      const { pptx, fileName } = await Proposal.build(data);
+      const how = await Proposal.save(pptx, fileName);
+      hint('제안서 5쪽(배치도·측면도·손익 ①②③)을 ' + (how === 'mail' ? '메일 첨부로 보냈습니다' : '내려받았습니다') + ': ' + fileName + ' — 파워포인트 「슬라이드 재사용」으로 원본 37·38·47~49쪽 자리에 넣으세요.');
+    } catch (e) { hint('제안서 생성 실패: ' + e.message); }
+  }
+
   /** 배치 결과를 3D 로. 지붕은 대장 높이(없으면 층수×층고), 토지는 0.5m 구조물, 주차장은 2.5m 캐노피. 주변 건물은 회색. */
   function open3d() {
     const done = roofs.filter(r => r.result);
