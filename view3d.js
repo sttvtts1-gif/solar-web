@@ -89,7 +89,17 @@ const View3D = (() => {
       if (roof.kind === 'gable-ew') { const D = (maxY - minY) / n, u = ((q.y - minY) % D + D) % D; return roof.baseH + (D / 2 - Math.abs(u - D / 2)) * t; }
       const W = (maxX - minX) / n, u = ((q.x - minX) % W + W) % W; return roof.baseH + (W / 2 - Math.abs(u - W / 2)) * t;
     };
-    return { z, minX, maxX, minY, maxY, n, t };
+    // 모듈이 놓이는 면. 지붕면(z)과 다르다:
+    //   gable-ew(원단): 경간마다 남쪽 처마에서 북쪽 끝까지 지붕 경사 그대로 한 면으로 이어진다 → 남쪽 면은 지붕에 밀착, 북쪽 면 블록은
+    //                  남향을 유지한 채 뒤가 들린다(단면도: 북측 끝 들어올림).
+    //   gable-ns(동서지붕 인삼밭): 용마루 높이의 수평 프레임 위에 2단 거치.
+    //   그 외: 지붕면 그대로.
+    const modZ = p => {
+      if (roof.kind === 'gable-ew' && t) { const q = rot(p, -roof.buildingAngle); const D = (maxY - minY) / n, u = ((q.y - minY) % D + D) % D; return roof.baseH + u * t; }
+      if (roof.kind === 'gable-ns' && t) { const W = (maxX - minX) / n; return roof.baseH + W / 2 * t; }
+      return z(p);
+    };
+    return { z, modZ, minX, maxX, minY, maxY, n, t };
   }
 
   /** 토지 필지를 지면 기울기대로 깐 판(두께 없음). 삼각분할 후 꼭짓점마다 높이. */
@@ -154,7 +164,7 @@ const View3D = (() => {
       const base = pos.length / 3;
       // 원단(tilt 0)은 지붕면에 밀착(0.12m), 거치는 구조물 위(0.3m) + 뒤쪽을 경사각만큼
       const lift = roof.tilt ? 0.3 : 0.12;
-      c.forEach((p, i) => { pos.push(p.x, surf.z(p) + lift + (front.has(i) ? 0 : rise), -p.y); uv.push(i === 0 || i === 3 ? 0 : 1, front.has(i) ? 0 : 1); });
+      c.forEach((p, i) => { pos.push(p.x, surf.modZ(p) + lift + (front.has(i) ? 0 : rise), -p.y); uv.push(i === 0 || i === 3 ? 0 : 1, front.has(i) ? 0 : 1); });
       idx.push(base, base + 1, base + 2, base, base + 2, base + 3);
     });
     const geo = new THREE.BufferGeometry();
@@ -265,7 +275,7 @@ const View3D = (() => {
     renderer.setPixelRatio(Math.min(2, window.devicePixelRatio || 1));
     host.innerHTML = '';
     host.appendChild(renderer.domElement);
-    const fit = () => { const w = host.clientWidth, h = host.clientHeight; renderer.setSize(w, h, false); camera.aspect = w / h; camera.updateProjectionMatrix(); };
+    const fit = () => { const w = host.clientWidth, h = host.clientHeight; renderer.setSize(w, h); renderer.domElement.style.width = '100%'; renderer.domElement.style.height = '100%'; camera.aspect = w / h; camera.updateProjectionMatrix(); };
     camera = new THREE.PerspectiveCamera(50, 1, 0.5, 5000);
     build(data);
     view.az = -35; view.el = 35; auto = false;

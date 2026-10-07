@@ -830,15 +830,15 @@
         const res = r.result, opt = res.opt || {};
         // 지붕 꼴: 원단(남북지붕) = 용마루 동서, 경간 res.spans / 인삼밭(동서지붕) = 용마루 남북, 동 수 r.spans / 평슬라브·토지·주차장 = 평면
         //   원단은 모듈이 지붕면에 붙으니(경사각 = 지붕 경사) 추가로 기울이지 않고, 나머지는 지붕 위에 경사각만큼 세운다.
-        // 동서지붕(인삼밭)은 사용자 지시로 평면 위에 2단 거치로 보인다(지붕 경사 무시). 원단만 박공 + 밀착.
-        const kind = r.type === 'flush' ? 'gable-ew' : 'flat';
+        // 원단 = 박공(용마루 동서) + 남쪽 면 밀착·북쪽 블록 들림 / 인삼밭 = 박공(용마루 남북) 위 수평 프레임에 2단 거치 / 나머지 평면
+        const kind = r.type === 'flush' ? 'gable-ew' : r.type === 'ginseng' ? 'gable-ns' : 'flat';
         // 색: 같은 필지 대장의 지붕재·구조(동별 매칭은 대장에 위치가 없어 못 함 → 면적이 제일 비슷한 동)
         const bd = siteBld.length ? siteBld.slice().sort((p, q) => Math.abs((p.archArea || 0) - res.areaM2) - Math.abs((q.archArea || 0) - res.areaM2))[0] : null;
         const mat = bd ? { roof: (bd.roof || '') + ' ' + (bd.roofEtc || ''), structure: bd.structure || '' } : null;
         return { name: r.name, type: r.type, rings: [r.points].concat(r.extra || []), banned: !!res.banned,
           baseH: r.type === 'ground' ? 0.5 : r.type === 'parking' ? 2.5 : roofH(r),
           kind, spans: r.type === 'flush' ? (res.spans || 1) : (r.spans || r.spansGuess || 1),
-          roofSlope: r.type === 'flush' ? (Number(opt.tilt) || 0) : 0, mat,
+          roofSlope: r.type === 'flush' ? (Number(opt.tilt) || 0) : r.type === 'ginseng' ? 10 : 0, mat,
           buildingAngle: res.buildingAngle || 0,
           grad: r.type === 'ground' && r.terrain ? { gE: r.terrain.gradE, gN: r.terrain.gradN } : null,   // 토지 기울기(3D 에서 땅을 기울여 그림)
           modules: res.modules || [], rowAngle: res.rowAngle || 0, tilt: r.type === 'flush' ? 0 : (Number(opt.tilt) || 0),
