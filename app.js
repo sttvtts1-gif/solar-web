@@ -151,6 +151,15 @@
     $('btnParcel').onclick = () => loadParcels();
     $('btn3d').onclick = open3d;
     // 웹(PC): 원본 제안서 파일을 골라 그 안을 채운다. APK 나 파일을 고를 수 없으면 5쪽 별도 파일.
+    $('btnCad').onclick = async () => {
+      const data = await proposalData(false); if (!data) return;
+      const text = Cad.dxf(data);
+      const name = '배치도면_' + (siteName || '현장').replace(/[\\/:*?"<>|]/g, '') + '_' + data.kw.toFixed(0) + 'kW.dxf';
+      if (window.Native && window.Native.mail) { Native.mail('', 'CAD 도면 — ' + name, '배치 평면도·측면도·배면도 DXF', JSON.stringify([{ name, dataUrl: 'data:application/dxf;base64,' + btoa(unescape(encodeURIComponent(text))) }])); hint('DXF 를 메일 첨부로 보냈습니다: ' + name); return; }
+      const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([text], { type: 'application/dxf' })); a.download = name; document.body.appendChild(a); a.click(); a.remove();
+      hint('CAD 파일을 내려받았습니다: ' + name + ' (평면도 · 측면도 · 배면도, 단위 m, 레이어 BLDG/MODULE/RIDGE/DIM/TEXT)');
+    };
+    $('btnAlign').onclick = () => alignAll();
     $('btnProposal').onclick = () => {
       if (!window.Native && window.JSZip && $('tplFile')) { hint('원본 제안서(.pptx)를 고르세요 — 37·38쪽 그림과 47~49쪽 표를 채워 완성본으로 내려받습니다.'); $('tplFile').value = ''; $('tplFile').click(); }
       else makeProposal(null);
@@ -827,13 +836,46 @@
       .catch(e => { hint(e.message); return []; })
       .finally(() => { $('btnParcel').disabled = false; });
   }
+  // ------------------------------------------------------------ 지붕 위치 보정
+  /** 지붕(과 합산 링)을 동쪽 dxM · 북쪽 dyM 만큼 옮긴다 */
+  function moveRoof(r, dxM, dyM) {
+    const lat = Layout.centroid(r.points).lat;
+    const dLat = dyM / 110574, dLng = dxM / (111320 * Math.cos(lat * Math.PI / 180));
+    const sh = rg => rg.map(p => ({ lat: p.lat + dLat, lng: p.lng + dLng }));
+    r.points = sh(r.points);
+    if (r.extra) r.extra = r.extra.map(sh);
+    if (r.parcels) r.parcels.forEach(p => { if (p.ring) p.ring = sh(p.ring); });
+    r.moved = { dx: ((r.moved && r.moved.dx) || 0) + dxM, dy: ((r.moved && r.moved.dy) || 0) + dyM };
+    recompute(r); renderList(); save();
+  }
+  /** V-World 위성사진의 지붕 경계에 외곽선을 맞춘다(align.js). */
+  async function autoAlign(r, quiet) {
+    if (r.type === 'ground') { if (!quiet) hint('토지는 지적선이 기준이라 보정하지 않습니다.'); return null; }
+    if (!quiet) hint(r.name + ' — 위성사진 지붕 경계에 맞추는 중…');
+    try {
+      const res = await Align.snap([r.points].concat(r.extra || []));
+      if (Math.abs(res.dxM) < 0.3 && Math.abs(res.dyM) < 0.3) { if (!quiet) hint(r.name + ' — 이미 맞아 있습니다(0.3m 안).'); return res; }
+      moveRoof(r, res.dxM, res.dyM);
+      if (!quiet) hint(r.name + ' — 동 ' + res.dxM.toFixed(1) + 'm · 북 ' + res.dyM.toFixed(1) + 'm 옮겼습니다 (경계 일치 ' + Math.round((res.gain - 1) * 100) + '% ↑). 안 맞으면 「위치」로 직접 밀거나 되돌리세요.');
+      return res;
+    } catch (e) { if (!quiet) hint('자동보정 실패: ' + e.message); return null; }
+  }
+  async function alignAll() {
+    const list = roofs.filter(r => r.type !== 'ground' && r.type !== 'parking');
+    if (!list.length) { hint('보정할 건물 지붕이 없습니다.'); return; }
+    hint('건물 ' + list.length + '동 — 위성사진 지붕 경계에 맞추는 중…');
+    const out = [];
+    for (const r of list) { const res = await autoAlign(r, true); if (res) out.push(r.name + ' ' + res.dxM.toFixed(1) + '/' + res.dyM.toFixed(1) + 'm'); }
+    hint('자동보정 끝: ' + (out.join(', ') || '변화 없음') + ' — V-World 위성 기준(제안서 도면과 같은 사진). 카카오 사진과는 조금 다를 수 있습니다.');
+  }
+
   // ------------------------------------------------------------ 제안서 PPT
   /** 배치·높이·손익·한전 선로를 모아 제안서 5쪽(.pptx)을 만든다. 원본 제안서는 암호화돼 못 열어서 별도 파일 → 「슬라이드 재사용」으로 삽입. */
-  async function makeProposal(templateFile) {
+  /** 제안서·CAD 공용: 배치 결과를 동별 도면 데이터로 (withMemo 면 상담일지 메모도 조회) */
+  async function proposalData(withMemo) {
     const done = roofs.filter(r => r.result && r.result.count);
-    if (!done.length) { hint('먼저 배치를 하세요. 배치된 지붕·토지의 용량으로 제안서를 만듭니다.'); return; }
-    if (typeof PptxGenJS === 'undefined') { hint('PPT 라이브러리(vendor/pptxgen.bundle.js)가 없습니다.'); return; }
-    hint('제안서 만드는 중… (상담일지 선로 메모 조회)');
+    if (!done.length) { hint('먼저 배치를 하세요. 배치된 지붕·토지의 용량으로 만듭니다.'); return null; }
+    if (withMemo) hint('제안서 만드는 중… (상담일지 선로 메모 조회)');
     const all = [].concat(...done.map(r => r.points));
     const origin = Layout.centroid(all);
     const srcs = new Set(done.map(r => r.src));
@@ -873,11 +915,12 @@
         modules: res.modules || [], count: res.count, kw: res.kw, areaM2: res.areaM2, rows: res.rows, aisles: res.aisles || 0,
         tilt: r.type === 'flush' ? (Number(opt.tilt) || 0) : tilt, tiers, dir: res.aligned ? '건물맞춤 ' + res.rowAngle + '°' : (az ? '방위 ' + az + '°' : '정남'),
         pitch: res.pitch, gap: res.arrayGap, margin: Number(opt.margin) || 0,
-        kind, spans, roofSlope, eaveH, ridgeH, topH, arrayH, arrayDepth, depthM: kind === 'gable-ns' ? res.widthM : res.depthM, ridges,
+        kind, spans, roofSlope, eaveH, ridgeH, topH, arrayH, arrayDepth, depthM: kind === 'gable-ns' ? res.widthM : res.depthM, widthM: kind === 'gable-ns' ? res.depthM : res.widthM, ridges,
+        frontLift: Number(opt.frontLift) || 0,
         slopeNote: r.terrain ? '지면 경사 ' + r.terrain.slopeDeg + '° ' + r.terrain.name : '',
       };
     });
-    const memoRes = await Proposal.consult(siteAddr || siteName).catch(() => null);
+    const memoRes = withMemo ? await Proposal.consult(siteAddr || siteName).catch(() => null) : null;
     const memo = memoRes && memoRes.hits ? memoRes.hits.map(h => (h.tab ? '[' + h.tab + '] ' : '') + h.text).slice(0, 4) : [];
     const rpsSt = (window.RpsUI && RpsUI.getState) ? RpsUI.getState() : {};
     const data = {
@@ -886,6 +929,13 @@
       roofs: rs, origin, buildings: buildings.filter(b => !srcs.has(b.id) && distM(origin, Layout.centroid(b.ring)) <= 150).map(b => ({ ring: b.ring })),
       lines: lastKepco, memo, costPerKw: rpsSt.costPerKw || Proposal.COST_PER_KW,
     };
+    return data;
+  }
+
+  async function makeProposal(templateFile) {
+    const data = await proposalData(true);
+    if (!data) return;
+    if (typeof PptxGenJS === 'undefined') { hint('PPT 라이브러리(vendor/pptxgen.bundle.js)가 없습니다.'); return; }
     if (templateFile) {
       try {
         hint('원본 제안서 읽는 중… (' + Math.round(templateFile.size / 1048576) + 'MB)');
@@ -1466,6 +1516,22 @@
         }
         if (r.type === 'parking') d.appendChild(mk('단수', [1, 2, 3, 4], r.tiers || res.opt.tiers, v => v + '단', v => { r.tiers = v; }));
       }
+      if (r.type !== 'ground') {
+        const al = document.createElement('button'); al.className = 'btn ghost'; al.textContent = '🎯'; al.title = '위성사진 지붕 경계에 자동으로 맞춤';
+        al.onclick = e => { e.stopPropagation(); autoAlign(r); };
+        d.appendChild(al);
+        const mv = document.createElement('button'); mv.className = 'btn ghost'; mv.textContent = '위치' + (r.moved ? '*' : ''); mv.title = '외곽선을 직접 밀기 (동 m, 북 m)';
+        mv.onclick = e => {
+          e.stopPropagation();
+          const s = prompt(r.name + ' 옮길 거리: "동 북" (m). 예: "1.5 -2" = 동쪽 1.5m, 남쪽 2m. "0 0" 입력하면 원래 자리로', '0 0');
+          if (s === null) return;
+          const m = s.trim().split(/[\s,]+/).map(parseFloat);
+          if (m.length < 2 || !isFinite(m[0]) || !isFinite(m[1])) { hint('형식: 동 북 (예 1.5 -2)'); return; }
+          if (m[0] === 0 && m[1] === 0 && r.moved) { moveRoof(r, -r.moved.dx, -r.moved.dy); r.moved = null; renderList(); save(); hint(r.name + ' — 원래 자리로 되돌렸습니다.'); return; }
+          moveRoof(r, m[0], m[1]); hint(r.name + ' — 동 ' + m[0] + 'm · 북 ' + m[1] + 'm 옮겼습니다.');
+        };
+        d.appendChild(mv);
+      }
       const fl = document.createElement('button');
       fl.className = 'btn ghost'; fl.textContent = '층수'; if (r.type === 'ground' || r.type === 'parking') fl.style.display = 'none';
       fl.onclick = e => {
@@ -1534,7 +1600,7 @@
         curType, settings, siteName, shade, moduleCfg, edits,
         roofs: roofs.map(r => ({ id: r.id, name: r.name, type: r.type, points: r.points, src: r.src, floors: r.floors, floorsManual: r.floorsManual, spans: r.spans, vent: r.vent,
           parcels: r.parcels, extra: r.extra, review: r.review && !r.review.pending ? r.review : undefined, force: r.force,
-          azimuth: r.azimuth, margin: r.margin, tiers: r.tiers, terrain: r.terrain })),
+          azimuth: r.azimuth, margin: r.margin, tiers: r.tiers, terrain: r.terrain, moved: r.moved })),
         // 음영 장애물로 다시 쓰려고 주변 건물도 남긴다 (그림은 다시 그리지 않는다)
         buildings: buildings.map(b => ({ id: b.id, name: b.name, ring: b.ring, floors: b.floors })),
       }));
