@@ -1082,9 +1082,13 @@
     const sel = r.id === selectedId;
 
     const toLL = rg => rg.map(p => new kakao.maps.LatLng(p.lat, p.lng));
+    const merged = !!(res.outline && r.extra && r.extra.length);
+    const lineColor = res.banned ? '#ff3b3b' : (sel ? '#ffd54a' : '#ff3b3b');
+    // 합산 토지: 필지 사이 경계선은 긋지 않는다 — 면은 선 없이 칠하고, 바깥 변(outline)만 따로 긋는다
+    const extraLines = merged ? res.outline.map(seg => { const pl = new kakao.maps.Polyline({ path: toLL(seg), strokeWeight: sel ? 3 : 2, strokeColor: lineColor, zIndex: 1 }); pl.setMap(map); return pl; }) : [];
     const outline = new kakao.maps.Polygon({
-      path: r.extra && r.extra.length ? [r.points].concat(r.extra).map(toLL) : toLL(r.points),
-      strokeWeight: sel ? 3 : 2, strokeColor: res.banned ? '#ff3b3b' : (sel ? '#ffd54a' : '#ff3b3b'), fillColor: res.banned ? '#ff0000' : '#000', fillOpacity: res.banned ? 0.25 : 0.05, zIndex: 1,
+      path: merged ? [r.points].concat(r.extra).map(toLL) : toLL(r.points),
+      strokeWeight: merged ? 0 : (sel ? 3 : 2), strokeOpacity: merged ? 0 : 0.8, strokeColor: lineColor, fillColor: res.banned ? '#ff0000' : '#000', fillOpacity: res.banned ? 0.25 : 0.05, zIndex: 1,
     });
     outline.setMap(map);
     kakao.maps.event.addListener(outline, 'click', e => { if (drawing) return; pickAt(e && e.latLng ? { lat: e.latLng.getLat(), lng: e.latLng.getLng() } : Layout.centroid(r.points)); });
@@ -1116,7 +1120,7 @@
     const label = new kakao.maps.CustomOverlay({ position: new kakao.maps.LatLng(c.lat, c.lng), content: el, zIndex: 20 });
     label.setMap(map);
 
-    r.gfx = { outline, mods, label, vents };
+    r.gfx = { outline, mods, label, vents, extraLines };
   }
   function clearGfx(r) {
     if (!r.gfx) return;
@@ -1124,6 +1128,7 @@
     r.gfx.mods.forEach(m => m.setMap(null));
     r.gfx.label.setMap(null);
     (r.gfx.vents || []).forEach(v => v.setMap(null));
+    (r.gfx.extraLines || []).forEach(v => v.setMap(null));
     r.gfx = null;
   }
   function select(id) {

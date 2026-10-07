@@ -28,10 +28,10 @@ const Layout = (() => {
                ridge: true, spans: 1, eaveSetback: 0.5, ridgeSetback: 0.3, lift: 0 },
     // 평슬라브: 정남 경사거치, 줄마다 후면입사각 이격
     slab:    { label: '평슬라브 · 경사거치',   orient: 'portrait', tiers: 1, tierGap: 0.05, tilt: 15, shadeAngle: 22, autoGap: true, arrayGap: 2.5 },
-    // 토지(노지): 필지 외곽선 안에 정남 2단 거치. 앞뒤는 후면입사각 22° 이격, 좌우는 30열마다 2m 통로(점검·장비 진입). 경계 이격 1m.
+    // 토지(노지): 필지 외곽선 안에 정남 2단 거치. 앞뒤는 후면입사각 22° 이격, 좌우는 30열마다 2m 통로(점검·장비 진입). 경계 이격 3m(펜스).
     //   필지는 건물처럼 축이 뚜렷하지 않아 줄 방향은 기본 정남. 경사각은 2단 기준 15°(설정에서 바꿀 수 있음).
     ground:  { label: '토지 · 노지 2단',       orient: 'portrait', tiers: 2, tierGap: 0.10, tilt: 15, shadeAngle: 22, autoGap: true, arrayGap: 3.0,
-               colBlock: 30, blockGap: 2.0, margin: 1.0, align: 'south' },
+               colBlock: 30, blockGap: 2.0, margin: 3.0, align: 'south' },   // 지적경계 3m 이격 = 펜스 돌릴 공간(사용자 지정)
   };
 
   const DEFAULTS = {
@@ -82,6 +82,33 @@ const Layout = (() => {
       if ((a.y > p.y) !== (b.y > p.y) && p.x < (b.x - a.x) * (p.y - a.y) / (b.y - a.y) + a.x) inside = !inside;
     }
     return inside;
+  }
+  /** 선분 목록까지 최단거리. 합산 토지의 바깥 변(공유 경계 제외)에 이격을 재는 데 쓴다. */
+  function distToSegs(segs, p) {
+    let best = Infinity;
+    segs.forEach(([a, b]) => {
+      const dx = b.x - a.x, dy = b.y - a.y;
+      const L2 = dx * dx + dy * dy || 1e-12;
+      let t = ((p.x - a.x) * dx + (p.y - a.y) * dy) / L2;
+      t = Math.max(0, Math.min(1, t));
+      best = Math.min(best, Math.hypot(a.x + t * dx - p.x, a.y + t * dy - p.y));
+    });
+    return best;
+  }
+  /**
+   * 여러 필지를 합산할 때 "바깥" 변만 고른다. 변의 가운데가 다른 필지 안에 있거나 그 경계에 붙어 있으면(0.3m 안)
+   * 두 필지가 맞댄 경계라서 뺀다 → 그 선은 이격도 안 재고 그리지도 않는다.
+   */
+  function exteriorEdges(polys) {
+    const segs = [];
+    polys.forEach((pg, k) => {
+      for (let i = 0, j = pg.length - 1; i < pg.length; j = i++) {
+        const a = pg[j], b = pg[i], mid = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+        const shared = polys.some((o, k2) => k2 !== k && (pointIn(o, mid) || distToEdges(o, mid) < 0.3));
+        if (!shared) segs.push([a, b]);
+      }
+    });
+    return segs;
   }
   function distToEdges(poly, p) {
     let best = Infinity;
@@ -213,6 +240,9 @@ const Layout = (() => {
     const polys = rings.map(r => r.map(p => rotate(p, -row.angle)));
     const poly = polys[0];
     const b = bbox([].concat(...polys));
+    const ext = polys.length > 1 ? exteriorEdges(polys) : null;   // 합산: 공유 경계를 뺀 바깥 변
+    const inSite = p => polys.some(pg => pointIn(pg, p));
+    const farEnough = p => ext ? distToSegs(ext, p) >= m - 1e-9 : distToEdges(poly, p) >= m - 1e-9;
 
     // 용마루 벤츄레이터/모니터 (있을 때만): 폭 1m 띠, 높이 opt.ventH(기본 1m). 자리 차단 + 그림자.
     //   원단(남북지붕): 경간마다 남북 깊이 가운데를 동서로 지나는 띠.  인삼밭(동서지붕): 동서 폭 가운데를 남북으로 지나는 띠.
@@ -329,7 +359,8 @@ const Layout = (() => {
       for (let k = 0; k < nFit; k++) {
         const x = b.minX + m + xOff + xs[k];
         const c = [{ x, y }, { x: x + w, y }, { x: x + w, y: y + d }, { x, y: y + d }];
-        if (polys.some(pg => c.every(p => pointIn(pg, p) && (m === 0 || distToEdges(pg, p) >= m - 1e-9)))) {
+        const mid = { x: (c[0].x + c[2].x) / 2, y: (c[0].y + c[2].y) / 2 };
+        if (c.concat([mid]).every(p => inSite(p) && (m === 0 || farEnough(p)))) {
           if (onBlocker(c)) { blocked++; continue; }
           if (inShadow(c)) { shaded++; continue; }
           modules.push(c);
@@ -358,6 +389,8 @@ const Layout = (() => {
       arrayH: Math.round(arrayH * 100) / 100,
       spans, blocks,
       aisles, colBlock, blockGap,
+      // 합산 토지의 바깥 경계(공유 경계 제외) — 지도에 이것만 그려 한 덩어리로 보이게
+      outline: ext ? ext.map(([a, b]) => toGeo([a, b].map(p => rotate(p, row.angle)), o)) : null,
       depthM: Math.round(b.h * 10) / 10,
       widthM: Math.round(b.w * 10) / 10,
       opt,
