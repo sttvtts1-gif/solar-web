@@ -303,17 +303,22 @@
       d.className = 'type' + (t === curType ? ' on' : '');
       d.innerHTML = typeIcon(t) + '<b>' + p.label.split(' · ')[0] + '</b>' + p.label.split(' · ')[1];
       d.onclick = () => {
-        let nt = t;
-        // 이미 켜진 원단/인삼밭을 한 번 더 누르면 서로 바꾼다(자동 추정이 틀렸을 때 바로 뒤집기)
-        if (t === curType && (t === 'flush' || t === 'ginseng')) nt = t === 'flush' ? 'ginseng' : 'flush';
         const r = roofs.find(x => x.id === selectedId);
-        const targets = r ? [r] : roofs.filter(x => x.type === curType && (x.type === 'flush' || x.type === 'ginseng') && nt !== t);
-        curType = nt;
+        if (t === curType) {
+          // 이미 켜진 형태를 한 번 더 누르면 줄 방향을 뒤집는다: 남서향 배치 ↔ 남동향 배치 (건물맞춤이면 다른 축, 토지·주차장은 방위각 부호 반전)
+          const targets = r ? [r] : roofs.filter(x => x.type === t);
+          if (!targets.length) return;
+          targets.forEach(x => { x.flip = !x.flip; recompute(x); });
+          renderList(); save();
+          const res = targets[0].result || {};
+          hint((r ? r.name : '지붕 ' + targets.length + '개') + ' 방향 뒤집음 → ' + (res.aligned ? '건물맞춤 ' + res.rowAngle + '°' : (res.azimuth ? '방위 ' + res.azimuth + '°' : '정남')) + ' (다시 누르면 원래대로)');
+          return;
+        }
+        curType = t;
         renderTypes();
         fillSettings();
-        // 선택된 지붕이 있으면 그 지붕, 없으면(뒤집기일 때) 같은 형태의 지붕 전부를 바꾼다.
-        targets.forEach(x => { x.type = nt; recompute(x); });
-        if (targets.length) { renderList(); if (nt !== t) hint((r ? r.name : '지붕 ' + targets.length + '개') + ' → ' + Layout.PRESETS[nt].label.split(' · ')[0]); }
+        // 선택된 지붕이 있으면 그 지붕의 형태를 바꾼다.
+        if (r) { r.type = t; recompute(r); renderList(); }
         save();
       };
       box.appendChild(d);
@@ -1398,6 +1403,7 @@
     opt.vent = !!r.vent; opt.ventH = 1;
     // 토지·주차장은 지붕마다 방위각·경계 이격·단수를 따로 둘 수 있다(목록의 버튼)
     if (r.azimuth != null) { opt.azimuth = r.azimuth; opt.align = 'south'; }   // 방위각을 주면 정남 기준으로 돈다 (주차장은 기본 자동 맞춤)
+    opt.flipAxis = !!r.flip;                                                     // 형태 버튼 재탭으로 뒤집은 방향(남서향↔남동향)
     if (r.type === 'ground' && r.terrain) { opt.groundGradN = r.terrain.gradN; opt.groundGradE = r.terrain.gradE; }   // 지면 경사로 이격 보정
     if (r.margin != null) opt.margin = r.margin;
     if (r.tiers) opt.tiers = r.tiers;
@@ -1505,7 +1511,7 @@
       const d = document.createElement('div');
       d.className = 'roof' + (r.id === selectedId ? ' sel' : '');
       const az = res.azimuth || 0;
-      const dir = res.aligned ? ('건물맞춤 ' + res.rowAngle + '°') : (az ? '방위 ' + (az > 0 ? '서 ' : '동 ') + Math.abs(az) + '°' : '정남');
+      const dir = (res.aligned ? ('건물맞춤 ' + res.rowAngle + '°') : (az ? '방위 ' + (az > 0 ? '서 ' : '동 ') + Math.abs(az) + '°' : '정남')) + (r.flip ? '(뒤집음)' : '');
       const shadeTxt = shade.on ? ' · <span style="color:' + (res.shaded ? 'var(--danger)' : 'var(--ok)') + '">음영 제외 ' + (res.shaded || 0) + '장</span>' : '';
       d.innerHTML = '<span class="nm">' + r.name + ' · ' + Layout.PRESETS[r.type].label.split(' · ')[1] + ' · ' + dir
         + '<br><small style="color:var(--muted)">' + res.areaM2 + '㎡ · ' + res.rows + '줄 · 피치 ' + res.pitch + 'm' + (res.opt.ridge
@@ -1669,7 +1675,7 @@
         curType, settings, siteName, shade, moduleCfg, edits,
         roofs: roofs.map(r => ({ id: r.id, name: r.name, type: r.type, points: r.points, src: r.src, floors: r.floors, floorsManual: r.floorsManual, spans: r.spans, vent: r.vent,
           parcels: r.parcels, extra: r.extra, review: r.review && !r.review.pending ? r.review : undefined, force: r.force,
-          azimuth: r.azimuth, margin: r.margin, tiers: r.tiers, terrain: r.terrain, moved: r.moved })),
+          azimuth: r.azimuth, margin: r.margin, tiers: r.tiers, terrain: r.terrain, moved: r.moved, flip: r.flip })),
         // 음영 장애물로 다시 쓰려고 주변 건물도 남긴다 (그림은 다시 그리지 않는다)
         buildings: buildings.map(b => ({ id: b.id, name: b.name, ring: b.ring, floors: b.floors })),
       }));

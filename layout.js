@@ -49,6 +49,7 @@ const Layout = (() => {
     margin: 0,            // 지붕 가장자리 이격. 도면 실측(A동 14m 폭에 12장)과 맞추려면 0 이어야 한다.
     align: 'auto',        // auto: 건물이 60° 안에서 돌아가 있으면 건물에 맞춤 / south: 정남 고정
     alignLimit: 60,       // °
+    flipAxis: false,      // 줄 방향 뒤집기(남서향↔남동향). 건물맞춤이면 다른 축, 정남+방위각이면 방위각 부호 반전
     azimuth: 0,           // 방위각(°). 정남 0, 서쪽으로 돌리면 +, 동쪽으로 −. align:'south' 일 때만 쓴다 (토지·주차장)
     colBlock: 0,          // 줄 안에서 이 열수마다 통로를 둔다 (0 = 통로 없음). 토지 배치용
     blockGap: 0,          // 통로 폭 (m)
@@ -158,10 +159,12 @@ const Layout = (() => {
    */
   function pickRowAngle(rect, opt) {
     // 정남 고정 + 방위각: 앞면을 남쪽에서 시계방향(서쪽)으로 az 만큼 돌리면 줄은 수학각으로 −az 돈다
-    if (opt.align === 'south') { const az = Number(opt.azimuth) || 0; return { angle: fold(-az), aligned: false, buildingAngle: fold(rect.angle), azimuth: az }; }
+    // flipAxis: 사용자가 방향을 뒤집은 경우(형태 버튼 재탭). 정남+방위각이면 방위각 부호를, 건물맞춤이면 외접사각형의 다른 축을 쓴다(남서향↔남동향).
+    if (opt.align === 'south') { const az = (opt.flipAxis ? -1 : 1) * (Number(opt.azimuth) || 0); return { angle: fold(-az), aligned: false, buildingAngle: fold(rect.angle), azimuth: az }; }
     const a1 = fold(rect.angle), a2 = fold(rect.angle + 90);
-    const a = Math.abs(a1) <= Math.abs(a2) ? a1 : a2;
-    if (Math.abs(a) <= opt.alignLimit) return { angle: a, aligned: true, buildingAngle: a };
+    const near = Math.abs(a1) <= Math.abs(a2) ? a1 : a2;
+    const a = opt.flipAxis ? (near === a1 ? a2 : a1) : near;
+    if (opt.flipAxis || Math.abs(a) <= opt.alignLimit) return { angle: a, aligned: true, buildingAngle: a };
     return { angle: 0, aligned: false, buildingAngle: a };
   }
 
