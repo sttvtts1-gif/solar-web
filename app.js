@@ -303,12 +303,17 @@
       d.className = 'type' + (t === curType ? ' on' : '');
       d.innerHTML = typeIcon(t) + '<b>' + p.label.split(' · ')[0] + '</b>' + p.label.split(' · ')[1];
       d.onclick = () => {
-        curType = t;
+        let nt = t;
+        // 이미 켜진 원단/인삼밭을 한 번 더 누르면 서로 바꾼다(자동 추정이 틀렸을 때 바로 뒤집기)
+        if (t === curType && (t === 'flush' || t === 'ginseng')) nt = t === 'flush' ? 'ginseng' : 'flush';
+        const r = roofs.find(x => x.id === selectedId);
+        const targets = r ? [r] : roofs.filter(x => x.type === curType && (x.type === 'flush' || x.type === 'ginseng') && nt !== t);
+        curType = nt;
         renderTypes();
         fillSettings();
-        // 선택된 지붕이 있으면 그 지붕의 형태를 바꾼다.
-        const r = roofs.find(x => x.id === selectedId);
-        if (r) { r.type = t; recompute(r); renderList(); }
+        // 선택된 지붕이 있으면 그 지붕, 없으면(뒤집기일 때) 같은 형태의 지붕 전부를 바꾼다.
+        targets.forEach(x => { x.type = nt; recompute(x); });
+        if (targets.length) { renderList(); if (nt !== t) hint((r ? r.name : '지붕 ' + targets.length + '개') + ' → ' + Layout.PRESETS[nt].label.split(' · ')[0]); }
         save();
       };
       box.appendChild(d);
