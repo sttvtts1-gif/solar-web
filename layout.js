@@ -45,6 +45,7 @@ const Layout = (() => {
     ventN: 2,             // 벤츄레이터 개수(동마다). 용마루 위에 고르게
     ventLen: 2,           // 벤츄레이터 한 개의 용마루 방향 길이(m). 폭(용마루 직각)은 1m
     ventPos: null,        // 사용자가 옮긴 벤츄레이터 중심 [{lat,lng}|null, ...] (전체 순번). null 이면 자동 자리
+    ridgeOff: null,       // 동마다 용마루를 가운데에서 옮긴 거리(m). 원단: +북쪽, 인삼밭: +동쪽 (건물 축 기준). 지도에서 꾹 눌러 끈다
     type: 'slab',
     moduleWp: 645,        // W
     modL: 2.465,          // m, 긴 변
@@ -256,6 +257,19 @@ const Layout = (() => {
     const b = bbox([].concat(...polys));
     const ext = polys.length > 1 ? exteriorEdges(polys) : null;   // 합산: 공유 경계를 뺀 바깥 변
     const inSite = p => polys.some(pg => pointIn(pg, p));
+
+    // 용마루 자리: 동(spans)마다 가운데 + 사용자가 옮긴 거리(ridgeOff). 원단은 남북(y), 인삼밭은 동서(x). 지도에 선으로 그리고 꾹 눌러 옮긴다.
+    const nSp = Math.max(1, Math.round(Number(opt.spans) || 1));
+    const rOff = Array.isArray(opt.ridgeOff) ? opt.ridgeOff : [];
+    const ridgePos = [], ridgeLines = [];
+    if (opt.ridge) {
+      const D = (b.maxY - b.minY) / nSp;
+      for (let i = 0; i < nSp; i++) { const y0 = b.minY + i * D, y = Math.min(y0 + D - 1, Math.max(y0 + 1, y0 + D / 2 + (Number(rOff[i]) || 0))); ridgePos.push(y - b.minY); ridgeLines.push([{ x: b.minX, y }, { x: b.maxX, y }]); }
+    } else if (opt.type === 'ginseng') {
+      const W = (b.maxX - b.minX) / nSp;
+      for (let i = 0; i < nSp; i++) { const x0 = b.minX + i * W, x = Math.min(x0 + W - 1, Math.max(x0 + 1, x0 + W / 2 + (Number(rOff[i]) || 0))); ridgePos.push(x - b.minX); ridgeLines.push([{ x, y: b.minY }, { x, y: b.maxY }]); }
+    }
+    const ridgeDir = opt.ridge ? rotate({ x: 0, y: 1 }, row.angle) : rotate({ x: 1, y: 0 }, row.angle);   // 용마루를 옮기는 방향(동·북 m 단위 벡터)
     const farEnough = p => ext ? distToSegs(ext, p) >= m - 1e-9 : distToEdges(poly, p) >= m - 1e-9;
 
     // 용마루 벤츄레이터/모니터 (있을 때만): 폭 1m 띠, 높이 opt.ventH(기본 1m). 자리 차단 + 그림자.
@@ -268,16 +282,16 @@ const Layout = (() => {
       const pos = Array.isArray(opt.ventPos) ? opt.ventPos : [];
       const centerOf = (idx, auto) => { const p = pos[idx]; return (p && isFinite(p.lat)) ? rotate(toLocal([p], o)[0], -row.angle) : auto; };
       if (opt.ridge) {
-        const n = Math.max(1, Math.round(Number(opt.spans) || 1)), D = (b.maxY - b.minY) / n, W = b.maxX - b.minX;
+        const n = nSp, W = b.maxX - b.minX;
         for (let i = 0; i < n; i++) for (let k = 0; k < nv; k++) {
-          const c = centerOf(i * nv + k, { x: b.minX + (k + 0.5) * W / nv, y: b.minY + i * D + D / 2 });
+          const c = centerOf(i * nv + k, { x: b.minX + (k + 0.5) * W / nv, y: b.minY + ridgePos[i] });
           vents.push([{ x: c.x - hl, y: c.y - half }, { x: c.x + hl, y: c.y - half }, { x: c.x + hl, y: c.y + half }, { x: c.x - hl, y: c.y + half }]);
         }
       } else if (opt.type === 'ginseng') {
         // 동서지붕: 용마루가 남북으로 지난다. 여러 동이 동서로 붙어 있으면 동마다 가운데.
-        const n = Math.max(1, Math.round(Number(opt.spans) || 1)), W = (b.maxX - b.minX) / n, Dp = b.maxY - b.minY;
+        const n = nSp, Dp = b.maxY - b.minY;
         for (let i = 0; i < n; i++) for (let k = 0; k < nv; k++) {
-          const c = centerOf(i * nv + k, { x: b.minX + i * W + W / 2, y: b.minY + (k + 0.5) * Dp / nv });
+          const c = centerOf(i * nv + k, { x: b.minX + ridgePos[i], y: b.minY + (k + 0.5) * Dp / nv });
           vents.push([{ x: c.x - half, y: c.y - hl }, { x: c.x + half, y: c.y - hl }, { x: c.x + half, y: c.y + hl }, { x: c.x - half, y: c.y + hl }]);
         }
       }
@@ -327,8 +341,8 @@ const Layout = (() => {
       const lift = Math.max(0, Number(opt.lift) || 0);
       const faces = [];
       for (let i = 0; i < spans; i++) {
-        const y0 = b.minY + i * D;
-        faces.push([y0 + eave, y0 + D / 2 - rs], [y0 + D / 2 + rs, y0 + D - eave]);
+        const y0 = b.minY + i * D, yr = b.minY + ridgePos[i];
+        faces.push([y0 + eave, yr - rs], [yr + rs, y0 + D - eave]);
       }
       // 경간(동)마다: 남쪽 면은 처마 이격부터 용마루까지 꽉 채운다. 북쪽 면은 용마루 바로 뒤부터 끝까지, 남향을 유지한 채 남쪽 면과
       // 같은 면으로 이어 붙인다(= 뒤가 들린다, 사용자 단면도 2026-10-07). 북쪽 블록 꼭대기(처마 기준 높이 (yEnd−y0)·tanθ)가 다음 동 남쪽 면에
@@ -340,8 +354,10 @@ const Layout = (() => {
       const r2 = v => Math.round(v * 100) / 100, rel = y => r2(y - b.minY);
       let nextStart = -Infinity;
       for (let i = 0; i < spans; i++) {
-        const y0 = b.minY + i * D, ridge = y0 + D / 2, y0n = y0 + D;
-        const roofZ = y => (y <= ridge ? y - y0 : y0n - y) * tS;
+        const y0 = b.minY + i * D, ridge = b.minY + ridgePos[i], y0n = y0 + D;
+        // 용마루를 옮기면 남면은 경사각 그대로, 북면은 같은 처마 높이로 내려오는 다른 경사(tN)
+        const ridgeH = (ridge - y0) * tS, tN = ridgeH / Math.max(0.5, y0n - ridge);
+        const roofZ = y => y <= ridge ? (y - y0) * tS : (y0n - y) * tN;
         let y = Math.max(y0 + eave, nextStart), n = 0;
         const first = y;
         while (y + d <= ridge - rs + 1e-9) { ys.push(y); zAt.push({ zf: roofZ(y) + fl, zb: roofZ(y + d) + fl }); y += d + tierGap; n++; }
@@ -351,14 +367,14 @@ const Layout = (() => {
         while (yS + d <= y0n - eave + 1e-9) {
           const base = roofZ(yS) + fl;                                   // 블록 앞줄 모듈면 높이
           y = yS; n = 0;
-          while (y + d <= y0n - eave + 1e-9 && fl + 2 * (y + d - yS) * tS <= maxH + 1e-9) { ys.push(y); zAt.push({ zf: base + (y - yS) * tS, zb: base + (y + d - yS) * tS }); y += d + tierGap; n++; }
+          while (y + d <= y0n - eave + 1e-9 && base + (y + d - yS) * tS - roofZ(y + d) <= maxH + 1e-9) { ys.push(y); zAt.push({ zf: base + (y - yS) * tS, zb: base + (y + d - yS) * tS }); y += d + tierGap; n++; }
           if (!n) break;
           const yEnd = ys[ys.length - 1] + d, zTop = base + (yEnd - yS) * tS;
           blocks.push({ rows: n, from: rel(yS), to: rel(yEnd), gap: r2(Math.max(0, yS - (ridge + rs))), zf: r2(base), zb: r2(zTop), lifted: r2(zTop - roofZ(yEnd)) });
           lastTop = { y: yEnd, z: zTop };
-          if (tA - tS <= 1e-6) break;
+          if (tA - tN <= 1e-6) break;
           // 다음 블록 앞줄(지붕면 + 앞다리)이 앞 블록 꼭대기의 그림자선 zTop − (y − yEnd)·tanα 밖에 오도록
-          yS = (zTop + yEnd * tA - y0n * tS - fl) / (tA - tS);
+          yS = (zTop + yEnd * tA - y0n * tN - fl) / (tA - tN);
         }
         // 다음 동 앞줄: 이 동 마지막 블록 꼭대기(없으면 용마루) 그림자가 다음 동 남면(지붕면 + 앞다리)에 닿지 않는 곳부터
         const hTop = lastTop ? lastTop.z : roofZ(ridge), yE = lastTop ? lastTop.y : ridge;
@@ -443,6 +459,9 @@ const Layout = (() => {
       flatGap: Math.round(flatGap * 100) / 100,
       spans, blocks,
       moduleZ: opt.ridge ? moduleZ : null,   // 모듈마다 {zf, zb} 모듈면 높이(처마 기준) — 3D·측면도용
+      ridgePos: ridgePos.map(v => Math.round(v * 100) / 100),   // 동마다 용마루 자리(원단: 남쪽 끝 0 기준 m, 인삼밭: 서쪽 끝 0 기준)
+      ridges: ridgeLines.map(seg => toGeo(seg.map(p => rotate(p, row.angle)), o)),   // 지도에 그릴 용마루 선
+      ridgeDir,                                                   // 용마루를 옮기는 방향(동 x, 북 y 단위벡터)
       aisles, colBlock, blockGap,
       // 합산 토지의 바깥 경계(공유 경계 제외) — 지도에 이것만 그려 한 덩어리로 보이게
       outline: ext ? ext.map(([a, b]) => toGeo([a, b].map(p => rotate(p, row.angle)), o)) : null,

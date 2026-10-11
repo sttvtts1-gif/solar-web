@@ -122,10 +122,12 @@ const Proposal = (() => {
     if (r.kind === 'gable-ew') {
       // 원단: 경간마다 남쪽 면은 지붕에서 앞다리만큼 띄워 평행, 북쪽 블록은 같은 면으로 이어 올림
       const n = r.spans, D = depth / n, t = Math.tan(r.roofSlope * Math.PI / 180);
-      const roofZ = y => { const u = ((y % D) + D) % D; return eave + (D / 2 - Math.abs(u - D / 2)) * t; };
+      const rp = Array.isArray(r.ridgePos) && r.ridgePos.length === n ? r.ridgePos : null;
+      const rc = i => Math.min(D - 0.5, Math.max(0.5, rp ? rp[i] - i * D : D / 2));           // 동 안에서 용마루까지(옮긴 것 반영)
+      const roofZ = y => { const i = Math.min(n - 1, Math.max(0, Math.floor(y / D))), u = y - i * D, c = rc(i); return eave + (u <= c ? u * t : c * t * Math.max(0, D - u) / Math.max(0.5, D - c)); };
       for (let i = 0; i < n; i++) {
-        const y0 = i * D, yc = y0 + D / 2, y1 = y0 + D;
-        g.beginPath(); g.moveTo(X(y0), Y(eave)); g.lineTo(X(yc), Y(ridge)); g.lineTo(X(y1), Y(eave)); g.stroke();
+        const y0 = i * D, yc = y0 + rc(i), y1 = y0 + D;
+        g.beginPath(); g.moveTo(X(y0), Y(eave)); g.lineTo(X(yc), Y(eave + rc(i) * t)); g.lineTo(X(y1), Y(eave)); g.stroke();
       }
       if (r.blocks && r.blocks.length) {
         // 배치 계산이 준 블록 그대로: 남면 밀착(앞다리), 북면은 블록마다 지붕+앞다리에서 남향으로 올라가다 최대 높이에서 끊김
@@ -152,7 +154,8 @@ const Proposal = (() => {
     } else if (r.kind === 'gable-ns') {
       // 동서지붕: 박공 위 수평 프레임에 2단 거치 (A-A 원본 꼴)
       const n = r.spans, Wd = depth / n, t = Math.tan(r.roofSlope * Math.PI / 180);
-      for (let i = 0; i < n; i++) { const x0 = i * Wd, xc = x0 + Wd / 2; g.beginPath(); g.moveTo(X(x0), Y(eave)); g.lineTo(X(xc), Y(ridge)); g.lineTo(X(x0 + Wd), Y(eave)); g.stroke(); }
+      const rpn = Array.isArray(r.ridgePos) && r.ridgePos.length === n ? r.ridgePos : null;
+      for (let i = 0; i < n; i++) { const x0 = i * Wd, c = Math.min(Wd - 0.5, Math.max(0.5, rpn ? rpn[i] - i * Wd : Wd / 2)), xc = x0 + c; g.beginPath(); g.moveTo(X(x0), Y(eave)); g.lineTo(X(xc), Y(eave + c * t)); g.lineTo(X(x0 + Wd), Y(eave)); g.stroke(); }
       const base = ridge + 0.3, aw = r.arrayDepth, ah = r.arrayH;
       g.strokeStyle = '#3aa'; g.lineWidth = 2; g.beginPath(); g.moveTo(X(0.5), Y(base)); g.lineTo(X(depth - 0.5), Y(base)); g.stroke(); g.strokeStyle = BLK;
       for (let x = 1; x + aw <= depth - 1; x += r.pitch) { mod(x, base, x + aw, base + ah); post(x + aw, base, base + ah); post(x + aw / 2, ridge - (Wd / 2) * t * 0.5, base); }

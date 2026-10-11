@@ -68,10 +68,12 @@ const Cad = (() => {
       w.line('BLDG', P(0, 0), P(0, eave)); w.line('BLDG', P(depth, 0), P(depth, eave));
       if (r.kind === 'gable-ew') {
         const n = r.spans, D = depth / n, t = Math.tan(r.roofSlope * Math.PI / 180);
-        const roofZ = y => { const u = ((y % D) + D) % D; return eave + (D / 2 - Math.abs(u - D / 2)) * t; };
+        const rp = Array.isArray(r.ridgePos) && r.ridgePos.length === n ? r.ridgePos : null;
+        const rc = k => Math.min(D - 0.5, Math.max(0.5, rp ? rp[k] - k * D : D / 2));
+        const roofZ = y => { const k = Math.min(n - 1, Math.max(0, Math.floor(y / D))), u = y - k * D, c = rc(k); return eave + (u <= c ? u * t : c * t * Math.max(0, D - u) / Math.max(0.5, D - c)); };
         for (let k = 0; k < n; k++) {
-          const y0 = k * D, yc = y0 + D / 2, y1 = y0 + D;
-          w.line('BLDG', P(y0, eave), P(yc, ridge)); w.line('BLDG', P(yc, ridge), P(y1, eave));
+          const y0 = k * D, yc = y0 + rc(k), y1 = y0 + D, hr = eave + rc(k) * t;
+          w.line('BLDG', P(y0, eave), P(yc, hr)); w.line('BLDG', P(yc, hr), P(y1, eave));
         }
         if (r.blocks && r.blocks.length) {
           r.blocks.forEach(bk => {
@@ -91,7 +93,8 @@ const Cad = (() => {
         w.vdim(ox - 1.2, oy + eave, oy + eave + 0.5 * t + lift, mm(0.5 * t + lift), 0.45);
       } else if (r.kind === 'gable-ns') {
         const n = r.spans, Wd = depth / n, t = Math.tan(r.roofSlope * Math.PI / 180), base = ridge + 0.3;
-        for (let k = 0; k < n; k++) { const x0 = k * Wd, xc = x0 + Wd / 2; w.line('BLDG', P(x0, eave), P(xc, ridge)); w.line('BLDG', P(xc, ridge), P(x0 + Wd, eave)); }
+        const rpn = Array.isArray(r.ridgePos) && r.ridgePos.length === n ? r.ridgePos : null;
+        for (let k = 0; k < n; k++) { const x0 = k * Wd, c = Math.min(Wd - 0.5, Math.max(0.5, rpn ? rpn[k] - k * Wd : Wd / 2)), xc = x0 + c, hr = eave + c * t; w.line('BLDG', P(x0, eave), P(xc, hr)); w.line('BLDG', P(xc, hr), P(x0 + Wd, eave)); }
         w.line('DIM', P(0.5, base), P(depth - 0.5, base));
         for (let x = 1; x + r.arrayDepth <= depth - 1; x += r.pitch) { w.line('MODULE', P(x, base), P(x + r.arrayDepth, base + r.arrayH)); w.line('DIM', P(x + r.arrayDepth, base), P(x + r.arrayDepth, base + r.arrayH)); }
         w.vdim(ox - 4, oy, oy + eave, mm(eave)); w.vdim(ox - 2.5, oy, oy + ridge, mm(ridge)); w.vdim(ox + depth + 2.5, oy, oy + top, mm(top));

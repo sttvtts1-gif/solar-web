@@ -82,12 +82,17 @@ const View3D = (() => {
     const minX = Math.min(...r.map(p => p.x)), maxX = Math.max(...r.map(p => p.x)), minY = Math.min(...r.map(p => p.y)), maxY = Math.max(...r.map(p => p.y));
     const n = Math.max(1, roof.spans | 0), t = Math.tan((roof.roofSlope || 0) * Math.PI / 180);
     const cx = xy.reduce((a, p) => a + p.x, 0) / xy.length, cy = xy.reduce((a, p) => a + p.y, 0) / xy.length;
+    // 용마루 자리(옮긴 것 반영): 동마다 시작 끝에서 rc[i] m. 한쪽은 경사각 그대로, 반대쪽은 같은 처마로 내려오는 경사
+    const D = (maxY - minY) / n, W = (maxX - minX) / n;
+    const rp = Array.isArray(roof.ridgePos) && roof.ridgePos.length === n ? roof.ridgePos : null;
+    const rc = i => rp ? rp[i] - i * (roof.kind === 'gable-ew' ? D : W) : (roof.kind === 'gable-ew' ? D : W) / 2;   // 동 안에서 용마루까지 거리
+    const spanZ = (u, S, i) => { const c = Math.min(S - 0.5, Math.max(0.5, rc(i))), hr = c * t; return u <= c ? u * t : hr * Math.max(0, S - u) / Math.max(0.5, S - c); };
     const z = p => {
       if (roof.grad) return roof.baseH + roof.grad.gE * (p.x - cx) + roof.grad.gN * (p.y - cy);   // 토지: 기울어진 지면
       if (roof.kind === 'flat' || !t) return roof.baseH;
       const q = rot(p, -roof.buildingAngle);
-      if (roof.kind === 'gable-ew') { const D = (maxY - minY) / n, u = ((q.y - minY) % D + D) % D; return roof.baseH + (D / 2 - Math.abs(u - D / 2)) * t; }
-      const W = (maxX - minX) / n, u = ((q.x - minX) % W + W) % W; return roof.baseH + (W / 2 - Math.abs(u - W / 2)) * t;
+      if (roof.kind === 'gable-ew') { const i = Math.min(n - 1, Math.max(0, Math.floor((q.y - minY) / D))); return roof.baseH + spanZ(q.y - minY - i * D, D, i); }
+      const i = Math.min(n - 1, Math.max(0, Math.floor((q.x - minX) / W))); return roof.baseH + spanZ(q.x - minX - i * W, W, i);
     };
     // 모듈이 놓이는 면. 지붕면(z)과 다르다:
     //   gable-ew(원단): 경간마다 남쪽 처마에서 북쪽 끝까지 지붕 경사 그대로 한 면으로 이어진다 → 남쪽 면은 지붕에 밀착, 북쪽 면 블록은
@@ -96,10 +101,10 @@ const View3D = (() => {
     //   그 외: 지붕면 그대로.
     const modZ = p => {
       if (roof.kind === 'gable-ew' && t) { const q = rot(p, -roof.buildingAngle); const D = (maxY - minY) / n, u = ((q.y - minY) % D + D) % D; return roof.baseH + u * t; }
-      if (roof.kind === 'gable-ns' && t) { const W = (maxX - minX) / n; return roof.baseH + W / 2 * t; }
+      if (roof.kind === 'gable-ns' && t) { let h = 0; for (let i = 0; i < n; i++) h = Math.max(h, Math.min(W - 0.5, Math.max(0.5, rc(i))) * t); return roof.baseH + h; }   // 프레임은 제일 높은 용마루 높이
       return z(p);
     };
-    return { z, modZ, minX, maxX, minY, maxY, n, t };
+    return { z, modZ, minX, maxX, minY, maxY, n, t, rc };
   }
 
   /** 토지 필지를 지면 기울기대로 깐 판(두께 없음). 삼각분할 후 꼭짓점마다 높이. */
@@ -122,20 +127,22 @@ const View3D = (() => {
     const push = (pts, color) => { const b = pos.length / 3; pts.forEach(p => { const w = rot({ x: p.x, y: p.y }, roof.buildingAngle); pos.push(w.x, p.z, -w.y); col.push(color.r, color.g, color.b); }); for (let i = 1; i + 1 < pts.length; i++) idx.push(b, b + i, b + i + 1); };
     const cs = colorsOf(roof.mat);
     const face = new THREE.Color(cs.roof), face2 = new THREE.Color(cs.roof2), wall = new THREE.Color(cs.wall);
-    const { minX, maxX, minY, maxY, n, t } = surf, h0 = roof.baseH;
+    const { minX, maxX, minY, maxY, n, t, rc } = surf, h0 = roof.baseH;
     if (roof.kind === 'gable-ew') {
-      const D = (maxY - minY) / n, hr = h0 + D / 2 * t;
+      const D = (maxY - minY) / n;
       for (let i = 0; i < n; i++) {
-        const y0 = minY + i * D, yc = y0 + D / 2, y1 = y0 + D;
+        const c = Math.min(D - 0.5, Math.max(0.5, rc(i))), hr = h0 + c * t;
+        const y0 = minY + i * D, yc = y0 + c, y1 = y0 + D;
         push([{ x: minX, y: y0, z: h0 }, { x: maxX, y: y0, z: h0 }, { x: maxX, y: yc, z: hr }, { x: minX, y: yc, z: hr }], face);      // 남쪽 면
         push([{ x: minX, y: yc, z: hr }, { x: maxX, y: yc, z: hr }, { x: maxX, y: y1, z: h0 }, { x: minX, y: y1, z: h0 }], face2);     // 북쪽 면
         push([{ x: minX, y: y0, z: h0 }, { x: minX, y: yc, z: hr }, { x: minX, y: y1, z: h0 }], wall);                                  // 박공벽 서
         push([{ x: maxX, y: y1, z: h0 }, { x: maxX, y: yc, z: hr }, { x: maxX, y: y0, z: h0 }], wall);                                  // 박공벽 동
       }
     } else {
-      const W = (maxX - minX) / n, hr = h0 + W / 2 * t;
+      const W = (maxX - minX) / n;
       for (let i = 0; i < n; i++) {
-        const x0 = minX + i * W, xc = x0 + W / 2, x1 = x0 + W;
+        const c = Math.min(W - 0.5, Math.max(0.5, rc(i))), hr = h0 + c * t;
+        const x0 = minX + i * W, xc = x0 + c, x1 = x0 + W;
         push([{ x: x0, y: minY, z: h0 }, { x: xc, y: minY, z: hr }, { x: xc, y: maxY, z: hr }, { x: x0, y: maxY, z: h0 }], face);      // 서쪽 면
         push([{ x: xc, y: minY, z: hr }, { x: x1, y: minY, z: h0 }, { x: x1, y: maxY, z: h0 }, { x: xc, y: maxY, z: hr }], face2);     // 동쪽 면
         push([{ x: x0, y: minY, z: h0 }, { x: x1, y: minY, z: h0 }, { x: xc, y: minY, z: hr }], wall);                                  // 박공벽 남
