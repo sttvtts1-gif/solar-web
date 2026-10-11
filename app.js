@@ -37,8 +37,8 @@
   let preview = null;
 
   // 형태별 상세 설정 키. 모듈 규격은 형태와 무관하게 공통(moduleCfg)이라 여기 없다.
-  const OPT_KEYS = ['orient', 'tiers', 'tilt', 'shadeAngle', 'autoGap', 'arrayGap', 'tierGap', 'colGap', 'margin', 'align', 'alignLimit', 'eaveSetback', 'ridgeSetback', 'lift', 'colBlock', 'blockGap', 'azimuth'];
-  const NUM_KEYS = ['tiers', 'tilt', 'shadeAngle', 'arrayGap', 'tierGap', 'colGap', 'margin', 'alignLimit', 'eaveSetback', 'ridgeSetback', 'lift', 'colBlock', 'blockGap', 'azimuth'];
+  const OPT_KEYS = ['orient', 'tiers', 'tilt', 'shadeAngle', 'autoGap', 'arrayGap', 'tierGap', 'colGap', 'margin', 'align', 'alignLimit', 'eaveSetback', 'ridgeSetback', 'lift', 'colBlock', 'blockGap', 'azimuth', 'maxLiftH'];
+  const NUM_KEYS = ['maxLiftH', 'tiers', 'tilt', 'shadeAngle', 'arrayGap', 'tierGap', 'colGap', 'margin', 'alignLimit', 'eaveSetback', 'ridgeSetback', 'lift', 'colBlock', 'blockGap', 'azimuth'];
   // 모듈 편집: 지도에서 드래그한 사각형 목록. 순서대로 적용(del=지움, add=되살림).
   // 위도·경도 상자라서 배치 설정을 바꿔 모듈 격자가 움직여도 "그 자리" 에 그대로 먹는다.
   let edits = [];
@@ -864,15 +864,35 @@
         .sort((a, b) => Layout.area(Layout.toLocal(a.points, p)) - Layout.area(Layout.toLocal(b.points, p)))[0] || null;
     };
     const stopHold = () => { if (hold) { clearTimeout(hold); hold = null; } };
+    // 벤츄레이터(주황 낱개) 위를 눌렀으면 지붕 대신 그것을 옮긴다
+    const findVent = ll => {
+      const p = { lat: ll.getLat(), lng: ll.getLng() };
+      for (const r of roofs) {
+        const vs = (r.result && r.result.vents) || [];
+        for (let i = 0; i < vs.length; i++) if (Layout.containsGeo(vs[i], p)) return { roof: r, idx: i, ring: vs[i] };
+      }
+      return null;
+    };
     el.addEventListener('pointerdown', e => {
       if (drawing || editing || !e.isPrimary) return;
       down = { x: e.clientX, y: e.clientY, id: e.pointerId };
-      const roof = findRoof(toLL(e));
+      const vent = findVent(toLL(e));
+      const roof = vent ? vent.roof : findRoof(toLL(e));
       if (!roof) return;
       stopHold();
       hold = setTimeout(() => {
         hold = null;
         const ll = toLL(e);
+        if (vent) {
+          moving = { vent, start: ll, last: ll, orig: vent.ring.slice() };
+          try { el.setPointerCapture(e.pointerId); } catch (x) {}
+          map.setDraggable(false); map.setZoomable(false);
+          if (navigator.vibrate) navigator.vibrate(40);
+          const pg = roof.gfx && roof.gfx.vents && roof.gfx.vents[vent.idx];
+          if (pg) pg.setOptions({ strokeColor: '#00e5ff', strokeWeight: 3, fillOpacity: 0.8 });
+          hint(roof.name + ' 벤츄레이터 ' + (vent.idx + 1) + ' — 끌어서 옮기세요. 손을 떼면 그 자리 기준으로 다시 배치·음영을 봅니다.');
+          return;
+        }
         moving = { roof, start: ll, last: ll, orig: roof.points.slice(), origExtra: (roof.extra || []).map(rg => rg.slice()) };
         try { el.setPointerCapture(e.pointerId); } catch (x) {}
         map.setDraggable(false); map.setZoomable(false);
@@ -888,6 +908,12 @@
       const ll = toLL(e);
       const dLat = ll.getLat() - moving.start.getLat(), dLng = ll.getLng() - moving.start.getLng();
       const sh = rg => rg.map(p => ({ lat: p.lat + dLat, lng: p.lng + dLng }));
+      if (moving.vent) {
+        const pg = moving.vent.roof.gfx && moving.vent.roof.gfx.vents && moving.vent.roof.gfx.vents[moving.vent.idx];
+        if (pg) pg.setPath(sh(moving.orig).map(p => new kakao.maps.LatLng(p.lat, p.lng)));
+        moving.last = ll;
+        return;
+      }
       const r = moving.roof;
       r.points = sh(moving.orig); if (moving.origExtra.length) r.extra = moving.origExtra.map(sh);
       if (r.gfx && r.gfx.outline) { const toLL2 = rg => rg.map(p => new kakao.maps.LatLng(p.lat, p.lng)); r.gfx.outline.setPath(r.extra && r.extra.length ? [r.points].concat(r.extra).map(toLL2) : toLL2(r.points)); }
@@ -896,6 +922,21 @@
     const end = e => {
       stopHold();
       if (!moving) return;
+      if (moving.vent) {
+        const { roof: r, idx, ring } = moving.vent, ll = moving.last;
+        const dLat = ll.getLat() - moving.start.getLat(), dLng = ll.getLng() - moving.start.getLng();
+        moving = null;
+        map.setDraggable(true); map.setZoomable(true);
+        lastPick = Date.now() + 700;
+        const c = Layout.centroid(ring);
+        const dM = Math.hypot(dLat * 110574, dLng * 111320 * Math.cos(c.lat * Math.PI / 180));
+        if (dM < 0.2) { recompute(r); renderList(); hint(r.name + ' 벤츄레이터 — 제자리입니다.'); return; }
+        if (!Array.isArray(r.ventPos)) r.ventPos = [];
+        r.ventPos[idx] = { lat: c.lat + dLat, lng: c.lng + dLng };
+        recompute(r); renderList(); save();
+        hint(r.name + ' 벤츄레이터 ' + (idx + 1) + ' — ' + dM.toFixed(1) + 'm 옮기고 그 자리 기준으로 다시 배치했습니다. 「벤츄 N개」를 다시 넣으면 자동 자리로.');
+        return;
+      }
       const r = moving.roof, ll = moving.last;
       const lat = Layout.centroid(moving.orig).lat;
       const dyM = (ll.getLat() - moving.start.getLat()) * 110574, dxM = (ll.getLng() - moving.start.getLng()) * 111320 * Math.cos(lat * Math.PI / 180);
@@ -967,7 +1008,8 @@
       const arraySlope = tiers * dSlope + (tiers - 1) * (opt.tierGap || 0);
       const arrayH = r.type === 'flush' ? 0.15 : arraySlope * Math.sin(tilt * Math.PI / 180);
       const arrayDepth = r.type === 'flush' ? dSlope : arraySlope * Math.cos(tilt * Math.PI / 180);
-      const topH = kind === 'gable-ew' ? eaveH + span * Math.tan(roofSlope * Math.PI / 180) + 0.15
+      const blocks = res.blocks || [];
+      const topH = kind === 'gable-ew' ? (blocks.length ? eaveH + Math.max(...blocks.map(bk => bk.zb || 0)) : eaveH + span * Math.tan(roofSlope * Math.PI / 180) + 0.15)
         : kind === 'gable-ns' ? ridgeH + 0.3 + arrayH
         : (r.type === 'parking' ? 2.5 : r.type === 'ground' ? 0.5 : eaveH) + 0.3 + arrayH;
       const ridges = [];
@@ -991,6 +1033,7 @@
         pitch: res.pitch, gap: res.arrayGap, margin: Number(opt.margin) || 0,
         kind, spans, roofSlope, eaveH, ridgeH, topH, arrayH, arrayDepth, depthM: kind === 'gable-ns' ? res.widthM : res.depthM, widthM: kind === 'gable-ns' ? res.depthM : res.widthM, ridges,
         frontLift: Number(opt.frontLift) || 0,
+        blocks, maxLiftH: Number(opt.maxLiftH) || 4,   // 원단: 블록마다 {from,to,zf,zb,lifted} (처마 기준 m, 남쪽 끝 0)
         slopeNote: r.terrain ? '지면 경사 ' + r.terrain.slopeDeg + '° ' + r.terrain.name : '',
       };
     });
@@ -1057,7 +1100,7 @@
           roofSlope: r.type === 'flush' ? (Number(opt.tilt) || 0) : r.type === 'ginseng' ? 10 : 0, mat,
           buildingAngle: res.buildingAngle || 0,
           grad: r.type === 'ground' && r.terrain ? { gE: r.terrain.gradE, gN: r.terrain.gradN } : null,   // 토지 기울기(3D 에서 땅을 기울여 그림)
-          modules: res.modules || [], rowAngle: res.rowAngle || 0, tilt: r.type === 'flush' ? 0 : (Number(opt.tilt) || 0),
+          modules: res.modules || [], moduleZ: res.moduleZ || null, rowAngle: res.rowAngle || 0, tilt: r.type === 'flush' ? 0 : (Number(opt.tilt) || 0),
           dSlope: opt.orient === 'portrait' ? opt.modL : opt.modS };
       }),
       buildings: buildings.filter(b => !srcs.has(b.id) && distM(origin, Layout.centroid(b.ring)) <= 250).map(b => ({ ring: b.ring, h: bldH(b) })),
@@ -1401,6 +1444,8 @@
       opt.spans = r.spans || r.spansGuess;
     }
     opt.vent = !!r.vent; opt.ventH = 1;
+    if (r.ventN > 0) opt.ventN = r.ventN;                                        // 동마다 벤츄레이터 개수(사용자 지정)
+    opt.ventPos = Array.isArray(r.ventPos) ? r.ventPos : null;                   // 꾹 눌러 옮긴 벤츄레이터 자리
     // 토지·주차장은 지붕마다 방위각·경계 이격·단수를 따로 둘 수 있다(목록의 버튼)
     if (r.azimuth != null) { opt.azimuth = r.azimuth; opt.align = 'south'; }   // 방위각을 주면 정남 기준으로 돈다 (주차장은 기본 자동 맞춤)
     opt.flipAxis = !!r.flip;                                                     // 형태 버튼 재탭으로 뒤집은 방향(남서향↔남동향)
@@ -1520,7 +1565,7 @@
             : (res.opt.tilt > 0 ? ' (경사 ' + res.opt.tilt + '° · 이격 ' + res.arrayGap + 'm)' : ''))
           + (res.edited ? ' · <span style="color:var(--accent)">편집 −' + res.edited + '장</span>' : '')
           + (res.blocked ? ' · <span style="color:#ff9800">지장물·벤츄 −' + res.blocked + '장</span>' : '')
-          + (r.vent ? ' · 벤츄레이터 ' + (res.vents ? res.vents.length : 0) + '줄(1m)' : '')
+          + (r.vent ? ' · 벤츄레이터 ' + (res.vents ? res.vents.length : 0) + '개' + (Array.isArray(r.ventPos) && r.ventPos.some(Boolean) ? '(옮김)' : '') : '')
           + (r.type === 'ground' ? ' · 통로 ' + (res.aisles || 0) + '개(' + res.colBlock + '열마다 ' + res.blockGap + 'm)' : '')
           + (r.type === 'ground' ? (r.terrain
               ? ' · <span style="color:' + (r.terrain.slopeDeg >= 15 ? 'var(--danger)' : r.terrain.slopeDeg >= 10 ? '#ff9800' : 'var(--accent)') + '">경사 ' + r.terrain.slopeDeg + '° ' + r.terrain.name + (r.terrain.manual ? '(직접)' : '(90m 표고)')
@@ -1622,14 +1667,28 @@
         vb.onclick = e => {
           e.stopPropagation();
           if (!r.vent && !r.spans) {
-            const v = parseInt(prompt(r.name + ' — 붙어 있는 동 수 (벤츄레이터가 동마다 하나씩 빠집니다)', r.spansGuess || 1), 10);
+            const v = parseInt(prompt(r.name + ' — 붙어 있는 동 수 (벤츄레이터는 동마다 놓입니다)', r.spansGuess || 1), 10);
             if (!(v > 0 && v < 30)) return;
             r.spans = v;
           }
           r.vent = !r.vent; recompute(r); renderList(); save();
-          if (r.vent) hint(r.name + ' — 벤츄레이터 ' + (r.result.vents || []).length + '줄(주황 띠)을 뺐습니다. 동 수는 「용마루」로 바꿀 수 있습니다.');
+          if (r.vent) hint(r.name + ' — 벤츄레이터 ' + (r.result.vents || []).length + '개(주황)를 용마루에 놓았습니다. 「벤츄 N개」로 개수, 지도에서 꾹 눌러 끌면 자리를 옮깁니다.');
         };
         d.appendChild(vb);
+        if (r.vent) {
+          // 동마다 벤츄레이터 개수. 바꾸면 옮겨 둔 자리는 초기화(순번이 달라지므로)
+          const vn = document.createElement('button');
+          const nPer = r.ventN || (r.result && r.result.opt ? r.result.opt.ventN : 2) || 2;
+          vn.className = 'btn ghost'; vn.textContent = '벤츄 ' + nPer + '개'; vn.title = '동마다 벤츄레이터 개수 (한 개 2m × 1m, 높이 1m). 지도에서 꾸욱 눌러 끌면 자리를 옮기고 그 자리로 음영을 다시 봅니다';
+          vn.onclick = e => {
+            e.stopPropagation();
+            const v = parseInt(prompt(r.name + ' — 동마다 벤츄레이터 개수 (1~50)', nPer), 10);
+            if (!(v > 0 && v <= 50)) return;
+            r.ventN = v; r.ventPos = null; recompute(r); renderList(); save();
+            hint(r.name + ' — 벤츄레이터 동마다 ' + v + '개 · 모두 ' + (r.result.vents || []).length + '개. 꾹 눌러 끌면 자리를 옮깁니다.');
+          };
+          d.appendChild(vn);
+        }
       }
       if (r.type === 'flush' || r.type === 'ginseng') {
         const sp = document.createElement('button');
@@ -1675,7 +1734,7 @@
         curType, settings, siteName, shade, moduleCfg, edits,
         roofs: roofs.map(r => ({ id: r.id, name: r.name, type: r.type, points: r.points, src: r.src, floors: r.floors, floorsManual: r.floorsManual, spans: r.spans, vent: r.vent,
           parcels: r.parcels, extra: r.extra, review: r.review && !r.review.pending ? r.review : undefined, force: r.force,
-          azimuth: r.azimuth, margin: r.margin, tiers: r.tiers, terrain: r.terrain, moved: r.moved, flip: r.flip })),
+          azimuth: r.azimuth, margin: r.margin, tiers: r.tiers, terrain: r.terrain, moved: r.moved, flip: r.flip, ventN: r.ventN, ventPos: r.ventPos })),
         // 음영 장애물로 다시 쓰려고 주변 건물도 남긴다 (그림은 다시 그리지 않는다)
         buildings: buildings.map(b => ({ id: b.id, name: b.name, ring: b.ring, floors: b.floors })),
       }));

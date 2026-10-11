@@ -156,7 +156,7 @@ const View3D = (() => {
     const th = roof.rowAngle * Math.PI / 180, fx = Math.sin(th), fy = -Math.cos(th);   // 앞면이 보는 방향
     const rise = roof.dSlope * Math.sin(roof.tilt * Math.PI / 180);
     const pos = [], idx = [], uv = [];
-    roof.modules.forEach(m => {
+    roof.modules.forEach((m, mi) => {
       const c = local(m, o);
       const s = c.map(p => p.x * fx + p.y * fy);
       const order = [0, 1, 2, 3].sort((a, b) => s[b] - s[a]);
@@ -164,7 +164,8 @@ const View3D = (() => {
       const base = pos.length / 3;
       // 원단(tilt 0)은 지붕면에 밀착(0.12m), 거치는 구조물 위(0.3m) + 뒤쪽을 경사각만큼
       const lift = roof.tilt ? 0.3 : 0.5;    // 원단(tilt 0)은 앞다리 0.5m 로 띄움(사용자 지정)
-      c.forEach((p, i) => { pos.push(p.x, surf.modZ(p) + lift + (front.has(i) ? 0 : rise), -p.y); uv.push(i === 0 || i === 3 ? 0 : 1, front.has(i) ? 0 : 1); });
+      const mz = roof.moduleZ && roof.moduleZ[mi];   // 원단: 배치 계산이 준 모듈면 높이(처마 기준, 앞다리 포함) — 북면 블록이 4m 제한으로 끊긴 것까지 그대로
+      c.forEach((p, i) => { pos.push(p.x, mz ? roof.baseH + (front.has(i) ? mz.zf : mz.zb) : surf.modZ(p) + lift + (front.has(i) ? 0 : rise), -p.y); uv.push(i === 0 || i === 3 ? 0 : 1, front.has(i) ? 0 : 1); });
       idx.push(base, base + 1, base + 2, base, base + 2, base + 3);
     });
     const geo = new THREE.BufferGeometry();

@@ -26,7 +26,7 @@ const Layout = (() => {
     //   처마·골 이격 500, 용마루 이격 300, 경사 10°. 북측 블록은 남쪽 면과 같은 면으로 들어 올려 이어 붙인다(lift 는 안 씀).
     //   건물 지붕은 좌우 20열마다 60cm 통로(colBlock/blockGap).
     flush:   { label: '남북지붕 · 원단',       orient: 'portrait', tiers: 1, tierGap: 0.05, tilt: 10, shadeAngle: 22, autoGap: true, arrayGap: 0.05,
-               ridge: true, spans: 1, eaveSetback: 0.5, ridgeSetback: 0.3, lift: 0, colBlock: 20, blockGap: 0.6, frontLift: 0.5 },   // frontLift = 앞다리(지붕면에서 띄움)
+               ridge: true, spans: 1, eaveSetback: 0.5, ridgeSetback: 0.3, lift: 0, colBlock: 20, blockGap: 0.6, frontLift: 0.5, maxLiftH: 4 },   // frontLift = 앞다리(지붕면에서 띄움), maxLiftH = 북면 블록 지붕 위 최대 높이(m)
     // 평슬라브: 정남 경사거치, 줄마다 후면입사각 이격
     slab:    { label: '평슬라브 · 경사거치',   orient: 'portrait', tiers: 1, tierGap: 0.05, tilt: 15, shadeAngle: 22, autoGap: true, arrayGap: 2.5, colBlock: 20, blockGap: 0.6 },
     // 토지(노지): 필지 외곽선 안에 정남 2단 거치. 앞뒤는 후면입사각 22° 이격, 좌우는 30열마다 2m 통로(점검·장비 진입). 경계 이격 3m(펜스).
@@ -41,6 +41,10 @@ const Layout = (() => {
 
   const DEFAULTS = {
     ridge: false, spans: 1, eaveSetback: 0.5, ridgeSetback: 0.3, lift: 0,   // 원단(용마루 분할) 전용, 다른 형태는 안 씀
+    maxLiftH: 4,          // 원단 북면 블록이 지붕면 위로 올라갈 수 있는 최대 높이(m). 넘으면 끊고 22° 이격 뒤 새 블록
+    ventN: 2,             // 벤츄레이터 개수(동마다). 용마루 위에 고르게
+    ventLen: 2,           // 벤츄레이터 한 개의 용마루 방향 길이(m). 폭(용마루 직각)은 1m
+    ventPos: null,        // 사용자가 옮긴 벤츄레이터 중심 [{lat,lng}|null, ...] (전체 순번). null 이면 자동 자리
     type: 'slab',
     moduleWp: 645,        // W
     modL: 2.465,          // m, 긴 변
@@ -256,21 +260,25 @@ const Layout = (() => {
 
     // 용마루 벤츄레이터/모니터 (있을 때만): 폭 1m 띠, 높이 opt.ventH(기본 1m). 자리 차단 + 그림자.
     //   원단(남북지붕): 경간마다 남북 깊이 가운데를 동서로 지나는 띠.  인삼밭(동서지붕): 동서 폭 가운데를 남북으로 지나는 띠.
+    // 벤츄레이터는 낱개: 동마다 ventN 개를 용마루 위에 고르게(ventLen × 1m). 사용자가 옮긴 것(ventPos, 지리좌표)은 그 자리에.
     const vents = [];
     if (opt.vent) {
-      const half = 0.5, vh = Number(opt.ventH) || 1;
+      const half = 0.5, vh = Number(opt.ventH) || 1, hl = Math.max(0.5, Number(opt.ventLen) || 2) / 2;
+      const nv = Math.max(1, Math.min(50, Math.round(Number(opt.ventN) || 1)));
+      const pos = Array.isArray(opt.ventPos) ? opt.ventPos : [];
+      const centerOf = (idx, auto) => { const p = pos[idx]; return (p && isFinite(p.lat)) ? rotate(toLocal([p], o)[0], -row.angle) : auto; };
       if (opt.ridge) {
-        const n = Math.max(1, Math.round(Number(opt.spans) || 1)), D = (b.maxY - b.minY) / n;
-        for (let i = 0; i < n; i++) {
-          const y = b.minY + i * D + D / 2;
-          vents.push([{ x: b.minX, y: y - half }, { x: b.maxX, y: y - half }, { x: b.maxX, y: y + half }, { x: b.minX, y: y + half }]);
+        const n = Math.max(1, Math.round(Number(opt.spans) || 1)), D = (b.maxY - b.minY) / n, W = b.maxX - b.minX;
+        for (let i = 0; i < n; i++) for (let k = 0; k < nv; k++) {
+          const c = centerOf(i * nv + k, { x: b.minX + (k + 0.5) * W / nv, y: b.minY + i * D + D / 2 });
+          vents.push([{ x: c.x - hl, y: c.y - half }, { x: c.x + hl, y: c.y - half }, { x: c.x + hl, y: c.y + half }, { x: c.x - hl, y: c.y + half }]);
         }
       } else if (opt.type === 'ginseng') {
-        // 동서지붕: 용마루가 남북으로 지난다. 여러 동이 동서로 붙어 있으면 동마다 가운데에 하나씩.
-        const n = Math.max(1, Math.round(Number(opt.spans) || 1)), W = (b.maxX - b.minX) / n;
-        for (let i = 0; i < n; i++) {
-          const x = b.minX + i * W + W / 2;
-          vents.push([{ x: x - half, y: b.minY }, { x: x + half, y: b.minY }, { x: x + half, y: b.maxY }, { x: x - half, y: b.maxY }]);
+        // 동서지붕: 용마루가 남북으로 지난다. 여러 동이 동서로 붙어 있으면 동마다 가운데.
+        const n = Math.max(1, Math.round(Number(opt.spans) || 1)), W = (b.maxX - b.minX) / n, Dp = b.maxY - b.minY;
+        for (let i = 0; i < n; i++) for (let k = 0; k < nv; k++) {
+          const c = centerOf(i * nv + k, { x: b.minX + i * W + W / 2, y: b.minY + (k + 0.5) * Dp / nv });
+          vents.push([{ x: c.x - half, y: c.y - hl }, { x: c.x + half, y: c.y - hl }, { x: c.x + half, y: c.y + hl }, { x: c.x - half, y: c.y + hl }]);
         }
       }
       vents.forEach(v => {
@@ -306,7 +314,7 @@ const Layout = (() => {
     }
 
     // 1) 줄의 y 위치를 먼저 다 구한다. 그래야 남는 높이를 위아래로 반씩 나눠 가운데 맞출 수 있다.
-    const ys = [];
+    const ys = [], zAt = [];   // zAt: 줄마다 모듈면 높이 {zf 앞, zb 뒤}(처마 기준 m) — 원단만
     let yOff = 0, spans = 0, blocks = [];
     if (opt.ridge) {
       // 용마루 분할: 남→북으로 경간 N 개, 경간마다 [남측 면 | 용마루 | 북측 면].
@@ -315,7 +323,7 @@ const Layout = (() => {
       const D = (b.maxY - b.minY) / spans;
       const eave = Math.max(0, Number(opt.eaveSetback) || 0);
       // 벤츄레이터 띠(폭 1m)가 있으면 용마루 이격을 띠 바깥 + 10cm 로 넓힌다 — 20cm 걸친다고 한 줄을 통째로 버리지 않게
-      const rs = Math.max(0, Number(opt.ridgeSetback) || 0, opt.vent ? 0.6 : 0);
+      const rs = Math.max(0, Number(opt.ridgeSetback) || 0);   // 벤츄레이터는 낱개라 자리 겹치는 모듈만 빠진다(띠 전체 이격 안 함)
       const lift = Math.max(0, Number(opt.lift) || 0);
       const faces = [];
       for (let i = 0; i < spans; i++) {
@@ -325,21 +333,36 @@ const Layout = (() => {
       // 경간(동)마다: 남쪽 면은 처마 이격부터 용마루까지 꽉 채운다. 북쪽 면은 용마루 바로 뒤부터 끝까지, 남향을 유지한 채 남쪽 면과
       // 같은 면으로 이어 붙인다(= 뒤가 들린다, 사용자 단면도 2026-10-07). 북쪽 블록 꼭대기(처마 기준 높이 (yEnd−y0)·tanθ)가 다음 동 남쪽 면에
       // 드리우는 후면입사각 그림자만큼 다음 동 앞줄을 뒤로 민다: hTop − (y−yEnd)·tanα = (y−y0n)·tanθ 를 y 에 대해 푼다.
+      // 높이(z)는 처마 기준 m. 남면 모듈면 = 지붕면 + 앞다리. 북면은 블록마다 지붕면 + 앞다리에서 시작해 남향(지붕 경사각)으로 올라가며,
+      // 지붕 위 높이가 maxLiftH 에 닿으면 끊고, 앞 블록 꼭대기의 후면입사각 그림자를 벗어난 곳에서 다음 블록을 시작한다(2026-10-12 사용자 지시: 뒷단 4m 제한).
       const tS = Math.tan(tilt), tA = Math.tan(shadeA);
+      const fl = Number(opt.frontLift) || 0, maxH = Math.max(fl + d * tS * 2 + 0.01, Number(opt.maxLiftH) || 4);
+      const r2 = v => Math.round(v * 100) / 100, rel = y => r2(y - b.minY);
       let nextStart = -Infinity;
       for (let i = 0; i < spans; i++) {
         const y0 = b.minY + i * D, ridge = y0 + D / 2, y0n = y0 + D;
+        const roofZ = y => (y <= ridge ? y - y0 : y0n - y) * tS;
         let y = Math.max(y0 + eave, nextStart), n = 0;
         const first = y;
-        while (y + d <= ridge - rs + 1e-9) { ys.push(y); y += d + tierGap; n++; }
-        if (n) blocks.push({ rows: n, from: first, to: ys[ys.length - 1] + d, gap: Math.round(Math.max(0, first - (y0 + eave)) * 100) / 100 });
-        y = ridge + rs; n = 0;
-        const f2 = y;
-        while (y + d <= y0n - eave + 1e-9) { ys.push(y); y += d + tierGap; n++; }
-        const yEnd = n ? ys[ys.length - 1] + d : ridge;
-        if (n) blocks.push({ rows: n, from: f2, to: yEnd, gap: 0, lifted: Math.round((yEnd - y0) * tS * 100) / 100 });
-        const hTop = (yEnd - y0) * tS + (Number(opt.frontLift) || 0);   // 앞다리만큼 더 높다
-        nextStart = tA + tS > 1e-6 ? (hTop + yEnd * tA + y0n * tS) / (tA + tS) : y0n;
+        while (y + d <= ridge - rs + 1e-9) { ys.push(y); zAt.push({ zf: roofZ(y) + fl, zb: roofZ(y + d) + fl }); y += d + tierGap; n++; }
+        if (n) blocks.push({ rows: n, from: rel(first), to: rel(ys[ys.length - 1] + d), gap: r2(Math.max(0, first - (y0 + eave))), zf: r2(roofZ(first) + fl), zb: r2(roofZ(ys[ys.length - 1] + d) + fl) });
+        // 북면 블록들
+        let yS = ridge + rs, lastTop = null;
+        while (yS + d <= y0n - eave + 1e-9) {
+          const base = roofZ(yS) + fl;                                   // 블록 앞줄 모듈면 높이
+          y = yS; n = 0;
+          while (y + d <= y0n - eave + 1e-9 && fl + 2 * (y + d - yS) * tS <= maxH + 1e-9) { ys.push(y); zAt.push({ zf: base + (y - yS) * tS, zb: base + (y + d - yS) * tS }); y += d + tierGap; n++; }
+          if (!n) break;
+          const yEnd = ys[ys.length - 1] + d, zTop = base + (yEnd - yS) * tS;
+          blocks.push({ rows: n, from: rel(yS), to: rel(yEnd), gap: r2(Math.max(0, yS - (ridge + rs))), zf: r2(base), zb: r2(zTop), lifted: r2(zTop - roofZ(yEnd)) });
+          lastTop = { y: yEnd, z: zTop };
+          if (tA - tS <= 1e-6) break;
+          // 다음 블록 앞줄(지붕면 + 앞다리)이 앞 블록 꼭대기의 그림자선 zTop − (y − yEnd)·tanα 밖에 오도록
+          yS = (zTop + yEnd * tA - y0n * tS - fl) / (tA - tS);
+        }
+        // 다음 동 앞줄: 이 동 마지막 블록 꼭대기(없으면 용마루) 그림자가 다음 동 남면(지붕면 + 앞다리)에 닿지 않는 곳부터
+        const hTop = lastTop ? lastTop.z : roofZ(ridge), yE = lastTop ? lastTop.y : ridge;
+        nextStart = tA + tS > 1e-6 ? (hTop - fl + yE * tA + y0n * tS) / (tA + tS) : y0n;
       }
     } else {
       for (let y = b.minY + m, i = 0; y + d <= b.maxY - m + 1e-9; i++) {
@@ -380,7 +403,8 @@ const Layout = (() => {
       const pts = c.concat([{ x: (c[0].x + c[2].x) / 2, y: (c[0].y + c[2].y) / 2 }]).map(p => rotate(p, row.angle));
       return pts.some(p => shadow.some(piece => pointIn(piece, p)));
     };
-    ys.forEach(y0 => {
+    const moduleZ = [];
+    ys.forEach((y0, ri) => {
       const y = y0 + yOff;
       let placedInRow = 0;
       for (let k = 0; k < nFit; k++) {
@@ -390,7 +414,7 @@ const Layout = (() => {
         if (c.concat([mid]).every(p => inSite(p) && (m === 0 || farEnough(p)))) {
           if (onBlocker(c)) { blocked++; continue; }
           if (inShadow(c)) { shaded++; continue; }
-          modules.push(c);
+          modules.push(c); moduleZ.push(zAt[ri] || null);
           placedInRow++;
         }
       }
@@ -418,6 +442,7 @@ const Layout = (() => {
       backRiseDeg: Math.round(Math.atan(backRise) * 180 / Math.PI * 10) / 10,   // 뒤쪽으로 지면이 오르는 각(+ 남사면 쪽)
       flatGap: Math.round(flatGap * 100) / 100,
       spans, blocks,
+      moduleZ: opt.ridge ? moduleZ : null,   // 모듈마다 {zf, zb} 모듈면 높이(처마 기준) — 3D·측면도용
       aisles, colBlock, blockGap,
       // 합산 토지의 바깥 경계(공유 경계 제외) — 지도에 이것만 그려 한 덩어리로 보이게
       outline: ext ? ext.map(([a, b]) => toGeo([a, b].map(p => rotate(p, row.angle)), o)) : null,

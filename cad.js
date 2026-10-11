@@ -68,12 +68,24 @@ const Cad = (() => {
       w.line('BLDG', P(0, 0), P(0, eave)); w.line('BLDG', P(depth, 0), P(depth, eave));
       if (r.kind === 'gable-ew') {
         const n = r.spans, D = depth / n, t = Math.tan(r.roofSlope * Math.PI / 180);
+        const roofZ = y => { const u = ((y % D) + D) % D; return eave + (D / 2 - Math.abs(u - D / 2)) * t; };
         for (let k = 0; k < n; k++) {
           const y0 = k * D, yc = y0 + D / 2, y1 = y0 + D;
           w.line('BLDG', P(y0, eave), P(yc, ridge)); w.line('BLDG', P(yc, ridge), P(y1, eave));
-          w.line('MODULE', P(y0 + 0.5, eave + 0.5 * t + lift), P(yc - 0.3, eave + (D / 2 - 0.3) * t + lift));
-          w.line('MODULE', P(yc + 0.3, eave + (D / 2 + 0.3) * t + lift), P(y1 - 0.5, eave + (D - 0.5) * t + lift));
-          for (let s = 1; s <= 3; s++) { const u = D / 2 + 0.3 + (D / 2 - 0.8) * s / 3; w.line('DIM', P(y0 + u, eave + (D - u) * t), P(y0 + u, eave + u * t + lift)); }
+        }
+        if (r.blocks && r.blocks.length) {
+          r.blocks.forEach(bk => {
+            w.line('MODULE', P(bk.from, eave + bk.zf), P(bk.to, eave + bk.zb));
+            const nPost = Math.max(2, Math.round((bk.to - bk.from) / 3));
+            for (let s = 0; s <= nPost; s++) { const y = bk.from + (bk.to - bk.from) * s / nPost; w.line('DIM', P(y, roofZ(y)), P(y, eave + bk.zf + (bk.zb - bk.zf) * s / nPost)); }
+          });
+        } else {
+          for (let k = 0; k < n; k++) {
+            const y0 = k * D, yc = y0 + D / 2, y1 = y0 + D;
+            w.line('MODULE', P(y0 + 0.5, eave + 0.5 * t + lift), P(yc - 0.3, eave + (D / 2 - 0.3) * t + lift));
+            w.line('MODULE', P(yc + 0.3, eave + (D / 2 + 0.3) * t + lift), P(y1 - 0.5, eave + (D - 0.5) * t + lift));
+            for (let s = 1; s <= 3; s++) { const u = D / 2 + 0.3 + (D / 2 - 0.8) * s / 3; w.line('DIM', P(y0 + u, eave + (D - u) * t), P(y0 + u, eave + u * t + lift)); }
+          }
         }
         w.vdim(ox - 4, oy, oy + eave, mm(eave)); w.vdim(ox - 2.5, oy, oy + ridge, mm(ridge)); w.vdim(ox + depth + 2.5, oy, oy + top, mm(top)); w.vdim(ox + depth + 1.2, oy + eave, oy + top, mm(top - eave), 0.5);
         w.vdim(ox - 1.2, oy + eave, oy + eave + 0.5 * t + lift, mm(0.5 * t + lift), 0.45);

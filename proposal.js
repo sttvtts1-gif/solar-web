@@ -122,13 +122,26 @@ const Proposal = (() => {
     if (r.kind === 'gable-ew') {
       // 원단: 경간마다 남쪽 면은 지붕에서 앞다리만큼 띄워 평행, 북쪽 블록은 같은 면으로 이어 올림
       const n = r.spans, D = depth / n, t = Math.tan(r.roofSlope * Math.PI / 180);
+      const roofZ = y => { const u = ((y % D) + D) % D; return eave + (D / 2 - Math.abs(u - D / 2)) * t; };
       for (let i = 0; i < n; i++) {
         const y0 = i * D, yc = y0 + D / 2, y1 = y0 + D;
         g.beginPath(); g.moveTo(X(y0), Y(eave)); g.lineTo(X(yc), Y(ridge)); g.lineTo(X(y1), Y(eave)); g.stroke();
-        mod(y0 + 0.5, eave + 0.5 * t + lift, yc - 0.3, eave + (D / 2 - 0.3) * t + lift);
-        mod(yc + 0.3, eave + (D / 2 + 0.3) * t + lift, y1 - 0.5, eave + (D - 0.5) * t + lift);
-        for (let k = 0; k <= 2; k++) { const u = 0.5 + (D / 2 - 0.8) * k / 2; post(y0 + u, eave + u * t, eave + u * t + lift); }
-        for (let k = 1; k <= 3; k++) { const u = D / 2 + 0.3 + (D / 2 - 0.8) * k / 3; post(y0 + u, eave + (D - u) * t, eave + u * t + lift); }
+      }
+      if (r.blocks && r.blocks.length) {
+        // 배치 계산이 준 블록 그대로: 남면 밀착(앞다리), 북면은 블록마다 지붕+앞다리에서 남향으로 올라가다 최대 높이에서 끊김
+        r.blocks.forEach(bk => {
+          mod(bk.from, eave + bk.zf, bk.to, eave + bk.zb);
+          const nPost = Math.max(2, Math.round((bk.to - bk.from) / 3));
+          for (let k = 0; k <= nPost; k++) { const y = bk.from + (bk.to - bk.from) * k / nPost; post(y, roofZ(y), eave + bk.zf + (bk.zb - bk.zf) * k / nPost); }
+        });
+      } else {
+        for (let i = 0; i < n; i++) {
+          const y0 = i * D, yc = y0 + D / 2, y1 = y0 + D;
+          mod(y0 + 0.5, eave + 0.5 * t + lift, yc - 0.3, eave + (D / 2 - 0.3) * t + lift);
+          mod(yc + 0.3, eave + (D / 2 + 0.3) * t + lift, y1 - 0.5, eave + (D - 0.5) * t + lift);
+          for (let k = 0; k <= 2; k++) { const u = 0.5 + (D / 2 - 0.8) * k / 2; post(y0 + u, eave + u * t, eave + u * t + lift); }
+          for (let k = 1; k <= 3; k++) { const u = D / 2 + 0.3 + (D / 2 - 0.8) * k / 3; post(y0 + u, eave + (D - u) * t, eave + u * t + lift); }
+        }
       }
       dim(X(0) - 150, 0, eave, mm(eave));
       dim(X(0) - 70, 0, ridge, mm(ridge));
