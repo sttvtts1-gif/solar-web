@@ -384,25 +384,36 @@ const Layout = (() => {
         while (y + d <= ridge - rs + 1e-9) { ys.push(y); zAt.push({ zf: roofZ(y) + fl, zb: roofZ(y + d) + fl }); y += d + tierGap; n++; }
         if (n) blocks.push({ rows: n, from: rel(first), to: rel(ys[ys.length - 1] + d), gap: r2(Math.max(0, first - (y0 + eave))), zf: r2(roofZ(first) + fl), zb: r2(roofZ(ys[ys.length - 1] + d) + fl) });
         // 북면 블록들 (부착이면 지붕면에 붙여 한 블록 — 북향, 들어올리지 않음, 다음 동 그림자 없음)
-        let yS = ridge + rs, lastTop = null;
-        if (opt.attach) {
-          y = yS; n = 0;
-          while (y + d <= y0n - eave + 1e-9) { ys.push(y); zAt.push({ zf: roofZ(y) + fl, zb: roofZ(y + d) + fl }); y += d + tierGap; n++; }
-          if (n) blocks.push({ rows: n, from: rel(yS), to: rel(ys[ys.length - 1] + d), gap: 0, zf: r2(roofZ(yS) + fl), zb: r2(roofZ(ys[ys.length - 1] + d) + fl), attached: true });
-          yS = Infinity;
-        }
-        while (yS + d <= y0n - eave + 1e-9) {
-          const base = roofZ(yS) + fl;                                   // 블록 앞줄 모듈면 높이
-          y = yS; n = 0;
-          while (y + d <= y0n - eave + 1e-9 && base + (y + d - yS) * tS - roofZ(y + d) <= maxH + 1e-9) { ys.push(y); zAt.push({ zf: base + (y - yS) * tS, zb: base + (y + d - yS) * tS }); y += d + tierGap; n++; }
-          if (!n) break;
-          const yEnd = ys[ys.length - 1] + d, zTop = base + (yEnd - yS) * tS;
-          blocks.push({ rows: n, from: rel(yS), to: rel(yEnd), gap: r2(Math.max(0, yS - (ridge + rs))), zf: r2(base), zb: r2(zTop), lifted: r2(zTop - roofZ(yEnd)) });
-          lastTop = { y: yEnd, z: zTop };
-          if (tA - tN <= 1e-6) break;
-          // 다음 블록 앞줄(지붕면 + 앞다리)이 앞 블록 꼭대기의 그림자선 zTop − (y − yEnd)·tanα 밖에 오도록
-          yS = (zTop + yEnd * tA - y0n * tN - fl) / (tA - tN);
-        }
+        // 북면은 **북쪽 처마선(뒷선)에 맞춰 뒤에서부터 채운다**: 먼저 용마루 바로 뒤에서 시작해 들어가는 줄을 세고, 남는 길이만큼 전부 북쪽으로 민다.
+        // 그러면 빈자리가 용마루 쪽에 생겨 벤츄레이터와 겹치지 않는다(2026-10-12 사용자 지시). 블록 높이는 시작점 기준 상대값이라 밀어도 같다.
+        const northRows = yStart => {
+          const rows = [], bks = []; let yS = yStart, top = null, yy, nn;
+          if (opt.attach) {
+            yy = yS; nn = 0; const f2 = yy;
+            while (yy + d <= y0n - eave + 1e-9) { rows.push({ y: yy, zf: roofZ(yy) + fl, zb: roofZ(yy + d) + fl }); yy += d + tierGap; nn++; }
+            if (nn) bks.push({ rows: nn, from: rel(f2), to: rel(rows[rows.length - 1].y + d), gap: 0, zf: r2(roofZ(f2) + fl), zb: r2(roofZ(rows[rows.length - 1].y + d) + fl), attached: true });
+            return { rows, bks, top: null, end: nn ? rows[rows.length - 1].y + d : yStart };
+          }
+          while (yS + d <= y0n - eave + 1e-9) {
+            const base = roofZ(yS) + fl;                                   // 블록 앞줄 모듈면 높이
+            yy = yS; nn = 0;
+            while (yy + d <= y0n - eave + 1e-9 && base + (yy + d - yS) * tS - roofZ(yy + d) <= maxH + 1e-9) { rows.push({ y: yy, zf: base + (yy - yS) * tS, zb: base + (yy + d - yS) * tS }); yy += d + tierGap; nn++; }
+            if (!nn) break;
+            const yEnd = rows[rows.length - 1].y + d, zTop = base + (yEnd - yS) * tS;
+            bks.push({ rows: nn, from: rel(yS), to: rel(yEnd), gap: r2(Math.max(0, yS - (ridge + rs))), zf: r2(base), zb: r2(zTop), lifted: r2(zTop - roofZ(yEnd)) });
+            top = { y: yEnd, z: zTop };
+            if (tA - tN <= 1e-6) break;
+            // 다음 블록 앞줄(지붕면 + 앞다리)이 앞 블록 꼭대기의 그림자선 zTop − (y − yEnd)·tanα 밖에 오도록
+            yS = (zTop + yEnd * tA - y0n * tN - fl) / (tA - tN);
+          }
+          return { rows, bks, top, end: top ? top.y : yStart };
+        };
+        const trial = northRows(ridge + rs);
+        const slack = Math.max(0, (y0n - eave) - trial.end);           // 뒷선까지 남는 길이 → 전부 북쪽으로
+        const north = slack > 1e-6 ? northRows(ridge + rs + slack) : trial;
+        north.rows.forEach(q => { ys.push(q.y); zAt.push({ zf: q.zf, zb: q.zb }); });
+        north.bks.forEach(bk => blocks.push(bk));
+        const lastTop = north.top;
         // 다음 동 앞줄: 이 동 마지막 블록 꼭대기(없으면 용마루) 그림자가 다음 동 남면(지붕면 + 앞다리)에 닿지 않는 곳부터
         const hTop = lastTop ? lastTop.z : roofZ(ridge), yE = lastTop ? lastTop.y : ridge;
         nextStart = tA + tS > 1e-6 ? (hTop - fl + yE * tA + y0n * tS) / (tA + tS) : y0n;
