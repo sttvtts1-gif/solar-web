@@ -46,6 +46,10 @@ const Layout = (() => {
     ventLen: 2,           // 벤츄레이터 한 개의 용마루 방향 길이(m). 폭(용마루 직각)은 1m
     ventPos: null,        // 사용자가 옮긴 벤츄레이터 중심 [{lat,lng}|null, ...] (전체 순번). null 이면 자동 자리
     ridgeOff: null,       // 동마다 용마루를 가운데에서 옮긴 거리(m). 원단: +북쪽, 인삼밭: +동쪽 (건물 축 기준). 지도에서 꾹 눌러 끈다
+    ridgeExt: null,       // 동마다 용마루 선 양 끝을 줄인 길이 [시작쪽 m, 끝쪽 m] (지도에서 끝을 끌어 조절)
+    ridgeOn: false,       // 인삼밭(동서지붕): 용마루를 켜면 용마루 띠(폭 0.6m) 자리의 모듈을 뺀다. 끄면 지금처럼 전부 배치
+    attach: false,        // 부착 배치: 원단 북면도 지붕면에 붙여 깐다(북향). 인삼밭은 동서 양면에 붙여 깐다(줄은 용마루와 나란히)
+    ventExtra: null,      // 용마루와 상관없이 손으로 놓은 벤츄레이터 중심 [{lat,lng}]
     type: 'slab',
     moduleWp: 645,        // W
     modL: 2.465,          // m, 긴 변
@@ -249,7 +253,9 @@ const Layout = (() => {
     });
 
     const rect = minRect([].concat(...rings));
-    const row = pickRowAngle(rect, opt);
+    // 원단, 그리고 인삼밭 부착(동서 양면에 붙여 깔기 = 줄이 용마루와 나란히 → 다른 축을 쓴다)은 용마루 분할(ridgeMode)로 계산한다
+    const ridgeMode = !!opt.ridge || (opt.type === 'ginseng' && !!opt.attach);
+    const row = pickRowAngle(rect, (opt.type === 'ginseng' && opt.attach) ? Object.assign({}, opt, { flipAxis: !opt.flipAxis }) : opt);
 
     // 줄이 x축과 나란해지도록 돌린다. 계산이 끝나면 다시 되돌린다.
     const polys = rings.map(r => r.map(p => rotate(p, -row.angle)));
@@ -261,40 +267,55 @@ const Layout = (() => {
     // 용마루 자리: 동(spans)마다 가운데 + 사용자가 옮긴 거리(ridgeOff). 원단은 남북(y), 인삼밭은 동서(x). 지도에 선으로 그리고 꾹 눌러 옮긴다.
     const nSp = Math.max(1, Math.round(Number(opt.spans) || 1));
     const rOff = Array.isArray(opt.ridgeOff) ? opt.ridgeOff : [];
-    const ridgePos = [], ridgeLines = [];
-    if (opt.ridge) {
+    const ridgePos = [], ridgeLines = [], ridgeExts = [];
+    const rExt = Array.isArray(opt.ridgeExt) ? opt.ridgeExt : [];
+    const extOf = (i, len) => { const e = rExt[i] || [0, 0]; let a = Math.max(0, Number(e[0]) || 0), c = Math.max(0, Number(e[1]) || 0); if (a + c > len - 1) { const s = (len - 1) / (a + c); a *= s; c *= s; } return [Math.round(a * 10) / 10, Math.round(c * 10) / 10]; };
+    if (ridgeMode) {
       const D = (b.maxY - b.minY) / nSp;
-      for (let i = 0; i < nSp; i++) { const y0 = b.minY + i * D, y = Math.min(y0 + D - 1, Math.max(y0 + 1, y0 + D / 2 + (Number(rOff[i]) || 0))); ridgePos.push(y - b.minY); ridgeLines.push([{ x: b.minX, y }, { x: b.maxX, y }]); }
-    } else if (opt.type === 'ginseng') {
+      for (let i = 0; i < nSp; i++) { const y0 = b.minY + i * D, y = Math.min(y0 + D - 1, Math.max(y0 + 1, y0 + D / 2 + (Number(rOff[i]) || 0))); const [ea, eb] = extOf(i, b.maxX - b.minX); ridgePos.push(y - b.minY); ridgeLines.push([{ x: b.minX + ea, y }, { x: b.maxX - eb, y }]); ridgeExts.push([ea, eb]); }
+    } else if (opt.type === 'ginseng' && opt.ridgeOn) {
+      // 인삼밭(동서지붕)에서 용마루를 켠 경우: 용마루 띠(폭 0.6m) 자리의 모듈을 뺀다(선 길이만큼만)
       const W = (b.maxX - b.minX) / nSp;
-      for (let i = 0; i < nSp; i++) { const x0 = b.minX + i * W, x = Math.min(x0 + W - 1, Math.max(x0 + 1, x0 + W / 2 + (Number(rOff[i]) || 0))); ridgePos.push(x - b.minX); ridgeLines.push([{ x, y: b.minY }, { x, y: b.maxY }]); }
+      for (let i = 0; i < nSp; i++) { const x0 = b.minX + i * W, x = Math.min(x0 + W - 1, Math.max(x0 + 1, x0 + W / 2 + (Number(rOff[i]) || 0))); const [ea, eb] = extOf(i, b.maxY - b.minY); ridgePos.push(x - b.minX); ridgeLines.push([{ x, y: b.minY + ea }, { x, y: b.maxY - eb }]); ridgeExts.push([ea, eb]);
+        const hw = Math.max(0.1, Number(opt.ridgeSetback) || 0.3), ring = [{ x: x - hw, y: b.minY + ea }, { x: x + hw, y: b.minY + ea }, { x: x + hw, y: b.maxY - eb }, { x: x - hw, y: b.maxY - eb }];
+        blockRings.push(ring.map(p => rotate(p, row.angle))); }
     }
-    const ridgeDir = opt.ridge ? rotate({ x: 0, y: 1 }, row.angle) : rotate({ x: 1, y: 0 }, row.angle);   // 용마루를 옮기는 방향(동·북 m 단위 벡터)
+    const ridgeDir = ridgeMode ? rotate({ x: 0, y: 1 }, row.angle) : rotate({ x: 1, y: 0 }, row.angle);   // 용마루를 옮기는 방향(동·북 m 단위 벡터)
     const farEnough = p => ext ? distToSegs(ext, p) >= m - 1e-9 : distToEdges(poly, p) >= m - 1e-9;
 
     // 용마루 벤츄레이터/모니터 (있을 때만): 폭 1m 띠, 높이 opt.ventH(기본 1m). 자리 차단 + 그림자.
     //   원단(남북지붕): 경간마다 남북 깊이 가운데를 동서로 지나는 띠.  인삼밭(동서지붕): 동서 폭 가운데를 남북으로 지나는 띠.
     // 벤츄레이터는 낱개: 동마다 ventN 개를 용마루 위에 고르게(ventLen × 1m). 사용자가 옮긴 것(ventPos, 지리좌표)은 그 자리에.
-    const vents = [];
+    const vents = [], ventRefs = [];   // ventRefs: 벤츄레이터마다 {auto: 자동 순번} 또는 {extra: 손으로 놓은 순번}
     if (opt.vent) {
       const half = 0.5, vh = Number(opt.ventH) || 1, hl = Math.max(0.5, Number(opt.ventLen) || 2) / 2;
-      const nv = Math.max(1, Math.min(50, Math.round(Number(opt.ventN) || 1)));
+      const nv = Math.max(0, Math.min(50, Math.round(Number(opt.ventN) || 0)));   // 0 = 자동 벤츄레이터 없음(손으로 놓은 것만)
       const pos = Array.isArray(opt.ventPos) ? opt.ventPos : [];
       const centerOf = (idx, auto) => { const p = pos[idx]; return (p && isFinite(p.lat)) ? rotate(toLocal([p], o)[0], -row.angle) : auto; };
-      if (opt.ridge) {
+      // 벤츄레이터 사각형: 용마루 방향으로 ventLen, 직각으로 1m. ridgeMode 면 용마루가 x 방향, 인삼밭은 y 방향
+      const vrect = c => ridgeMode ? [{ x: c.x - hl, y: c.y - half }, { x: c.x + hl, y: c.y - half }, { x: c.x + hl, y: c.y + half }, { x: c.x - hl, y: c.y + half }]
+                                   : [{ x: c.x - half, y: c.y - hl }, { x: c.x + half, y: c.y - hl }, { x: c.x + half, y: c.y + hl }, { x: c.x - half, y: c.y + hl }];
+      if (ridgeMode) {
         const n = nSp, W = b.maxX - b.minX;
         for (let i = 0; i < n; i++) for (let k = 0; k < nv; k++) {
+          if (pos[i * nv + k] === 'off') continue;                     // Del 로 지운 자동 벤츄레이터
           const c = centerOf(i * nv + k, { x: b.minX + (k + 0.5) * W / nv, y: b.minY + ridgePos[i] });
-          vents.push([{ x: c.x - hl, y: c.y - half }, { x: c.x + hl, y: c.y - half }, { x: c.x + hl, y: c.y + half }, { x: c.x - hl, y: c.y + half }]);
+          vents.push(vrect(c)); ventRefs.push({ auto: i * nv + k });
         }
       } else if (opt.type === 'ginseng') {
-        // 동서지붕: 용마루가 남북으로 지난다. 여러 동이 동서로 붙어 있으면 동마다 가운데.
-        const n = nSp, Dp = b.maxY - b.minY;
+        // 동서지붕: 용마루가 남북으로 지난다. 여러 동이 동서로 붙어 있으면 동마다 가운데(용마루를 켰으면 그 자리).
+        const n = nSp, W = (b.maxX - b.minX) / n, Dp = b.maxY - b.minY;
         for (let i = 0; i < n; i++) for (let k = 0; k < nv; k++) {
-          const c = centerOf(i * nv + k, { x: b.minX + ridgePos[i], y: b.minY + (k + 0.5) * Dp / nv });
-          vents.push([{ x: c.x - half, y: c.y - hl }, { x: c.x + half, y: c.y - hl }, { x: c.x + half, y: c.y + hl }, { x: c.x - half, y: c.y + hl }]);
+          if (pos[i * nv + k] === 'off') continue;
+          const c = centerOf(i * nv + k, { x: b.minX + (ridgePos.length ? ridgePos[i] : i * W + W / 2), y: b.minY + (k + 0.5) * Dp / nv });
+          vents.push(vrect(c)); ventRefs.push({ auto: i * nv + k });
         }
       }
+      // 용마루와 상관없이 손으로 놓은 벤츄레이터
+      (Array.isArray(opt.ventExtra) ? opt.ventExtra : []).forEach((p, j) => {
+        if (!p || !isFinite(p.lat)) return;
+        vents.push(vrect(rotate(toLocal([p], o)[0], -row.angle))); ventRefs.push({ extra: j });
+      });
       vents.forEach(v => {
         const ring = v.map(p => rotate(p, row.angle));    // 회전 전 좌표 (그림자·차단과 같은 틀)
         blockRings.push(ring);
@@ -330,7 +351,7 @@ const Layout = (() => {
     // 1) 줄의 y 위치를 먼저 다 구한다. 그래야 남는 높이를 위아래로 반씩 나눠 가운데 맞출 수 있다.
     const ys = [], zAt = [];   // zAt: 줄마다 모듈면 높이 {zf 앞, zb 뒤}(처마 기준 m) — 원단만
     let yOff = 0, spans = 0, blocks = [];
-    if (opt.ridge) {
+    if (ridgeMode) {
       // 용마루 분할: 남→북으로 경간 N 개, 경간마다 [남측 면 | 용마루 | 북측 면].
       // 면 안은 모듈을 붙여 깔고(한 블록), 다음 블록은 앞 블록 꼭대기에서 그은 22° 선 밖에서 시작한다.
       spans = Math.max(1, Math.round(Number(opt.spans) || 1));
@@ -350,7 +371,7 @@ const Layout = (() => {
       // 높이(z)는 처마 기준 m. 남면 모듈면 = 지붕면 + 앞다리. 북면은 블록마다 지붕면 + 앞다리에서 시작해 남향(지붕 경사각)으로 올라가며,
       // 지붕 위 높이가 maxLiftH 에 닿으면 끊고, 앞 블록 꼭대기의 후면입사각 그림자를 벗어난 곳에서 다음 블록을 시작한다(2026-10-12 사용자 지시: 뒷단 4m 제한).
       const tS = Math.tan(tilt), tA = Math.tan(shadeA);
-      const fl = Number(opt.frontLift) || 0, maxH = Math.max(fl + d * tS * 2 + 0.01, Number(opt.maxLiftH) || 4);
+      const fl = opt.attach ? 0.12 : (Number(opt.frontLift) || 0), maxH = Math.max(fl + d * tS * 2 + 0.01, Number(opt.maxLiftH) || 4);
       const r2 = v => Math.round(v * 100) / 100, rel = y => r2(y - b.minY);
       let nextStart = -Infinity;
       for (let i = 0; i < spans; i++) {
@@ -362,8 +383,14 @@ const Layout = (() => {
         const first = y;
         while (y + d <= ridge - rs + 1e-9) { ys.push(y); zAt.push({ zf: roofZ(y) + fl, zb: roofZ(y + d) + fl }); y += d + tierGap; n++; }
         if (n) blocks.push({ rows: n, from: rel(first), to: rel(ys[ys.length - 1] + d), gap: r2(Math.max(0, first - (y0 + eave))), zf: r2(roofZ(first) + fl), zb: r2(roofZ(ys[ys.length - 1] + d) + fl) });
-        // 북면 블록들
+        // 북면 블록들 (부착이면 지붕면에 붙여 한 블록 — 북향, 들어올리지 않음, 다음 동 그림자 없음)
         let yS = ridge + rs, lastTop = null;
+        if (opt.attach) {
+          y = yS; n = 0;
+          while (y + d <= y0n - eave + 1e-9) { ys.push(y); zAt.push({ zf: roofZ(y) + fl, zb: roofZ(y + d) + fl }); y += d + tierGap; n++; }
+          if (n) blocks.push({ rows: n, from: rel(yS), to: rel(ys[ys.length - 1] + d), gap: 0, zf: r2(roofZ(yS) + fl), zb: r2(roofZ(ys[ys.length - 1] + d) + fl), attached: true });
+          yS = Infinity;
+        }
         while (yS + d <= y0n - eave + 1e-9) {
           const base = roofZ(yS) + fl;                                   // 블록 앞줄 모듈면 높이
           y = yS; n = 0;
@@ -458,7 +485,8 @@ const Layout = (() => {
       backRiseDeg: Math.round(Math.atan(backRise) * 180 / Math.PI * 10) / 10,   // 뒤쪽으로 지면이 오르는 각(+ 남사면 쪽)
       flatGap: Math.round(flatGap * 100) / 100,
       spans, blocks,
-      moduleZ: opt.ridge ? moduleZ : null,   // 모듈마다 {zf, zb} 모듈면 높이(처마 기준) — 3D·측면도용
+      moduleZ: ridgeMode ? moduleZ : null,   // 모듈마다 {zf, zb} 모듈면 높이(처마 기준) — 3D·측면도용
+      ridgeMode, attach: !!opt.attach, ridgeExt: ridgeExts, ventRefs,
       ridgePos: ridgePos.map(v => Math.round(v * 100) / 100),   // 동마다 용마루 자리(원단: 남쪽 끝 0 기준 m, 인삼밭: 서쪽 끝 0 기준)
       ridges: ridgeLines.map(seg => toGeo(seg.map(p => rotate(p, row.angle)), o)),   // 지도에 그릴 용마루 선
       ridgeDir,                                                   // 용마루를 옮기는 방향(동 x, 북 y 단위벡터)
@@ -499,7 +527,7 @@ const Layout = (() => {
     // 남북지붕: 남북 깊이 / 20m,  동서지붕: 동서 폭 / 20m  (동 하나 폭을 20m 안팎으로 본다)
     const type = (opt && opt.type) || 'flush';
     const r = compute(geoPoly, Object.assign({}, opt || {}, { type, spans: 1, vent: false }));
-    return Math.max(1, Math.round(((type === 'ginseng' ? r.widthM : r.depthM) || 0) / 20));
+    return Math.max(1, Math.round((((type === 'ginseng' && !(opt && opt.attach)) ? r.widthM : r.depthM) || 0) / 20));
   }
 
   return { compute, guessType, guessSpans, containsGeo, sunPositions, PRESETS, DEFAULTS, centroid, toLocal, toGeo, area, minRect, rotate };

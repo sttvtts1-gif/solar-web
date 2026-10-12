@@ -20,6 +20,8 @@
   let selectedId = null;
   let curType = 'slab';
   let settings = { ginseng: {}, flush: {}, slab: {} };
+  let picked = null;        // 지도에서 탭해 고른 부속물 { roofId, kind:'ridge'|'vent', idx } — Del 키로 지운다
+  let ventAdd = null;     // 「벤츄 추가」 뒤 다음 지도 탭 자리에 벤츄레이터를 놓을 지붕 id
   let siteName = '';
 
   // V-World 에서 받아온 건물 외곽선. 누르면 지붕으로 들어가고, 음영 계산의 장애물로도 쓴다.
@@ -84,6 +86,12 @@
       const p = { lat: e.latLng.getLat(), lng: e.latLng.getLng() };
       if (editing) return;
       if (drawing) { addPoint(p); return; }
+      if (ventAdd) {
+        const r = roofs.find(x => x.id === ventAdd); ventAdd = null;
+        if (r) { r.ventExtra = (r.ventExtra || []).concat([p]); recompute(r); renderList(); save(); hint(r.name + ' — 벤츄레이터를 놓았습니다(용마루와 무관). 꾹 눌러 끌면 옮기고, 탭 후 Del 로 지웁니다.'); }
+        return;
+      }
+      if (picked && Date.now() >= lastPick) setPick(null);
       pickAt(p);
     });
 
@@ -105,6 +113,16 @@
   function bindUi() {
     $('btnSearch').onclick = search;
     $('q').addEventListener('keydown', e => { if (e.key === 'Enter') search(); });
+    // Del: 고른 용마루·벤츄레이터, 없으면 선택한 지붕(배치) 삭제. Esc: 선택 해제
+    document.addEventListener('keydown', e => {
+      const tag = (e.target && e.target.tagName) || '';
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || e.target.isContentEditable) return;
+      if (e.key === 'Escape') { if (picked) setPick(null); ventAdd = null; return; }
+      if (e.key !== 'Delete') return;
+      if (deletePick()) { e.preventDefault(); return; }
+      const r = roofs.find(x => x.id === selectedId);
+      if (r && confirm(r.name + ' 배치를 삭제할까요?')) { remove(r.id); hint(r.name + ' 삭제'); e.preventDefault(); }
+    });
 
     document.querySelectorAll('#tabs [data-tab]').forEach(b => { b.onclick = () => showTab(b.dataset.tab); });
     // 패널 접기: 지붕이 많아지면 목록이 지도를 다 가리므로 탭 줄 + 합계 한 줄만 남긴다.
@@ -314,6 +332,8 @@
           hint((r ? r.name : '지붕 ' + targets.length + '개') + ' 방향 뒤집음 → ' + (res.aligned ? '건물맞춤 ' + res.rowAngle + '°' : (res.azimuth ? '방위 ' + res.azimuth + '°' : '정남')) + ' (다시 누르면 원래대로)');
           return;
         }
+        // 주차장: 고른 지붕이 주차장이 아니면 새 사각형 주차장을 놓는다(건물 지붕을 주차장으로 바꾸지 않는다)
+        if (t === 'parking' && !(r && r.type === 'parking')) { addParkingRect(); return; }
         curType = t;
         renderTypes();
         fillSettings();
@@ -882,16 +902,27 @@
         const vx = b.x - a.x, vy = b.y - a.y, len2 = vx * vx + vy * vy || 1;
         const t = Math.max(0, Math.min(1, -(a.x * vx + a.y * vy) / len2));
         const dist = Math.hypot(a.x + t * vx, a.y + t * vy);
-        if (dist <= 2.5 && (!best || dist < best.dist)) best = { roof: r, idx: i, seg, dist };
+        if (dist <= 2.5 && (!best || dist < best.dist)) best = { roof: r, idx: i, seg, dist, end: t < 0.12 ? 0 : t > 0.88 ? 1 : -1 };   // 끝 12% 안이면 길이 조절
       }));
       return best;
+    };
+    // 주차장 사각형의 모서리(2.5m 안)를 눌렀으면 크기를 바꾼다
+    const findCorner = ll => {
+      const p = { lat: ll.getLat(), lng: ll.getLng() };
+      for (const r of roofs) {
+        if (!r.rect) continue;
+        const loc = Layout.toLocal(r.points, p);
+        for (let i = 0; i < 4; i++) if (Math.hypot(loc[i].x, loc[i].y) <= 2.5) return { roof: r, idx: i };
+      }
+      return null;
     };
     el.addEventListener('pointerdown', e => {
       if (drawing || editing || !e.isPrimary) return;
       down = { x: e.clientX, y: e.clientY, id: e.pointerId };
       const vent = findVent(toLL(e));
       const ridge = vent ? null : findRidge(toLL(e));
-      const roof = vent ? vent.roof : ridge ? ridge.roof : findRoof(toLL(e));
+      const corner = (vent || ridge) ? null : findCorner(toLL(e));
+      const roof = vent ? vent.roof : ridge ? ridge.roof : corner ? corner.roof : findRoof(toLL(e));
       if (!roof) return;
       stopHold();
       hold = setTimeout(() => {
@@ -905,6 +936,15 @@
           const pg = roof.gfx && roof.gfx.vents && roof.gfx.vents[vent.idx];
           if (pg) pg.setOptions({ strokeColor: '#00e5ff', strokeWeight: 3, fillOpacity: 0.8 });
           hint(roof.name + ' 벤츄레이터 ' + (vent.idx + 1) + ' — 끌어서 옮기세요. 손을 떼면 그 자리 기준으로 다시 배치·음영을 봅니다.');
+          return;
+        }
+        if (corner) {
+          moving = { corner, start: ll, last: ll, orig: roof.points.slice() };
+          try { el.setPointerCapture(e.pointerId); } catch (x) {}
+          map.setDraggable(false); map.setZoomable(false);
+          if (navigator.vibrate) navigator.vibrate(40);
+          if (roof.gfx && roof.gfx.outline) roof.gfx.outline.setOptions({ strokeColor: '#00e5ff', strokeWeight: 4 });
+          hint(roof.name + ' — 모서리를 끌어 크기를 바꾸세요. 반대쪽 모서리는 그대로.');
           return;
         }
         if (ridge) {
@@ -940,7 +980,14 @@
       }
       if (moving.ridge) {
         const pl = moving.ridge.roof.gfx && moving.ridge.roof.gfx.ridges && moving.ridge.roof.gfx.ridges[moving.ridge.idx];
-        if (pl) pl.setPath(sh(moving.orig).map(p => new kakao.maps.LatLng(p.lat, p.lng)));
+        const path = moving.ridge.end >= 0 ? moving.orig.map((p, i) => i === moving.ridge.end ? { lat: p.lat + dLat, lng: p.lng + dLng } : p) : sh(moving.orig);   // 끝 조절이면 그 끝만
+        if (pl) pl.setPath(path.map(p => new kakao.maps.LatLng(p.lat, p.lng)));
+        moving.last = ll;
+        return;
+      }
+      if (moving.corner) {
+        const r = moving.corner.roof, pts = moving.orig.map((p, i) => i === moving.corner.idx ? { lat: p.lat + dLat, lng: p.lng + dLng } : p);
+        if (r.gfx && r.gfx.outline) r.gfx.outline.setPath(pts.map(p => new kakao.maps.LatLng(p.lat, p.lng)));
         moving.last = ll;
         return;
       }
@@ -967,15 +1014,39 @@
         hint(r.name + ' 벤츄레이터 ' + (idx + 1) + ' — ' + dM.toFixed(1) + 'm 옮기고 그 자리 기준으로 다시 배치했습니다. 「벤츄 N개」를 다시 넣으면 자동 자리로.');
         return;
       }
+      if (moving.corner) {
+        const { roof: r, idx } = moving.corner, ll = moving.last;
+        const dLat = ll.getLat() - moving.start.getLat(), dLng = ll.getLng() - moving.start.getLng();
+        moving = null;
+        map.setDraggable(true); map.setZoomable(true);
+        lastPick = Date.now() + 700;
+        resizeRect(r, idx, { lat: moving_origCorner(r, idx).lat + dLat, lng: moving_origCorner(r, idx).lng + dLng });
+        return;
+      }
       if (moving.ridge) {
         const { roof: r, idx } = moving.ridge, ll = moving.last;
         const dLat = ll.getLat() - moving.start.getLat(), dLng = ll.getLng() - moving.start.getLng();
+        const endIdx = moving.ridge.end;
         moving = null;
         map.setDraggable(true); map.setZoomable(true);
         lastPick = Date.now() + 700;
         const lat0 = Layout.centroid(r.points).lat;
         const dyM = dLat * 110574, dxM = dLng * 111320 * Math.cos(lat0 * Math.PI / 180);
         const dir = (r.result && r.result.ridgeDir) || { x: 0, y: 1 };
+        if (endIdx >= 0) {
+          // 끝 조절: 용마루 방향 성분만큼 그쪽 끝을 줄이거나 늘린다
+          const along = r.result && r.result.ridgeMode ? { x: dir.y, y: -dir.x } : { x: -dir.y, y: dir.x };
+          const s = dxM * along.x + dyM * along.y;
+          if (Math.abs(s) < 0.2) { recompute(r); renderList(); hint(r.name + ' 용마루 — 길이 그대로입니다.'); return; }
+          if (!Array.isArray(r.ridgeExt)) r.ridgeExt = [];
+          const ex = (r.ridgeExt[idx] || [0, 0]).slice();
+          if (endIdx === 0) ex[0] = Math.max(0, ex[0] + s); else ex[1] = Math.max(0, ex[1] - s);
+          r.ridgeExt[idx] = ex.map(v => Math.round(v * 10) / 10);
+          recompute(r); renderList(); save();
+          const ee = r.result && r.result.ridgeExt && r.result.ridgeExt[idx];
+          hint(r.name + ' 용마루 ' + (idx + 1) + ' — 길이 조절' + (ee ? ' (시작쪽 ' + ee[0] + 'm · 끝쪽 ' + ee[1] + 'm 줄임)' : '') + '. 「용마루」에서 동 수를 다시 넣으면 원래대로.');
+          return;
+        }
         const off = dxM * dir.x + dyM * dir.y;                        // 용마루와 직각 방향 성분만
         if (Math.abs(off) < 0.2) { recompute(r); renderList(); hint(r.name + ' 용마루 — 제자리입니다.'); return; }
         if (!Array.isArray(r.ridgeOff)) r.ridgeOff = [];
@@ -1001,10 +1072,41 @@
 
   // ------------------------------------------------------------ 지붕 위치 보정
   /** 지붕(과 합산 링)을 동쪽 dxM · 북쪽 dyM 만큼 옮긴다 */
+  // ------------------------------------------------------------ 주차장 사각형
+  /** 사각형 {c:{lat,lng}, w, h, ang(°, 수학각)} → 꼭짓점 4개 (서남·동남·동북·서북 순서, 돌리기 전 기준) */
+  function rectPoints(rc) {
+    const box = [{ x: -rc.w / 2, y: -rc.h / 2 }, { x: rc.w / 2, y: -rc.h / 2 }, { x: rc.w / 2, y: rc.h / 2 }, { x: -rc.w / 2, y: rc.h / 2 }];
+    return Layout.toGeo(box.map(p => Layout.rotate(p, rc.ang || 0)), rc.c);
+  }
+  function moving_origCorner(r, idx) { return r.points[idx]; }
+  /** 모서리 idx 를 geo 자리로 끌었다: 반대 모서리는 그대로 두고 폭·깊이·중심을 다시 잡는다 */
+  function resizeRect(r, idx, geo) {
+    const rc = r.rect; if (!rc) return;
+    const q = Layout.rotate(Layout.toLocal([geo], rc.c)[0], -(rc.ang || 0));            // 사각형 틀 안 좌표
+    const sx = (idx === 1 || idx === 2) ? 1 : -1, sy = (idx >= 2) ? 1 : -1;               // 그 모서리의 부호
+    const ox = -sx * rc.w / 2, oy = -sy * rc.h / 2;                                        // 반대 모서리
+    const w = Math.max(3, Math.abs(q.x - ox)), h = Math.max(3, Math.abs(q.y - oy));
+    const mid = Layout.rotate({ x: (ox + (ox + sx * w)) / 2, y: (oy + (oy + sy * h)) / 2 }, rc.ang || 0);
+    rc.c = Layout.toGeo([mid], rc.c)[0]; rc.w = Math.round(w * 10) / 10; rc.h = Math.round(h * 10) / 10;
+    r.points = rectPoints(rc); r.name = '주차장 ' + rc.w + '×' + rc.h + 'm';
+    recompute(r); renderList(); save();
+    hint(r.name + ' — 크기를 바꿨습니다. 모서리를 끌면 크기, 안쪽을 꾹 눌러 끌면 이동, ↶↷ 로 1° 씩 회전.');
+  }
+  /** 「주차장」 형태를 누르면 지도 가운데에 사각형 주차장(16×10m)을 놓는다 */
+  function addParkingRect() {
+    const c = map.getCenter();
+    const rc = { c: { lat: c.getLat(), lng: c.getLng() }, w: 16, h: 10, ang: 0 };
+    const roof = { id: Date.now().toString(36) + Math.random().toString(36).slice(2, 5), name: '주차장 16×10m', type: 'parking', points: rectPoints(rc), src: 'rect', floors: 1, gfx: null, rect: rc };
+    roofs.push(roof); selectedId = roof.id;
+    curType = 'parking'; renderTypes(); fillSettings();
+    recompute(roof); renderList(); save();
+    hint('주차장 사각형을 지도 가운데에 놓았습니다. 안쪽을 꾹 눌러 끌면 이동, 모서리를 끌면 크기, 목록의 ↶↷ 로 1° 씩 회전(꾹 누르면 빠르게), 「크기」로 숫자 입력.');
+  }
   function moveRoof(r, dxM, dyM) {
     const lat = Layout.centroid(r.points).lat;
     const dLat = dyM / 110574, dLng = dxM / (111320 * Math.cos(lat * Math.PI / 180));
     const sh = rg => rg.map(p => ({ lat: p.lat + dLat, lng: p.lng + dLng }));
+    if (r.rect) r.rect.c = { lat: r.rect.c.lat + dLat, lng: r.rect.c.lng + dLng };
     r.points = sh(r.points);
     if (r.extra) r.extra = r.extra.map(sh);
     if (r.parcels) r.parcels.forEach(p => { if (p.ring) p.ring = sh(p.ring); });
@@ -1045,8 +1147,8 @@
     const LABEL = { flush: '남북지붕 원단', ginseng: '동서지붕 인삼밭 2단', slab: '평슬라브 경사거치', ground: '토지 노지 2단', parking: '주차장 캐노피' };
     const rs = done.map(r => {
       const res = r.result, opt = res.opt || {};
-      const kind = r.type === 'flush' ? 'gable-ew' : r.type === 'ginseng' ? 'gable-ns' : 'flat';
-      const spans = r.type === 'flush' ? (res.spans || 1) : (r.spans || r.spansGuess || 1);
+      const kind = (r.type === 'flush' || (r.type === 'ginseng' && r.attach)) ? 'gable-ew' : r.type === 'ginseng' ? 'gable-ns' : 'flat';   // 인삼밭 부착은 용마루 분할(원단 꼴)로 계산·그림
+      const spans = kind === 'gable-ew' ? (res.spans || 1) : (r.spans || r.spansGuess || 1);
       const roofSlope = r.type === 'flush' ? (Number(opt.tilt) || 0) : r.type === 'ginseng' ? 10 : 0;
       const eaveH = r.type === 'ground' ? 0 : r.type === 'parking' ? 0 : roofH(r);
       const span = kind === 'gable-ew' ? res.depthM / spans : kind === 'gable-ns' ? res.widthM / spans : 0;
@@ -1064,7 +1166,7 @@
       const ridgePos = res.ridgePos || [];
       const az = res.azimuth || 0;
       return {
-        name: r.name, type: r.type, typeLabel: LABEL[r.type] || r.type, rings: [r.points].concat(r.extra || []), centroid: Layout.centroid(r.points),
+        name: r.name, type: r.type, typeLabel: (LABEL[r.type] || r.type) + (r.attach ? ' 부착' : ''), rings: [r.points].concat(r.extra || []), centroid: Layout.centroid(r.points),
         modules: res.modules || [], count: res.count, kw: res.kw, areaM2: res.areaM2, rows: res.rows, aisles: res.aisles || 0,
         tilt: r.type === 'flush' ? (Number(opt.tilt) || 0) : tilt, tiers, dir: res.aligned ? '건물맞춤 ' + res.rowAngle + '°' : (az ? '방위 ' + az + '°' : '정남'),
         pitch: res.pitch, gap: res.arrayGap, margin: Number(opt.margin) || 0,
@@ -1128,17 +1230,17 @@
         // 지붕 꼴: 원단(남북지붕) = 용마루 동서, 경간 res.spans / 인삼밭(동서지붕) = 용마루 남북, 동 수 r.spans / 평슬라브·토지·주차장 = 평면
         //   원단은 모듈이 지붕면에 붙으니(경사각 = 지붕 경사) 추가로 기울이지 않고, 나머지는 지붕 위에 경사각만큼 세운다.
         // 원단 = 박공(용마루 동서) + 남쪽 면 밀착·북쪽 블록 들림 / 인삼밭 = 박공(용마루 남북) 위 수평 프레임에 2단 거치 / 나머지 평면
-        const kind = r.type === 'flush' ? 'gable-ew' : r.type === 'ginseng' ? 'gable-ns' : 'flat';
+        const kind = (r.type === 'flush' || (r.type === 'ginseng' && r.attach)) ? 'gable-ew' : r.type === 'ginseng' ? 'gable-ns' : 'flat';   // 인삼밭 부착은 용마루 분할(원단 꼴)로 계산·그림
         // 색: 같은 필지 대장의 지붕재·구조(동별 매칭은 대장에 위치가 없어 못 함 → 면적이 제일 비슷한 동)
         const bd = siteBld.length ? siteBld.slice().sort((p, q) => Math.abs((p.archArea || 0) - res.areaM2) - Math.abs((q.archArea || 0) - res.areaM2))[0] : null;
         const mat = bd ? { roof: (bd.roof || '') + ' ' + (bd.roofEtc || ''), structure: bd.structure || '' } : null;
         return { name: r.name, type: r.type, rings: [r.points].concat(r.extra || []), banned: !!res.banned,
           baseH: r.type === 'ground' ? 0.5 : r.type === 'parking' ? 2.5 : roofH(r),
-          kind, spans: r.type === 'flush' ? (res.spans || 1) : (r.spans || r.spansGuess || 1),
+          kind, spans: kind === 'gable-ew' ? (res.spans || 1) : (r.spans || r.spansGuess || 1),
           roofSlope: r.type === 'flush' ? (Number(opt.tilt) || 0) : r.type === 'ginseng' ? 10 : 0, mat,
           buildingAngle: res.buildingAngle || 0,
           grad: r.type === 'ground' && r.terrain ? { gE: r.terrain.gradE, gN: r.terrain.gradN } : null,   // 토지 기울기(3D 에서 땅을 기울여 그림)
-          modules: res.modules || [], moduleZ: res.moduleZ || null, ridgePos: res.ridgePos || null, rowAngle: res.rowAngle || 0, tilt: r.type === 'flush' ? 0 : (Number(opt.tilt) || 0),
+          modules: res.modules || [], moduleZ: res.moduleZ || null, ridgePos: res.ridgePos || null, rowAngle: res.rowAngle || 0, tilt: (r.type === 'flush' || r.attach) ? 0 : (Number(opt.tilt) || 0),
           dSlope: opt.orient === 'portrait' ? opt.modL : opt.modS };
       }),
       buildings: buildings.filter(b => !srcs.has(b.id) && distM(origin, Layout.centroid(b.ring)) <= 250).map(b => ({ ring: b.ring, h: bldH(b) })),
@@ -1476,13 +1578,19 @@
   function recompute(r) {
     clearGfx(r);
     const opt = effectiveOpt(r.type);
+    opt.attach = !!r.attach;                                                     // 부착 배치(원단 북면도 붙임 / 인삼밭 동서 양면 붙임)
     if (r.type === 'flush' || r.type === 'ginseng') {
       // 용마루(동) 수: 사용자가 정한 값, 없으면 크기로 추정. 형태가 바뀌면 추정도 다시.
-      if (!r.spans && r.spansGuessType !== r.type) { r.spansGuess = Layout.guessSpans(r.points, opt); r.spansGuessType = r.type; }
+      const gk = r.type + (r.attach ? '+a' : '');
+      if (!r.spans && r.spansGuessType !== gk) { r.spansGuess = Layout.guessSpans(r.points, opt); r.spansGuessType = gk; }
       opt.spans = r.spans || r.spansGuess;
     }
-    opt.vent = !!r.vent; opt.ventH = 1;
-    if (r.ventN > 0) opt.ventN = r.ventN;                                        // 동마다 벤츄레이터 개수(사용자 지정)
+    opt.vent = !!r.vent || (Array.isArray(r.ventExtra) && r.ventExtra.length > 0);
+    opt.ventH = r.ventH > 0 ? r.ventH : 1;                                       // 벤츄레이터 높이(m, 그림자용)
+    opt.ventN = r.vent ? (r.ventN > 0 ? r.ventN : opt.ventN) : 0;               // 동마다 자동 벤츄레이터 개수(벤츄 X 면 손으로 놓은 것만)
+    opt.ventExtra = Array.isArray(r.ventExtra) ? r.ventExtra : null;
+    opt.ridgeOn = !!r.ridgeOn;                                                   // 인삼밭: 용마루 띠 자리 빼기
+    opt.ridgeExt = Array.isArray(r.ridgeExt) ? r.ridgeExt : null;               // 용마루 선 길이 조절
     opt.ventPos = Array.isArray(r.ventPos) ? r.ventPos : null;                   // 꾹 눌러 옮긴 벤츄레이터 자리
     opt.ridgeOff = Array.isArray(r.ridgeOff) ? r.ridgeOff : null;                // 꾹 눌러 옮긴 용마루(동마다 m)
     // 토지·주차장은 지붕마다 방위각·경계 이격·단수를 따로 둘 수 있다(목록의 버튼)
@@ -1522,17 +1630,25 @@
     });
 
     // 벤츄레이터·모니터 띠 (동마다 용마루 가운데, 폭 1m) — 어디가 빠졌는지 보이게
-    const vents = (res.vents || []).map(v => {
+    // 벤츄레이터: 주황 채운 네모(테두리 검정). 용마루(노란 점선)와 구분. 탭하면 고르고(하늘색) Del 로 지운다
+    const vents = (res.vents || []).map((v, i) => {
+      const on = picked && picked.roofId === r.id && picked.kind === 'vent' && picked.idx === i;
       const pg = new kakao.maps.Polygon({
         path: v.map(p => new kakao.maps.LatLng(p.lat, p.lng)),
-        strokeWeight: 1, strokeColor: '#ff9800', strokeStyle: 'shortdash', fillColor: '#ff9800', fillOpacity: 0.5, zIndex: 3,
+        strokeWeight: on ? 3 : 1.5, strokeColor: on ? '#00e5ff' : '#222', strokeStyle: 'solid', fillColor: on ? '#00e5ff' : '#ff9800', fillOpacity: 0.85, zIndex: 3,
       });
       pg.setMap(map);
+      kakao.maps.event.addListener(pg, 'click', () => { if (drawing || editing || Date.now() < lastPick) return; lastPick = Date.now() + 300; setPick({ roofId: r.id, kind: 'vent', idx: i }); });
       return pg;
     });
 
     // 용마루 선(노랑 점선) — 꾹 눌러 끌면 옮겨진다
-    const ridges = (res.ridges || []).map(seg => { const pl = new kakao.maps.Polyline({ path: toLL(seg), strokeWeight: 4, strokeColor: '#ffd54a', strokeOpacity: 0.95, strokeStyle: 'shortdash', zIndex: 4 }); pl.setMap(map); return pl; });
+    const ridges = (res.ridges || []).map((seg, i) => {
+      const on = picked && picked.roofId === r.id && picked.kind === 'ridge' && picked.idx === i;
+      const pl = new kakao.maps.Polyline({ path: toLL(seg), strokeWeight: on ? 6 : 4, strokeColor: on ? '#00e5ff' : '#ffd54a', strokeOpacity: 0.95, strokeStyle: 'shortdash', zIndex: 4 }); pl.setMap(map);
+      kakao.maps.event.addListener(pl, 'click', () => { if (drawing || editing || Date.now() < lastPick) return; lastPick = Date.now() + 300; setPick({ roofId: r.id, kind: 'ridge', idx: i }); });
+      return pl;
+    });
 
     const c = Layout.centroid(r.points);
     const el = document.createElement('div');
@@ -1542,6 +1658,37 @@
     label.setMap(map);
 
     r.gfx = { outline, mods, label, vents, extraLines, ridges };
+  }
+  /** 지도의 용마루·벤츄레이터를 고른다(하늘색). 다시 그려서 표시하고, Del 키 안내 */
+  function setPick(p) {
+    const prev = picked; picked = p;
+    [prev, p].filter(Boolean).forEach(q => { const r = roofs.find(x => x.id === q.roofId); if (r) recompute(r); });
+    if (p) { const r = roofs.find(x => x.id === p.roofId); hint((r ? r.name + ' ' : '') + (p.kind === 'ridge' ? '용마루 ' : '벤츄레이터 ') + (p.idx + 1) + ' 선택 — Del 키로 지웁니다. 꾹 눌러 끌면 옮기고, 용마루는 끝을 끌면 길이가 바뀝니다.'); }
+  }
+  /** 고른 용마루·벤츄레이터를 지운다. 용마루는 동 수를 하나 줄인다(원단·부착은 최소 1). 자동 벤츄레이터는 자리만 끄고, 손으로 놓은 것은 뺀다 */
+  function deletePick() {
+    if (!picked) return false;
+    const r = roofs.find(x => x.id === picked.roofId); const p = picked; picked = null;
+    if (!r) return false;
+    if (p.kind === 'ridge') {
+      const n = r.spans || r.spansGuess || 1;
+      if (r.type === 'ginseng' && !r.attach) {
+        if (n <= 1) { r.ridgeOn = false; hint(r.name + ' — 용마루를 껐습니다. 용마루 자리 없이 전부 배치합니다.'); }
+        else { r.spans = n - 1; hint(r.name + ' — 용마루 ' + (p.idx + 1) + ' 삭제, 이제 ' + (n - 1) + '개.'); }
+      } else {
+        if (n <= 1) { recompute(r); hint(r.name + ' — 원단(부착)은 용마루가 하나는 있어야 합니다. 형태를 바꾸려면 형태 버튼을 쓰세요.'); return true; }
+        r.spans = n - 1; hint(r.name + ' — 용마루 ' + (p.idx + 1) + ' 삭제, 이제 ' + (n - 1) + '개.');
+      }
+      if (Array.isArray(r.ridgeOff)) r.ridgeOff.splice(p.idx, 1);
+      if (Array.isArray(r.ridgeExt)) r.ridgeExt.splice(p.idx, 1);
+    } else {
+      const ref = r.result && r.result.ventRefs && r.result.ventRefs[p.idx];
+      if (ref && ref.extra != null) { r.ventExtra.splice(ref.extra, 1); }
+      else if (ref && ref.auto != null) { if (!Array.isArray(r.ventPos)) r.ventPos = []; r.ventPos[ref.auto] = 'off'; }
+      hint(r.name + ' — 벤츄레이터 ' + (p.idx + 1) + ' 삭제. 「벤츄 N개」를 다시 넣으면 자동 자리로 돌아옵니다.');
+    }
+    recompute(r); renderList(); save();
+    return true;
   }
   function clearGfx(r) {
     if (!r.gfx) return;
@@ -1603,7 +1750,7 @@
       const shadeTxt = shade.on ? ' · <span style="color:' + (res.shaded ? 'var(--danger)' : 'var(--ok)') + '">음영 제외 ' + (res.shaded || 0) + '장</span>' : '';
       d.innerHTML = '<span class="nm">' + r.name + ' · ' + Layout.PRESETS[r.type].label.split(' · ')[1] + ' · ' + dir
         + '<br><small style="color:var(--muted)">' + res.areaM2 + '㎡ · ' + res.rows + '줄 · 피치 ' + res.pitch + 'm' + (res.opt.ridge
-            ? ' · 용마루 ' + res.spans + '개' + (r.spans ? '' : '(추정)') + (Array.isArray(r.ridgeOff) && r.ridgeOff.some(v => v) ? '(옮김)' : '') + ' · 블록 ' + res.blocks.length
+            ? ' · 용마루 ' + res.spans + '개' + (r.spans ? '' : '(추정)') + (Array.isArray(r.ridgeOff) && r.ridgeOff.some(v => v) ? '(옮김)' : '') + (r.attach ? ' · 부착' : '') + ' · 블록 ' + res.blocks.length
               + (res.blocks.some(b => b.gap) ? ' · 22° 이격 ' + [...new Set(res.blocks.filter(b => b.gap).map(b => b.gap))].map(g => g + 'm').join('/') : '')
             : (res.opt.tilt > 0 ? ' (경사 ' + res.opt.tilt + '° · 이격 ' + res.arrayGap + 'm)' : ''))
           + (res.edited ? ' · <span style="color:var(--accent)">편집 −' + res.edited + '장</span>' : '')
@@ -1648,6 +1795,23 @@
         bz.onclick = e => { stop(e); const s = prompt(r.name + ' 방위각 (°) — 정남 0, 서쪽 +, 동쪽 − (±90)' + (r.type === 'parking' ? '. 비우면 주차장 방향 자동' : ''), r.azimuth == null ? '' : r.azimuth); if (s === null) return; const v = parseFloat(s); if (s.trim() === '' && r.type === 'parking') { r.azimuth = null; recompute(r); renderList(); save(); } else if (isFinite(v)) { r.azimuth = 0; turn(v); renderList(); } };
         const br = document.createElement('button'); br.className = 'btn ghost'; br.textContent = '1°↷'; br.title = '서쪽으로 1° (꾹 누르면 빠르게)'; hold(br, 1);
         d.appendChild(bl); d.appendChild(bz); d.appendChild(br);
+        if (r.rect) {
+          // 사각형 주차장: 사각형 자체를 1° 씩 돌린다(방위각과 별개) + 크기 숫자 입력
+          const rc = r.rect;
+          const turnRect = dv => { rc.ang = ((rc.ang || 0) + dv + 180) % 360 - 180; r.points = rectPoints(rc); recompute(r); if (rb) rb.textContent = '사각형 ' + Math.round(rc.ang) + '°'; save(); };
+          const holdR = (btn, dv) => {
+            let timer = null, ticks = 0, fired = false;
+            const start = e => { stop(e); e.preventDefault(); fired = false; ticks = 0; timer = setTimeout(function rep() { fired = true; ticks++; turnRect(dv * (ticks > 15 ? 3 : 1)); timer = setTimeout(rep, 90); }, 350); };
+            const end = e => { if (timer) { clearTimeout(timer); timer = null; } if (e && e.type === 'pointerup' && !fired) turnRect(dv); fired = false; };
+            btn.addEventListener('pointerdown', start); btn.addEventListener('pointerup', end); btn.addEventListener('pointerleave', end); btn.addEventListener('pointercancel', end);
+            btn.onclick = stop; btn.oncontextmenu = e => e.preventDefault(); btn.style.touchAction = 'none';
+          };
+          const rl = document.createElement('button'); rl.className = 'btn ghost'; rl.textContent = '↶사각형'; rl.title = '사각형을 반시계로 1° (꾹 누르면 빠르게)'; holdR(rl, 1);
+          const rb = document.createElement('button'); rb.className = 'btn ghost'; rb.textContent = '사각형 ' + Math.round(rc.ang || 0) + '°'; rb.title = '사각형 크기 입력 (가로 세로 m)';
+          rb.onclick = e => { stop(e); const s = prompt(r.name + ' — 가로 세로 (m)', rc.w + ' ' + rc.h); if (s === null) return; const m = s.trim().split(/[\s,x×]+/).map(parseFloat); if (!(m[0] >= 3 && m[1] >= 3)) return; rc.w = m[0]; rc.h = m[1]; r.points = rectPoints(rc); r.name = '주차장 ' + rc.w + '×' + rc.h + 'm'; recompute(r); renderList(); save(); };
+          const rr = document.createElement('button'); rr.className = 'btn ghost'; rr.textContent = '사각형↷'; rr.title = '사각형을 시계로 1° (꾹 누르면 빠르게)'; holdR(rr, -1);
+          d.appendChild(rl); d.appendChild(rb); d.appendChild(rr);
+        }
         const mk = (label, vals, cur, fmt, on) => {
           const s = document.createElement('select'); s.className = 'btn ghost'; s.title = label; s.onclick = stop;
           vals.forEach(v => { const o = document.createElement('option'); o.value = v; o.textContent = fmt(v); if (v === cur) o.selected = true; s.appendChild(o); });
@@ -1718,6 +1882,13 @@
           if (r.vent) hint(r.name + ' — 벤츄레이터 ' + (r.result.vents || []).length + '개(주황)를 용마루에 놓았습니다. 「벤츄 N개」로 개수, 지도에서 꾹 눌러 끌면 자리를 옮깁니다.');
         };
         d.appendChild(vb);
+        // 벤츄레이터 높이(그림자 계산) · 용마루와 상관없는 자리에 손으로 놓기
+        const vh = document.createElement('button'); vh.className = 'btn ghost'; vh.textContent = '벤츄 높이 ' + (r.ventH > 0 ? r.ventH : 1) + 'm'; vh.title = '벤츄레이터 높이(m) — 음영 그림자 길이에 쓴다';
+        vh.onclick = e => { e.stopPropagation(); const v = parseFloat(prompt(r.name + ' — 벤츄레이터 높이 (m, 0.3~5)', r.ventH > 0 ? r.ventH : 1)); if (!(v >= 0.3 && v <= 5)) return; r.ventH = v; recompute(r); renderList(); save(); };
+        d.appendChild(vh);
+        const va = document.createElement('button'); va.className = 'btn ' + (ventAdd === r.id ? 'accent' : 'ghost'); va.textContent = '벤츄 추가'; va.title = '누른 뒤 지도에서 놓을 자리를 탭하세요 (용마루와 무관). 탭 후 Del 로 삭제';
+        va.onclick = e => { e.stopPropagation(); ventAdd = ventAdd === r.id ? null : r.id; renderList(); hint(ventAdd ? r.name + ' — 지도에서 벤츄레이터를 놓을 자리를 탭하세요. (Esc 취소)' : '벤츄레이터 추가 취소'); };
+        d.appendChild(va);
         if (r.vent) {
           // 동마다 벤츄레이터 개수. 바꾸면 옮겨 둔 자리는 초기화(순번이 달라지므로)
           const vn = document.createElement('button');
@@ -1738,10 +1909,17 @@
         sp.className = 'btn ghost'; sp.textContent = '용마루';
         sp.onclick = e => {
           e.stopPropagation();
-          const v = parseInt(prompt(r.name + ' — 붙어 있는 동(용마루) 수 · ' + (r.type === 'ginseng' ? '동서로 나란히 붙은 동 수' : '남북으로 이어진 동 수') + ' · 벤츄레이터도 동마다 하나', r.spans || r.spansGuess || 1), 10);
-          if (v > 0 && v < 30) { r.spans = v; r.ridgeOff = null; recompute(r); renderList(); save(); hint(r.name + ' — 용마루 ' + v + '개를 가운데에 놓았습니다. 지도의 노란 점선을 꾹 눌러 끌면 자리를 옮깁니다.'); }
+          const gin = r.type === 'ginseng' && !r.attach;
+          const v = parseInt(prompt(r.name + ' — 붙어 있는 동(용마루) 수 · ' + (r.type === 'ginseng' ? '동서로 나란히 붙은 동 수' : '남북으로 이어진 동 수') + (gin ? ' · 0 이면 용마루 없이 전부 배치' : ''), gin && !r.ridgeOn ? 0 : (r.spans || r.spansGuess || 1)), 10);
+          if (gin && v === 0) { r.ridgeOn = false; r.ridgeOff = null; r.ridgeExt = null; recompute(r); renderList(); save(); hint(r.name + ' — 용마루를 껐습니다. 용마루 자리 없이 전부 배치합니다.'); return; }
+          if (v > 0 && v < 30) { r.spans = v; r.ridgeOff = null; r.ridgeExt = null; if (gin) r.ridgeOn = true; recompute(r); renderList(); save(); hint(r.name + ' — 용마루 ' + v + '개를 가운데에 놓았습니다' + (gin ? ' (용마루 띠 0.6m 자리의 모듈을 뺍니다)' : '') + '. 노란 점선을 꾹 눌러 끌면 이동, 끝을 끌면 길이, 탭 후 Del 로 삭제.'); }
         };
         d.appendChild(sp);
+        // 부착 배치: 원단은 북면도 지붕에 붙여(북향), 인삼밭은 동서 양면에 붙여(줄은 용마루와 나란히)
+        const at = document.createElement('button'); at.className = 'btn ' + (r.attach ? 'accent' : 'ghost'); at.textContent = r.attach ? '부착 O' : '부착 X';
+        at.title = r.type === 'ginseng' ? '동서 양면에 지붕면 그대로 부착(동향·서향). 끄면 수평 프레임 2단 거치' : '북면도 지붕면 그대로 부착(북향). 끄면 북면을 남향으로 들어올림';
+        at.onclick = e => { e.stopPropagation(); r.attach = !r.attach; r.ridgeOff = null; r.ridgeExt = null; r.ventPos = null; recompute(r); renderList(); save(); hint(r.name + (r.attach ? ' — 부착 배치: ' + (r.type === 'ginseng' ? '동서 양면에 붙여 깔았습니다.' : '북면도 붙여 깔았습니다(북향).') : ' — 거치 배치로 되돌렸습니다.')); };
+        d.appendChild(at);
       }
       const del = document.createElement('button');
       del.className = 'btn danger'; del.textContent = '삭제';
@@ -1777,7 +1955,7 @@
         curType, settings, siteName, shade, moduleCfg, edits,
         roofs: roofs.map(r => ({ id: r.id, name: r.name, type: r.type, points: r.points, src: r.src, floors: r.floors, floorsManual: r.floorsManual, spans: r.spans, vent: r.vent,
           parcels: r.parcels, extra: r.extra, review: r.review && !r.review.pending ? r.review : undefined, force: r.force,
-          azimuth: r.azimuth, margin: r.margin, tiers: r.tiers, terrain: r.terrain, moved: r.moved, flip: r.flip, ventN: r.ventN, ventPos: r.ventPos, ridgeOff: r.ridgeOff })),
+          azimuth: r.azimuth, margin: r.margin, tiers: r.tiers, terrain: r.terrain, moved: r.moved, flip: r.flip, ventN: r.ventN, ventPos: r.ventPos, ridgeOff: r.ridgeOff, ridgeExt: r.ridgeExt, ridgeOn: r.ridgeOn, attach: r.attach, ventExtra: r.ventExtra, ventH: r.ventH, rect: r.rect })),
         // 음영 장애물로 다시 쓰려고 주변 건물도 남긴다 (그림은 다시 그리지 않는다)
         buildings: buildings.map(b => ({ id: b.id, name: b.name, ring: b.ring, floors: b.floors })),
       }));
