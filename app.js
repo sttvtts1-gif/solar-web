@@ -1707,7 +1707,11 @@
     const el = document.createElement('div');
     el.className = 'lbl';
     el.innerHTML = '<b>' + res.kw.toFixed(2) + 'kW</b><span>' + res.opt.moduleWp + 'W × ' + res.count + 'EA</span>';
-    const label = new kakao.maps.CustomOverlay({ position: new kakao.maps.LatLng(c.lat, c.lng), content: el, zIndex: 20 });
+    // 용량 라벨은 배치를 가리지 않게 지붕 동쪽 바깥(가장 동쪽 점에서 2m 옆)에 왼쪽 정렬로 둔다 (2026-10-12 사용자 지시)
+    const allPts = [r.points].concat(r.extra || []).flat();
+    const eastLng = Math.max(...allPts.map(p => p.lng)) + 2 / (111320 * Math.cos(c.lat * Math.PI / 180));
+    el.classList.add('side');
+    const label = new kakao.maps.CustomOverlay({ position: new kakao.maps.LatLng(c.lat, eastLng), content: el, xAnchor: 0, yAnchor: 0.5, zIndex: 20 });
     label.setMap(map);
 
     // 모양 편집 중인 주차장: 꼭짓점마다 하늘색 손잡이(1.6m 네모). 꾹 눌러 끌면 그 꼭짓점이 움직이고, 탭 후 Del 로 뺀다
