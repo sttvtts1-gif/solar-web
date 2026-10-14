@@ -944,10 +944,12 @@
       if (drawing || editing || !e.isPrimary) return;
       down = { x: e.clientX, y: e.clientY, id: e.pointerId };
       // 모양 편집 중인 주차장의 꼭짓점 손잡이(2.5m 안)가 제일 먼저
-      const handle = (() => { if (!shapeEdit) return null; const r = roofs.find(x => x.id === shapeEdit); if (!r) return null; const ll = toLL(e), loc = Layout.toLocal(r.points, { lat: ll.getLat(), lng: ll.getLng() }); for (let i = 0; i < loc.length; i++) if (Math.hypot(loc[i].x, loc[i].y) <= 2.5) return { roof: r, idx: i }; return null; })();
+      let handle = (() => { const r = roofs.find(x => x.id === shapeEdit) || roofs.find(x => x.id === selectedId && x.rect); if (!r) return null; const ll = toLL(e), loc = Layout.toLocal(r.points, { lat: ll.getLat(), lng: ll.getLng() }); for (let i = 0; i < loc.length; i++) if (Math.hypot(loc[i].x, loc[i].y) <= 3.5) return { roof: r, idx: i }; return null; })();
+      let cornerFromHandle = null;
+      if (handle && handle.roof.rect) { cornerFromHandle = handle; handle = null; }   // 사각형이면 손잡이 끌기 = 사각형 유지 크기 조절
       const vent = handle ? null : findVent(toLL(e));
       const ridge = (handle || vent) ? null : findRidge(toLL(e));
-      const corner = (handle || vent || ridge) ? null : findCorner(toLL(e));
+      const corner = cornerFromHandle || ((handle || vent || ridge) ? null : findCorner(toLL(e)));
       const roof = handle ? handle.roof : vent ? vent.roof : ridge ? ridge.roof : corner ? corner.roof : findRoof(toLL(e));
       if (!roof) return;
       stopHold();
@@ -1028,9 +1030,9 @@
       }
       if (moving.corner) {
         const r = moving.corner.roof, rc = r.rect, g0 = moving.orig[moving.corner.idx], geo = { lat: g0.lat + dLat, lng: g0.lng + dLng };
-        const q = Layout.rotate(Layout.toLocal([geo], rc.c)[0], -(rc.ang || 0));
-        const pts = rectPoints({ c: rc.c, w: Math.max(3, 2 * Math.abs(q.x)), h: Math.max(3, 2 * Math.abs(q.y)), ang: rc.ang });   // 중심 고정 미리보기
-        if (r.gfx && r.gfx.outline) r.gfx.outline.setPath(pts.map(p => new kakao.maps.LatLng(p.lat, p.lng)));
+        const nr = rectFromCorner(rc, moving.corner.idx, geo);
+        const pts = rectPoints({ c: nr.c, w: nr.w, h: nr.h, ang: rc.ang });   // 반대 모서리 고정 미리보기(네 점이 사각형 유지)
+        previewRect(r, pts);
         moving.last = ll;
         return;
       }
@@ -1137,16 +1139,29 @@
     return Layout.toGeo(box.map(p => Layout.rotate(p, rc.ang || 0)), rc.c);
   }
   function moving_origCorner(r, idx) { return r.points[idx]; }
+  /** 모서리 idx 를 geo 로 끌었을 때의 새 사각형 {c,w,h}: 반대 모서리 고정, 각도 유지 */
+  function rectFromCorner(rc, idx, geo) {
+    const q = Layout.rotate(Layout.toLocal([geo], rc.c)[0], -(rc.ang || 0));            // 사각형 틀 안 좌표
+    const sx = (idx === 1 || idx === 2) ? 1 : -1, sy = (idx >= 2) ? 1 : -1;               // 그 모서리의 부호
+    const ox = -sx * rc.w / 2, oy = -sy * rc.h / 2;                                        // 반대 모서리(고정)
+    const w = Math.max(3, Math.abs(q.x - ox)), h = Math.max(3, Math.abs(q.y - oy));
+    const mid = Layout.rotate({ x: ox + sx * w / 2, y: oy + sy * h / 2 }, rc.ang || 0);
+    return { c: Layout.toGeo([mid], rc.c)[0], w: Math.round(w * 10) / 10, h: Math.round(h * 10) / 10 };
+  }
+  /** 끄는 동안 외곽선과 네 손잡이를 같이 움직인다 */
+  function previewRect(r, pts) {
+    if (r.gfx && r.gfx.outline) r.gfx.outline.setPath(pts.map(p => new kakao.maps.LatLng(p.lat, p.lng)));
+    (r.gfx && r.gfx.handles || []).forEach((hd, i) => { const o = pts[i]; if (!o) return; const m = 0.8 / 111320, mx = 0.8 / (111320 * Math.cos(o.lat * Math.PI / 180)); hd.setPath([[o.lat - m, o.lng - mx], [o.lat - m, o.lng + mx], [o.lat + m, o.lng + mx], [o.lat + m, o.lng - mx]].map(q => new kakao.maps.LatLng(q[0], q[1]))); });
+  }
   /** 모서리 idx 를 geo 자리로 끌었다: 반대 모서리는 그대로 두고 폭·깊이·중심을 다시 잡는다 */
   function resizeRect(r, idx, geo) {
     const rc = r.rect; if (!rc) return;
-    // 어느 모서리를 끌든 중심은 그대로, 끌린 자리까지의 가로·세로를 양쪽으로 똑같이 늘리거나 줄인다(2026-10-15 사용자 지시)
-    const q = Layout.rotate(Layout.toLocal([geo], rc.c)[0], -(rc.ang || 0));            // 사각형 틀 안 좌표
-    const w = Math.max(3, 2 * Math.abs(q.x)), h = Math.max(3, 2 * Math.abs(q.y));
-    rc.w = Math.round(w * 10) / 10; rc.h = Math.round(h * 10) / 10;
+    // 끌린 모서리가 손을 그대로 따라오고 반대 모서리는 제자리 — 네 점이 늘 사각형을 이룬다(2026-10-15 사용자 지시)
+    const nr = rectFromCorner(rc, idx, geo);
+    rc.c = nr.c; rc.w = nr.w; rc.h = nr.h;
     r.points = rectPoints(rc); r.name = '주차장 ' + rc.w + '×' + rc.h + 'm';
     recompute(r); renderList(); save();
-    hint(r.name + ' — 크기를 바꿨습니다(중심 고정). 모서리를 끌면 크기, 안쪽을 꾹 눌러 끌면 이동, ↶↷ 로 사각형째 1° 회전.');
+    hint(r.name + ' — 크기를 바꿨습니다. 네 점 중 아무거나 끌면 크기, 안쪽을 꾹 눌러 끌면 이동, ↶↷ 로 사각형째 1° 회전.');
   }
   /** 「주차장」 형태를 누르면 지도 가운데에 사각형 주차장(16×10m)을 놓는다 */
   function addParkingRect() {
@@ -1328,9 +1343,8 @@
     const roof = smallest(roofs, r => r.points);
     if (roof) {
       // 누르면 선택만 한다. (예전엔 선택된 지붕을 다시 누르면 지워져서 그린 직후 실수로 사라졌다 → 삭제는 목록의 「삭제」로만)
-      // 이미 고른 지붕을 다시 누르면 화면(확대)은 그대로 둔다 — 벤츄레이터 놓기 등 작업 중 화면이 튀지 않게
-      const same = roof.id === selectedId;
-      select(roof.id); if (!same) fitRoof(roof); return;
+      // 지도에서 지붕·건물을 눌러도 화면(확대)은 그대로 둔다(2026-10-15 사용자 지시). 화면 맞춤은 목록 카드를 눌렀을 때만.
+      select(roof.id); return;
     }
     const bd = smallest(buildings, b => b.ring);
     if (bd) { adoptBuilding(bd, curType); renderList(); save(); return; }
@@ -1721,7 +1735,7 @@
     label.setMap(map);
 
     // 모양 편집 중인 주차장: 꼭짓점마다 하늘색 손잡이(1.6m 네모). 꾹 눌러 끌면 그 꼭짓점이 움직이고, 탭 후 Del 로 뺀다
-    const handles = shapeEdit === r.id ? r.points.map((p, i) => {
+    const handles = (shapeEdit === r.id || (r.rect && r.id === selectedId)) ? r.points.map((p, i) => {
       const o = p, m = 0.8 / 111320, mx = 0.8 / (111320 * Math.cos(o.lat * Math.PI / 180));
       const on = picked && picked.roofId === r.id && picked.kind === 'vertex' && picked.idx === i;
       const pg = new kakao.maps.Polygon({ path: [[o.lat - m, o.lng - mx], [o.lat - m, o.lng + mx], [o.lat + m, o.lng + mx], [o.lat + m, o.lng - mx]].map(q => new kakao.maps.LatLng(q[0], q[1])),
