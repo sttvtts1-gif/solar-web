@@ -1052,7 +1052,10 @@
         const dM = Math.hypot(dLat * 110574, dLng * 111320 * Math.cos(c.lat * Math.PI / 180));
         if (dM < 0.2) { recompute(r); renderList(); hint(r.name + ' 벤츄레이터 — 제자리입니다.'); return; }
         if (!Array.isArray(r.ventPos)) r.ventPos = [];
-        r.ventPos[idx] = { lat: c.lat + dLat, lng: c.lng + dLng };
+        // 끈 것이 자동 벤츄레이터면 그 자동 순번(ventPos), 손으로 놓은 것이면 ventExtra 를 고친다 (화면 순번 idx 와 다르다)
+        const ref = (r.result && r.result.ventRefs && r.result.ventRefs[idx]) || { auto: idx };
+        if (ref.extra != null) r.ventExtra[ref.extra] = { lat: c.lat + dLat, lng: c.lng + dLng };
+        else r.ventPos[ref.auto] = { lat: c.lat + dLat, lng: c.lng + dLng };
         recompute(r); renderList(); save();
         hint(r.name + ' 벤츄레이터 ' + (idx + 1) + ' — ' + dM.toFixed(1) + 'm 옮기고 그 자리 기준으로 다시 배치했습니다. 「벤츄 N개」를 다시 넣으면 자동 자리로.');
         return;
@@ -1325,7 +1328,9 @@
     const roof = smallest(roofs, r => r.points);
     if (roof) {
       // 누르면 선택만 한다. (예전엔 선택된 지붕을 다시 누르면 지워져서 그린 직후 실수로 사라졌다 → 삭제는 목록의 「삭제」로만)
-      select(roof.id); fitRoof(roof); return;
+      // 이미 고른 지붕을 다시 누르면 화면(확대)은 그대로 둔다 — 벤츄레이터 놓기 등 작업 중 화면이 튀지 않게
+      const same = roof.id === selectedId;
+      select(roof.id); if (!same) fitRoof(roof); return;
     }
     const bd = smallest(buildings, b => b.ring);
     if (bd) { adoptBuilding(bd, curType); renderList(); save(); return; }
@@ -1670,7 +1675,8 @@
       strokeWeight: merged ? 0 : (sel ? 3 : 2), strokeOpacity: merged ? 0 : 0.8, strokeColor: lineColor, fillColor: res.banned ? '#ff0000' : '#000', fillOpacity: res.banned ? 0.25 : 0.05, zIndex: 1,
     });
     outline.setMap(map);
-    kakao.maps.event.addListener(outline, 'click', e => { if (drawing) return; pickAt(e && e.latLng ? { lat: e.latLng.getLat(), lng: e.latLng.getLng() } : Layout.centroid(r.points)); });
+    // 벤츄 추가·모양 편집 중엔 지붕 탭이 선택/확대로 가지 않게(지도 click 이 그 탭을 처리한다)
+    kakao.maps.event.addListener(outline, 'click', e => { if (drawing || ventAdd || shapeEdit) return; pickAt(e && e.latLng ? { lat: e.latLng.getLat(), lng: e.latLng.getLng() } : Layout.centroid(r.points)); });
 
     // 모듈 하나당 폴리곤 하나. 수백 장은 문제없고 수천 장이면 느려질 수 있다.
     const mods = res.modules.map(c => {
