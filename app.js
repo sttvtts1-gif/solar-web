@@ -936,7 +936,7 @@
       for (const r of roofs) {
         if (!r.rect) continue;
         const loc = Layout.toLocal(r.points, p);
-        for (let i = 0; i < 4; i++) if (Math.hypot(loc[i].x, loc[i].y) <= 2.5) return { roof: r, idx: i };
+        for (let i = 0; i < 4; i++) if (Math.hypot(loc[i].x, loc[i].y) <= 3.5) return { roof: r, idx: i };
       }
       return null;
     };
@@ -1027,7 +1027,9 @@
         return;
       }
       if (moving.corner) {
-        const r = moving.corner.roof, pts = moving.orig.map((p, i) => i === moving.corner.idx ? { lat: p.lat + dLat, lng: p.lng + dLng } : p);
+        const r = moving.corner.roof, rc = r.rect, g0 = moving.orig[moving.corner.idx], geo = { lat: g0.lat + dLat, lng: g0.lng + dLng };
+        const q = Layout.rotate(Layout.toLocal([geo], rc.c)[0], -(rc.ang || 0));
+        const pts = rectPoints({ c: rc.c, w: Math.max(3, 2 * Math.abs(q.x)), h: Math.max(3, 2 * Math.abs(q.y)), ang: rc.ang });   // 중심 고정 미리보기
         if (r.gfx && r.gfx.outline) r.gfx.outline.setPath(pts.map(p => new kakao.maps.LatLng(p.lat, p.lng)));
         moving.last = ll;
         return;
@@ -1135,15 +1137,13 @@
   /** 모서리 idx 를 geo 자리로 끌었다: 반대 모서리는 그대로 두고 폭·깊이·중심을 다시 잡는다 */
   function resizeRect(r, idx, geo) {
     const rc = r.rect; if (!rc) return;
+    // 어느 모서리를 끌든 중심은 그대로, 끌린 자리까지의 가로·세로를 양쪽으로 똑같이 늘리거나 줄인다(2026-10-15 사용자 지시)
     const q = Layout.rotate(Layout.toLocal([geo], rc.c)[0], -(rc.ang || 0));            // 사각형 틀 안 좌표
-    const sx = (idx === 1 || idx === 2) ? 1 : -1, sy = (idx >= 2) ? 1 : -1;               // 그 모서리의 부호
-    const ox = -sx * rc.w / 2, oy = -sy * rc.h / 2;                                        // 반대 모서리
-    const w = Math.max(3, Math.abs(q.x - ox)), h = Math.max(3, Math.abs(q.y - oy));
-    const mid = Layout.rotate({ x: (ox + (ox + sx * w)) / 2, y: (oy + (oy + sy * h)) / 2 }, rc.ang || 0);
-    rc.c = Layout.toGeo([mid], rc.c)[0]; rc.w = Math.round(w * 10) / 10; rc.h = Math.round(h * 10) / 10;
+    const w = Math.max(3, 2 * Math.abs(q.x)), h = Math.max(3, 2 * Math.abs(q.y));
+    rc.w = Math.round(w * 10) / 10; rc.h = Math.round(h * 10) / 10;
     r.points = rectPoints(rc); r.name = '주차장 ' + rc.w + '×' + rc.h + 'm';
     recompute(r); renderList(); save();
-    hint(r.name + ' — 크기를 바꿨습니다. 모서리를 끌면 크기, 안쪽을 꾹 눌러 끌면 이동, ↶↷ 로 1° 씩 회전.');
+    hint(r.name + ' — 크기를 바꿨습니다(중심 고정). 모서리를 끌면 크기, 안쪽을 꾹 눌러 끌면 이동, ↶↷ 로 사각형째 1° 회전.');
   }
   /** 「주차장」 형태를 누르면 지도 가운데에 사각형 주차장(16×10m)을 놓는다 */
   function addParkingRect() {
@@ -1868,7 +1868,11 @@
         // 방위각: 1° 씩 돌리는 버튼 + 숫자 입력(정남 0, 서 +, 동 −)
         const stop = e => e.stopPropagation();
         let bz = null;
-        const turn = dv => { r.azimuth = Math.max(-90, Math.min(90, Math.round(((r.azimuth || 0) + dv)))); recompute(r); if (bz) bz.textContent = '방위 ' + r.azimuth + '°'; save(); };
+        // 사각형 주차장은 ↶↷ 가 사각형째 돌린다(모듈은 사각형에 자동 맞춤). 그 외는 방위각만.
+        const turn = dv => {
+          if (r.rect) { const rc = r.rect; rc.ang = ((rc.ang || 0) - dv + 540) % 360 - 180; r.azimuth = null; r.points = rectPoints(rc); recompute(r); if (bz) bz.textContent = '사각형 ' + Math.round(-rc.ang) + '°'; save(); return; }
+          r.azimuth = Math.max(-90, Math.min(90, Math.round(((r.azimuth || 0) + dv)))); recompute(r); if (bz) bz.textContent = '방위 ' + r.azimuth + '°'; save();
+        };
         // 한 번 누르면 1°, 꾹 누르면 0.35초 뒤부터 빠르게(90ms 마다 1°, 1.5초 지나면 3°씩)
         const hold = (btn, dv) => {
           let timer = null, ticks = 0, fired = false;
@@ -1878,26 +1882,16 @@
           btn.onclick = stop; btn.oncontextmenu = e => e.preventDefault(); btn.style.touchAction = 'none';
         };
         const bl = document.createElement('button'); bl.className = 'btn ghost'; bl.textContent = '↶1°'; bl.title = '동쪽으로 1° (꾹 누르면 빠르게)'; hold(bl, -1);
-        bz = document.createElement('button'); bz.className = 'btn ghost'; bz.textContent = r.azimuth == null && r.type === 'parking' ? '방위 자동' : '방위 ' + (r.azimuth || 0) + '°'; bz.title = '방위각 직접 입력 (정남 0 · 서 + · 동 −). 주차장은 비우면 주차장 방향에 자동 맞춤';
+        bz = document.createElement('button'); bz.className = 'btn ghost'; bz.textContent = r.rect && r.azimuth == null ? '사각형 ' + Math.round(-(r.rect.ang || 0)) + '°' : r.azimuth == null && r.type === 'parking' ? '방위 자동' : '방위 ' + (r.azimuth || 0) + '°'; bz.title = '방위각 직접 입력 (정남 0 · 서 + · 동 −). 주차장은 비우면 주차장 방향에 자동 맞춤';
         bz.onclick = e => { stop(e); const s = prompt(r.name + ' 방위각 (°) — 정남 0, 서쪽 +, 동쪽 − (±90)' + (r.type === 'parking' ? '. 비우면 주차장 방향 자동' : ''), r.azimuth == null ? '' : r.azimuth); if (s === null) return; const v = parseFloat(s); if (s.trim() === '' && r.type === 'parking') { r.azimuth = null; recompute(r); renderList(); save(); } else if (isFinite(v)) { r.azimuth = 0; turn(v); renderList(); } };
         const br = document.createElement('button'); br.className = 'btn ghost'; br.textContent = '1°↷'; br.title = '서쪽으로 1° (꾹 누르면 빠르게)'; hold(br, 1);
         d.appendChild(bl); d.appendChild(bz); d.appendChild(br);
         if (r.rect) {
-          // 사각형 주차장: 사각형 자체를 1° 씩 돌린다(방위각과 별개) + 크기 숫자 입력
+          // 사각형 주차장: 크기 숫자 입력 (회전은 위 ↶↷ 가 사각형째 돌린다)
           const rc = r.rect;
-          const turnRect = dv => { rc.ang = ((rc.ang || 0) + dv + 180) % 360 - 180; r.points = rectPoints(rc); recompute(r); if (rb) rb.textContent = '사각형 ' + Math.round(rc.ang) + '°'; save(); };
-          const holdR = (btn, dv) => {
-            let timer = null, ticks = 0, fired = false;
-            const start = e => { stop(e); e.preventDefault(); fired = false; ticks = 0; timer = setTimeout(function rep() { fired = true; ticks++; turnRect(dv * (ticks > 15 ? 3 : 1)); timer = setTimeout(rep, 90); }, 350); };
-            const end = e => { if (timer) { clearTimeout(timer); timer = null; } if (e && e.type === 'pointerup' && !fired) turnRect(dv); fired = false; };
-            btn.addEventListener('pointerdown', start); btn.addEventListener('pointerup', end); btn.addEventListener('pointerleave', end); btn.addEventListener('pointercancel', end);
-            btn.onclick = stop; btn.oncontextmenu = e => e.preventDefault(); btn.style.touchAction = 'none';
-          };
-          const rl = document.createElement('button'); rl.className = 'btn ghost'; rl.textContent = '↶사각형'; rl.title = '사각형을 반시계로 1° (꾹 누르면 빠르게)'; holdR(rl, 1);
-          const rb = document.createElement('button'); rb.className = 'btn ghost'; rb.textContent = '사각형 ' + Math.round(rc.ang || 0) + '°'; rb.title = '사각형 크기 입력 (가로 세로 m)';
+          const rb = document.createElement('button'); rb.className = 'btn ghost'; rb.textContent = '크기 ' + rc.w + '×' + rc.h; rb.title = '사각형 크기 입력 (가로 세로 m). 지도에서 모서리를 꾹 눌러 끌어도 된다';
           rb.onclick = e => { stop(e); const s = prompt(r.name + ' — 가로 세로 (m)', rc.w + ' ' + rc.h); if (s === null) return; const m = s.trim().split(/[\s,x×]+/).map(parseFloat); if (!(m[0] >= 3 && m[1] >= 3)) return; rc.w = m[0]; rc.h = m[1]; r.points = rectPoints(rc); r.name = '주차장 ' + rc.w + '×' + rc.h + 'm'; recompute(r); renderList(); save(); };
-          const rr = document.createElement('button'); rr.className = 'btn ghost'; rr.textContent = '사각형↷'; rr.title = '사각형을 시계로 1° (꾹 누르면 빠르게)'; holdR(rr, -1);
-          d.appendChild(rl); d.appendChild(rb); d.appendChild(rr);
+          d.appendChild(rb);
         }
         if (r.type === 'parking') {
           const sh = document.createElement('button'); sh.className = 'btn ' + (shapeEdit === r.id ? 'accent' : 'ghost'); sh.textContent = shapeEdit === r.id ? '모양 편집 중' : '모양'; sh.title = '꼭짓점을 끌어 모양을 바꾼다(형태「주차장」을 다시 눌러도 된다)';
