@@ -980,7 +980,11 @@
           map.setDraggable(false); map.setZoomable(false);
           if (navigator.vibrate) navigator.vibrate(40);
           if (roof.gfx && roof.gfx.outline) roof.gfx.outline.setOptions({ strokeColor: '#00e5ff', strokeWeight: 4 });
-          hint(roof.name + ' — 모서리를 끌어 크기를 바꾸세요. 반대쪽 모서리는 그대로.');
+          // 고정되는 대각선 반대 점을 빨갛게 — 어느 점이 기준인지 보이게
+          const opp = (corner.idx + 2) % 4, hd = roof.gfx && roof.gfx.handles && roof.gfx.handles[opp];
+          if (hd) hd.setOptions({ fillColor: '#ff3b3b', strokeColor: '#fff', strokeWeight: 3 });
+          const CLOCK = ['7시', '5시', '1시', '11시'];   // 돌리기 전 기준(서남·동남·동북·서북)
+          hint(roof.name + ' — ' + CLOCK[corner.idx] + ' 점을 끌면 대각선 ' + CLOCK[opp] + ' 점(빨강)은 고정, 나머지 두 점은 가로·세로만 따라옵니다.');
           return;
         }
         if (ridge) {
@@ -1161,7 +1165,7 @@
     rc.c = nr.c; rc.w = nr.w; rc.h = nr.h;
     r.points = rectPoints(rc); r.name = '주차장 ' + rc.w + '×' + rc.h + 'm';
     recompute(r); renderList(); save();
-    hint(r.name + ' — 크기를 바꿨습니다. 네 점 중 아무거나 끌면 크기, 안쪽을 꾹 눌러 끌면 이동, ↶↷ 로 사각형째 1° 회전.');
+    hint(r.name + ' — 크기를 바꿨습니다(대각선 반대 점 고정). 네 점 중 아무거나 끌면 크기, 안쪽을 꾹 눌러 끌면 이동, ↶↷ 로 사각형째 1° 회전.');
   }
   /** 「주차장」 형태를 누르면 지도 가운데에 사각형 주차장(16×10m)을 놓는다 */
   function addParkingRect() {
