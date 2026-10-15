@@ -159,7 +159,7 @@ const View3D = (() => {
   }
 
   /** 모듈 판 전부를 하나의 geometry 로. 각 판: 지붕면 높이 + 0.3, 뒤 두 꼭짓점은 경사각만큼 더 올린다. */
-  function modulesMesh(roof, o, surf) {
+  function modulesMesh(roof, o, surf, colorOverride) {
     const th = roof.rowAngle * Math.PI / 180, fx = Math.sin(th), fy = -Math.cos(th);   // 앞면이 보는 방향
     const rise = roof.dSlope * Math.sin(roof.tilt * Math.PI / 180);
     const pos = [], idx = [], uv = [];
@@ -180,7 +180,8 @@ const View3D = (() => {
     geo.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
     geo.setIndex(idx);
     geo.computeVertexNormals();
-    const mat = new THREE.MeshLambertMaterial({ map: moduleTexture(), color: roof.banned ? 0xff8080 : 0xffffff, side: THREE.DoubleSide });
+    const mat = colorOverride ? new THREE.MeshLambertMaterial({ color: colorOverride, side: THREE.DoubleSide, transparent: true, opacity: 0.85 })   // 음영으로 뺀 자리(빨강)
+      : new THREE.MeshLambertMaterial({ map: moduleTexture(), color: roof.banned ? 0xff8080 : 0xffffff, side: THREE.DoubleSide });
     const mesh = new THREE.Mesh(geo, mat);
     mesh.castShadow = true; mesh.receiveShadow = true;
     return mesh;
@@ -195,6 +196,8 @@ const View3D = (() => {
     scene.add(new THREE.AmbientLight(0xffffff, 0.25));
     const sun = new THREE.DirectionalLight(0xfff4e0, 0.9);
     sun.position.set(120, 220, 160);                 // 남동쪽 위 (z+ 가 남)
+    sunLight = sun; sunLat = data.lat || o.lat || 36;
+    setSunHour(Number((document.getElementById('v3d_hour') || {}).value) || 10);
     sun.castShadow = true;
     sun.shadow.mapSize.set(2048, 2048);
     const sc = sun.shadow.camera; sc.left = -400; sc.right = 400; sc.top = 400; sc.bottom = -400; sc.near = 1; sc.far = 1000;
@@ -215,6 +218,14 @@ const View3D = (() => {
       scene.add(extrude(xy, b.h, 0xbfc3c9, 1));
       maxH = Math.max(maxH, b.h);
     });
+    // 전기실(상자 2.5m)·사다리(처마까지 기둥 두 개 + 가로대)
+    (data.fixtures || []).forEach(f => {
+      const xy = local(f.ring, o);
+      if (f.kind === 'elec') { const m = extrude(xy, f.hgt || 2.5, 0x7b8794, 1); m.position.y = f.baseH || 0; scene.add(m); return; }
+      // 사다리: 지면에서 처마(가장 가까운 건물 지붕 높이)까지
+      const top = Math.max(2, (data.roofs.filter(r => r.type !== 'ground' && r.type !== 'parking').map(r => r.baseH).sort((a, b) => Math.abs(a - 4) - Math.abs(b - 4))[0]) || 4);
+      const m = extrude(xy, top + 0.9, 0xd9d9d9, 1); scene.add(m);
+    });
     data.roofs.forEach(r => {
       const surf = roofSurface(r, o);
       r.rings.forEach(rg => {
@@ -229,6 +240,7 @@ const View3D = (() => {
       });
       if (r.kind !== 'flat' && surf.t) scene.add(gableMesh(r, o, surf));           // 박공지붕
       if (r.modules && r.modules.length) scene.add(modulesMesh(r, o, surf));
+      if (r.shadedModules && r.shadedModules.length) scene.add(modulesMesh(Object.assign({}, r, { modules: r.shadedModules, moduleZ: null }), o, surf, 0xff3b3b));   // 음영으로 뺀 자리 = 빨강
       maxH = Math.max(maxH, r.baseH + (surf.t ? Math.max(surf.maxX - surf.minX, surf.maxY - surf.minY) / surf.n / 2 * surf.t : 0));
     });
     if (!isFinite(minX)) { minX = -50; maxX = 50; minY = -50; maxY = 50; }
@@ -274,8 +286,20 @@ const View3D = (() => {
     el.addEventListener('wheel', e => { e.preventDefault(); view.dist = Math.max(20, Math.min(3000, view.dist * (e.deltaY > 0 ? 1.12 : 0.9))); }, { passive: false });
   }
 
+  let sunLight = null, sunLat = 36;
+  /** 동지(적위 −23.44°) 기준 시각 → 태양 방향으로 조명을 둔다. 장면: x 동, y 위, z 남(+) */
+  function setSunHour(h) {
+    if (!sunLight) return;
+    const sp = (typeof Layout !== 'undefined' && Layout.sunPositions) ? Layout.sunPositions(sunLat, [h])[0] : null;
+    const alt = sp ? sp.alt : 30 * Math.PI / 180, az = sp ? sp.az : Math.PI;            // az: 북 0, 시계방향
+    const R = 300, cosA = Math.cos(alt);
+    sunLight.position.set(R * cosA * Math.sin(az), R * Math.max(0.05, Math.sin(alt)), -R * cosA * Math.cos(az));
+    sunLight.intensity = 0.55 + 0.45 * Math.max(0, Math.sin(alt)) * 2;
+    const t = document.getElementById('v3d_hourTxt'); if (t) t.textContent = '동지 ' + (Number.isInteger(h) ? h : h.toFixed(1)) + '시 · 고도 ' + Math.round(alt * 180 / Math.PI) + '°';
+  }
   function open(data) {
     const modal = document.getElementById('view3dModal'), host = document.getElementById('v3d_host');
+    const hr = document.getElementById('v3d_hour'); if (hr && !hr.__bound) { hr.__bound = true; hr.addEventListener('input', () => setSunHour(Number(hr.value))); }
     modal.classList.add('on');
     close(true);
     renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
@@ -300,10 +324,16 @@ const View3D = (() => {
     if (!keepModal) document.getElementById('view3dModal').classList.remove('on');
   }
 
-  function snapshot() {
-    if (!renderer) return null;
-    renderer.render(scene, camera);
-    return renderer.domElement.toDataURL('image/png');
+  /** 창이 열려 있으면 지금 화면을, data 를 주면 창 없이 화면 밖에서 한 장 그린다(제안서 표지용, 2026-10-16) */
+  function snapshot(data, w, h) {
+    if (renderer) { renderer.render(scene, camera); return renderer.domElement.toDataURL('image/png'); }
+    if (!data) return null;
+    w = w || 1600; h = h || 1000;
+    const r = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
+    r.shadowMap.enabled = true; r.setPixelRatio(1); r.setSize(w, h);
+    renderer = r; camera = new THREE.PerspectiveCamera(50, w / h, 0.5, 5000);
+    try { build(data); view.az = -35; view.el = 32; place(); r.render(scene, camera); return r.domElement.toDataURL('image/png'); }
+    finally { r.dispose(); renderer = null; }
   }
 
   return { open, close, snapshot, toggleAuto: () => { auto = !auto; return auto; } };

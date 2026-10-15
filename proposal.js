@@ -37,6 +37,32 @@ const Proposal = (() => {
   function toXY(ring, o) { const k = M_LNG(o.lat); return ring.map(p => ({ x: (p.lng - o.lng) * k, y: (p.lat - o.lat) * M_LAT })); }
 
   /** 설계도면식 배치도 PNG. 건물 외곽(검정), 모듈(남색), 동 번호·용량, 북쪽 화살표, 축척. */
+  /** 처마·옆·용마루 이격 치수선(빨강, mm). 짧은 선이라 글씨는 선 옆에 */
+  function drawDims(g, dims, o, X, Y, fs) {
+    (dims || []).forEach(dm => {
+      const a = toXY([dm.a], o)[0], b = toXY([dm.b], o)[0], ax = X(a.x), ay = Y(a.y), bx = X(b.x), by = Y(b.y);
+      g.strokeStyle = '#e0251f'; g.fillStyle = '#e0251f'; g.lineWidth = 1.2;
+      g.beginPath(); g.moveTo(ax, ay); g.lineTo(bx, by); g.stroke();
+      const vert = Math.abs(bx - ax) < Math.abs(by - ay);
+      [[ax, ay], [bx, by]].forEach(([x, y]) => { g.beginPath(); if (vert) { g.moveTo(x - 5, y); g.lineTo(x + 5, y); } else { g.moveTo(x, y - 5); g.lineTo(x, y + 5); } g.stroke(); });
+      g.font = 'bold ' + fs + 'px ' + FONT; g.textBaseline = 'middle';
+      if (vert) { g.textAlign = 'left'; g.fillText(dm.text, Math.max(ax, bx) + 6, (ay + by) / 2); }
+      else { g.textAlign = 'center'; g.fillText(dm.text, (ax + bx) / 2, Math.min(ay, by) - fs * 0.7); }
+    });
+  }
+  /** 전기실(회색 상자)·사다리(검정) */
+  function drawFixtures(g, fixtures, o, X, Y, fs) {
+    (fixtures || []).forEach(f => {
+      const ring = toXY(f.ring, o);
+      g.beginPath(); ring.forEach((p, i) => i ? g.lineTo(X(p.x), Y(p.y)) : g.moveTo(X(p.x), Y(p.y))); g.closePath();
+      g.fillStyle = f.kind === 'elec' ? '#8d99a6' : '#222'; g.fill(); g.strokeStyle = '#111'; g.lineWidth = 1.5; g.stroke();
+      const c = toXY([f.c], o)[0];
+      g.font = 'bold ' + fs + 'px ' + FONT; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillStyle = '#111';
+      const tw = g.measureText(f.label).width + 8;
+      g.fillStyle = 'rgba(255,255,255,.9)'; g.fillRect(X(c.x) - tw / 2, Y(c.y) - (f.kind === 'elec' ? 0 : fs * 1.6) - fs * 0.7, tw, fs * 1.4);
+      g.fillStyle = '#111'; g.fillText(f.label, X(c.x), Y(c.y) - (f.kind === 'elec' ? 0 : fs * 1.6));
+    });
+  }
   function drawPlan(data) {
     const W = 1600, H = 1000, pad = 70;
     const cv = document.createElement('canvas'); cv.width = W; cv.height = H;
@@ -60,6 +86,7 @@ const Proposal = (() => {
       r.modules.forEach(m => { path(toXY(m, o)); g.fill(); g.stroke(); });
       // 용마루(원단): 점선
       if (r.ridges) { g.setLineDash([8, 6]); g.strokeStyle = '#c0392b'; g.lineWidth = 1.5; r.ridges.forEach(seg => { const s = toXY(seg, o); g.beginPath(); g.moveTo(X(s[0].x), Y(s[0].y)); g.lineTo(X(s[1].x), Y(s[1].y)); g.stroke(); }); g.setLineDash([]); }
+      drawDims(g, r.dims, o, X, Y, 15);
       // 라벨
       const c = toXY([r.centroid], o)[0];
       const label = (i + 1) + '동 ' + r.kw.toFixed(1) + 'kW';
@@ -70,6 +97,7 @@ const Proposal = (() => {
       g.fillStyle = '#111'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(label, lx, ly);
       g.font = '16px ' + FONT; g.fillText(r.typeLabel + ' · ' + r.count + 'EA', lx, ly + 28);
     });
+    drawFixtures(g, data.fixtures, o, X, Y, 15);
     // 북쪽 화살표 · 축척
     g.strokeStyle = '#111'; g.fillStyle = '#111'; g.lineWidth = 3;
     g.beginPath(); g.moveTo(W - 60, 120); g.lineTo(W - 60, 40); g.stroke();
@@ -479,9 +507,41 @@ const Proposal = (() => {
    * @param zipBuf ArrayBuffer|Buffer  @param d build() 과 같은 데이터  @param imgs { plan:dataURL, section:dataURL } (없으면 그림은 그대로)
    * @returns Promise<Blob|Buffer>
    */
+  /** 도형 이름으로 글 바꾸기(첫 런에 전부, 나머지 런은 비움) */
+  function setShapeText(xml, shapeName, text) {
+    const i = xml.indexOf('name="' + shapeName + '"'); if (i < 0) return xml;
+    const s = xml.lastIndexOf('<p:sp>', i), e = xml.indexOf('</p:sp>', i) + 7;
+    if (s < 0 || e < 7) return xml;
+    const esc = t => String(t).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    let first = true;
+    const seg = xml.slice(s, e).replace(/<a:t>[^<]*<\/a:t>/g, () => { if (first) { first = false; return '<a:t>' + esc(text) + '</a:t>'; } return '<a:t></a:t>'; });
+    return xml.slice(0, s) + seg + xml.slice(e);
+  }
+  /** PNG dataURL → 원본 그림 확장자에 맞춘 바이트 (jpg 자리면 jpeg 로) */
+  async function bytesFor(dataUrl, target) {
+    if (!/\.jpe?g$/i.test(target) || typeof document === 'undefined') return dataUrlBytes(dataUrl);
+    const im = await new Promise((res, rej) => { const i = new Image(); i.onload = () => res(i); i.onerror = rej; i.src = dataUrl; });
+    const cv = document.createElement('canvas'); cv.width = im.naturalWidth; cv.height = im.naturalHeight; cv.getContext('2d').drawImage(im, 0, 0);
+    return dataUrlBytes(cv.toDataURL('image/jpeg', 0.92));
+  }
   async function fillTemplate(zipBuf, d, imgs) {
     const JZ = (typeof window !== 'undefined' && (window.JSZipLib || window.JSZip)) || (typeof JSZip !== 'undefined' ? JSZip : require('jszip'));
     const zip = await JZ.loadAsync(zipBuf, { createFolders: false });
+    // 1쪽 표지: 제일 큰 그림(업체 사진 자리)을 로드뷰/3D 로 바꾸고, 업체명·주소 글을 현장 것으로 (2026-10-16 사용자 지시)
+    if (imgs && imgs.cover && zip.file('ppt/slides/slide1.xml')) {
+      let s1 = await zip.file('ppt/slides/slide1.xml').async('string');
+      const rels = zip.file('ppt/slides/_rels/slide1.xml.rels') ? await zip.file('ppt/slides/_rels/slide1.xml.rels').async('string') : '';
+      let best = null;
+      for (const m of s1.matchAll(/<p:pic>[\s\S]*?<\/p:pic>/g)) { const ext = /<a:ext cx="(\d+)" cy="(\d+)"/.exec(m[0]), rid = /r:embed="([^"]+)"/.exec(m[0]); if (ext && rid) { const a = +ext[1] * +ext[2]; if (!best || a > best.a) best = { a, rid: rid[1] }; } }
+      if (best) {
+        const rel = [...rels.matchAll(/<Relationship [^>]*\/>/g)].map(m => m[0]).find(t => t.indexOf('Id="' + best.rid + '"') >= 0);
+        const tm = rel && /Target="([^"]+)"/.exec(rel);
+        if (tm) { const target = ('ppt/slides/' + tm[1]).replace('slides/../', ''); zip.file(target, await bytesFor(imgs.cover, target)); }
+      }
+      if (d.site && d.site.name) s1 = setShapeText(s1, 'TextBox 2', d.site.name);
+      if (d.site && d.site.addr) s1 = setShapeText(s1, 'TextBox 3', d.site.addr);
+      zip.file('ppt/slides/slide1.xml', s1);
+    }
     // 37쪽: 위성사진 배치도(앱 화면 꼴). 그 뒤에 CAD 도면 배치도를 한 장 더 넣는다(37-2). 38쪽: 측면도.
     if (imgs && imgs.planMap) zip.file('ppt/media/image141.png', dataUrlBytes(imgs.planMap));
     if (imgs && imgs.plan) {
@@ -712,7 +772,9 @@ const Proposal = (() => {
       g.fillStyle = col; g.strokeStyle = opt.satellite ? '#ff00ff' : '#fff'; g.lineWidth = 0.5;
       r.modules.forEach(m => { path(toXY(m, o)); g.fill(); g.stroke(); });
       if (r.ridges) { g.setLineDash([6, 4]); g.strokeStyle = '#555'; g.lineWidth = 1; r.ridges.forEach(seg => { const s = toXY(seg, o); g.beginPath(); g.moveTo(X(s[0].x), Y(s[0].y)); g.lineTo(X(s[1].x), Y(s[1].y)); g.stroke(); }); g.setLineDash([]); }
+      drawDims(g, r.dims, o, X, Y, 14);
     });
+    drawFixtures(g, d.fixtures, o, X, Y, 13);
     g.restore();
     // 라벨 상자: 동 이름 / kW(빨강) / (W × EA). 배치를 가리지 않게 도면 영역 좌·우 여백에 세우고, 지붕 외곽의 가장 가까운 점까지 지시선.
     const bw = 190, bh = 74, cxA = area.x + area.w / 2;

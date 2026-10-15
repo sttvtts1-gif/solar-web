@@ -442,7 +442,7 @@ const Layout = (() => {
     const laidW = nFit ? xs[nFit - 1] + w : 0;
     const xOff = (usableW - laidW) / 2;
 
-    const modules = [];
+    const modules = [], shadedMods = [];
     let rows = 0, shaded = 0;
     // 모듈 모서리·중심 중 하나라도 그림자 조각 안에 들면 음영. 조각은 회전 전 좌표라 되돌려서 본다.
     // 지붕 위 물체 자리에 걸치는 모듈은 음영 고려와 상관없이 뺀다.
@@ -467,7 +467,7 @@ const Layout = (() => {
         const mid = { x: (c[0].x + c[2].x) / 2, y: (c[0].y + c[2].y) / 2 };
         if (c.concat([mid]).every(p => inSite(p) && (m === 0 || farEnough(p)))) {
           if (onBlocker(c)) { blocked++; continue; }
-          if (inShadow(c)) { shaded++; continue; }
+          if (inShadow(c)) { shaded++; shadedMods.push(c); continue; }
           modules.push(c); moduleZ.push(zAt[ri] || null);
           placedInRow++;
         }
@@ -476,9 +476,11 @@ const Layout = (() => {
     });
 
     const geoModules = modules.map(c => toGeo(c.map(p => rotate(p, row.angle)), o));
+    const shadedModules = shadedMods.map(c => toGeo(c.map(p => rotate(p, row.angle)), o));   // 음영으로 뺀 자리(3D·검토용)
     const count = modules.length;
     return {
       modules: geoModules,
+      shadedModules,
       count,
       shaded,
       blocked,

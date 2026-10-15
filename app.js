@@ -47,6 +47,9 @@
   let edits = [];
   let editing = false, editOp = 'del';
   let obsGfx = [];               // 지도에 그린 장애물 상자
+  let fixtures = [];             // 전기실·사다리 { id, kind:'elec'|'ladder', c:{lat,lng}, w, h, ang }  (현장 단위, 2026-10-16)
+  let fixGfx = [];               // 지도에 그린 전기실·사다리
+  const FIX = { elec: { label: '전기실', color: '#5b6b7a', hgt: 2.5 }, ladder: { label: '사다리', color: '#111', hgt: 0 } };
   const heights = {};            // 건물 id → 대장 높이(m) (음영용, 앱을 켤 때마다 다시 받음)
   let heightJob = null;
   // 설정(⚙) 의 공통값. 모듈 치수는 mm 로 받아 m 로 넘긴다.
@@ -119,7 +122,7 @@
     });
 
     // 문제 확인용 읽기 전용 손잡이 (콘솔에서 __solar.buildings 등)
-    window.__solar = { get map() { return map; }, get buildings() { return buildings; }, get roofs() { return roofs; } };
+    window.__solar = { get map() { return map; }, get buildings() { return buildings; }, get roofs() { return roofs; }, get fixtures() { return fixtures; }, snapshot3d: (w, h) => { const d = open3dData(); return d ? View3D.snapshot(d, w || 800, h || 500) : null; } };
     bindUi();
     renderTypes();
     fillSettings();
@@ -127,7 +130,7 @@
     RpsUI.setSite(siteName);
     Policy.init();
     roofs.forEach(r => { recompute(r); });
-    drawObstacles();
+    drawObstacles(); drawFixtures();
     if (roofs.length) { fitAll(); const r = roofs.find(x => x.id === selectedId) || roofs[roofs.length - 1]; const c = Layout.centroid(r.points); siteInfoAt(c.lat, c.lng); }
     renderList();
   }
@@ -202,6 +205,12 @@
       hint('CAD 파일을 내려받았습니다: ' + name + ' (평면도 · 측면도 · 배면도, 단위 m, 레이어 BLDG/MODULE/RIDGE/DIM/TEXT)');
     };
     $('btnAlign').onclick = () => alignAll();
+    // 전기실: 없으면 용량 기준 크기로 놓고, 있으면 앞×뒤 크기 입력. 「전기실 위치」는 지도 가운데로 옮겨 손으로 자리 잡기
+    $('btnElec').onclick = () => { const f = fixtures.find(x => x.kind === 'elec'); if (!f) { addFixture('elec'); return; } const s = prompt('전기실 앞 × 뒤 (m)  — 용량 기준: 100kW 미만 2×3 · 250 미만 3×4 · 500 미만 4×5 · 1MW 미만 16×5 · 이상 16×8', f.w + ' ' + f.h); if (s === null) return; const m = s.trim().split(/[\s,x×]+/).map(parseFloat); if (!(m[0] >= 1 && m[1] >= 1)) return; f.w = m[0]; f.h = m[1]; f.manual = true; afterFixtureChange(); hint('전기실 ' + f.w + '×' + f.h + 'm'); };
+    $('btnElecPos').onclick = () => { let f = fixtures.find(x => x.kind === 'elec'); const mc = map.getCenter(); if (!f) { addFixture('elec'); f = fixtures.find(x => x.kind === 'elec'); } f.c = { lat: mc.getLat(), lng: mc.getLng() }; afterFixtureChange(); hint('전기실을 화면 가운데에 놓았습니다. 꾹 눌러 끌어 자리를 잡으세요. 탭 후 Del 로 삭제.'); };
+    $('btnLadder').onclick = () => addFixture('ladder');
+    $('btnNas').onclick = saveToNas;
+    $('btnNasPick').onclick = async () => { try { const h = await Nas.ensureRoot(true); nasSite = null; hint('저장 폴더: ' + h.name + ' — 이 안의 01.검토(N월) 폴더에서 상담번호로 현장 폴더를 찾습니다.'); } catch (e) { hint('폴더 지정 취소/실패: ' + e.message); } };
     $('btnProposal').onclick = () => {
       if (!window.Native && window.JSZip && $('tplFile')) { hint('원본 제안서(.pptx)를 고르세요 — 37·38쪽 그림과 47~49쪽 표를 채워 완성본으로 내려받습니다.'); $('tplFile').value = ''; $('tplFile').click(); }
       else makeProposal(null);
@@ -958,6 +967,20 @@
         map.setDraggable(false); map.setZoomable(false);
         return;
       }
+      const fix = handle ? null : (() => { const ll = toLL(e), p = { lat: ll.getLat(), lng: ll.getLng() }; for (let i = 0; i < fixtures.length; i++) if (Layout.containsGeo(fixRing(fixtures[i]), p) || pxDist(e, fixtures[i].c) <= 14) return { f: fixtures[i], idx: i }; return null; })();
+      if (fix) {
+        // 전기실·사다리: 꾹 누르면 끌어서 옮긴다
+        stopHold();
+        hold = setTimeout(() => {
+          hold = null; const ll = toLL(e);
+          moving = { fix, start: ll, last: ll, orig: Object.assign({}, fix.f.c) };
+          try { el.setPointerCapture(e.pointerId); } catch (x) {}
+          map.setDraggable(false); map.setZoomable(false);
+          if (navigator.vibrate) navigator.vibrate(40);
+          hint(fixLabel(fix.f) + ' — 끌어서 옮기세요.');
+        }, 550);
+        return;
+      }
       const vent = handle ? null : findVent(toLL(e));
       const ridge = (handle || vent) ? null : findRidge(toLL(e));
       const roof = handle ? handle.roof : vent ? vent.roof : ridge ? ridge.roof : findRoof(toLL(e));
@@ -1020,6 +1043,14 @@
       const ll = toLL(e);
       const dLat = ll.getLat() - moving.start.getLat(), dLng = ll.getLng() - moving.start.getLng();
       const sh = rg => rg.map(p => ({ lat: p.lat + dLat, lng: p.lng + dLng }));
+      if (moving.fix) {
+        const f = moving.fix.f; f.c = { lat: moving.orig.lat + dLat, lng: moving.orig.lng + dLng };
+        const pg = fixGfx[moving.fix.idx * 2], ov = fixGfx[moving.fix.idx * 2 + 1];
+        if (pg) pg.setPath(fixRing(f).map(p => new kakao.maps.LatLng(p.lat, p.lng)));
+        if (ov) ov.setPosition(new kakao.maps.LatLng(f.c.lat, f.c.lng));
+        moving.last = ll;
+        return;
+      }
       if (moving.vent) {
         const pg = moving.vent.roof.gfx && moving.vent.roof.gfx.vents && moving.vent.roof.gfx.vents[moving.vent.idx];
         if (pg) pg.setPath(sh(moving.orig).map(p => new kakao.maps.LatLng(p.lat, p.lng)));
@@ -1056,6 +1087,15 @@
     const end = e => {
       stopHold();
       if (!moving) return;
+      if (moving.fix) {
+        const f = moving.fix.f;
+        moving = null;
+        map.setDraggable(true); map.setZoomable(true);
+        lastPick = Date.now() + 700;
+        afterFixtureChange();
+        hint(fixLabel(f) + ' — 옮겼습니다' + (fixRoof(f) ? ' (지붕 위: 그 자리 모듈을 비웁니다)' : '') + '.');
+        return;
+      }
       if (moving.vent) {
         const { roof: r, idx, ring } = moving.vent, ll = moving.last;
         const dLat = ll.getLat() - moving.start.getLat(), dLng = ll.getLng() - moving.start.getLng();
@@ -1145,6 +1185,77 @@
 
   // ------------------------------------------------------------ 지붕 위치 보정
   /** 지붕(과 합산 링)을 동쪽 dxM · 북쪽 dyM 만큼 옮긴다 */
+  // ------------------------------------------------------------ 전기실 · 사다리 (2026-10-16)
+  /** 용량(kW)별 전기실 앞×뒤 기본 크기(사용자 지정) */
+  function elecSizeFor(kw) { return kw < 100 ? [2, 3] : kw < 250 ? [3, 4] : kw < 500 ? [4, 5] : kw < 1000 ? [16, 5] : [16, 8]; }
+  function totalKw() { return roofs.reduce((a, r) => a + (r.result ? r.result.kw : 0), 0); }
+  function fixRing(f) { return rectPoints({ c: f.c, w: f.w, h: f.h, ang: f.ang || 0 }); }
+  function fixLabel(f) { return f.kind === 'elec' ? '전기실 ' + f.w + '×' + f.h + 'm' : '사다리'; }
+  /** 전기실·사다리가 어느 지붕 위에 있는지(중심이 지붕 안) */
+  function fixRoof(f) { return roofs.find(r => r.type !== 'ground' && r.type !== 'parking' && Layout.containsGeo(r.points, f.c)) || null; }
+  function addFixture(kind) {
+    const r = roofs.find(x => x.id === selectedId) || roofs[0];
+    const [w, h] = kind === 'elec' ? elecSizeFor(totalKw()) : [0.6, 1.2];
+    let c, ang = 0;
+    if (r) {
+      const res = r.result || {}; ang = res.buildingAngle || 0;
+      const o = Layout.centroid(r.points), loc = Layout.toLocal(r.points, o).map(p => Layout.rotate(p, -ang));
+      const minX = Math.min(...loc.map(p => p.x)), maxX = Math.max(...loc.map(p => p.x)), minY = Math.min(...loc.map(p => p.y));
+      // 전기실: 건물 남동쪽 밖(지상) 3m 떨어져. 사다리: 남쪽 처마 가운데에 걸침
+      const q = kind === 'elec' ? { x: maxX - w / 2, y: minY - h / 2 - 3 } : { x: (minX + maxX) / 2, y: minY };
+      c = Layout.toGeo([Layout.rotate(q, ang)], o)[0];
+    } else { const mc = map.getCenter(); c = { lat: mc.getLat(), lng: mc.getLng() }; }
+    const f = { id: Date.now().toString(36) + Math.random().toString(36).slice(2, 5), kind, c, w, h, ang };
+    fixtures.push(f);
+    afterFixtureChange();
+    hint((kind === 'elec' ? '전기실 ' + w + '×' + h + 'm (용량 ' + totalKw().toFixed(0) + 'kW 기준)' : '사다리') + ' — 꾹 눌러 끌어 옮기고, 탭 후 Del 로 지웁니다. ' + (kind === 'elec' ? '「⚡ 전기실」을 다시 누르면 크기 입력.' : '「🪜 사다리」를 또 누르면 하나 더.'));
+  }
+  function afterFixtureChange() {
+    const f = fixtures.find(x => x.kind === 'elec');
+    if (f && !f.manual) { const [w, h] = elecSizeFor(totalKw()); f.w = w; f.h = h; }
+    drawFixtures(); roofs.forEach(recompute); renderList(); save();
+    const b = $('btnElec'); if (b) b.textContent = '⚡ 전기실' + (f ? ' ' + f.w + '×' + f.h : '');
+  }
+  function drawFixtures() {
+    fixGfx.forEach(g => g.setMap(null)); fixGfx = [];
+    fixtures.forEach((f, i) => {
+      const on = picked && picked.kind === 'fix' && picked.idx === i;
+      const pg = new kakao.maps.Polygon({ path: fixRing(f).map(p => new kakao.maps.LatLng(p.lat, p.lng)),
+        strokeWeight: 2, strokeColor: on ? '#00e5ff' : '#fff', fillColor: on ? '#00e5ff' : FIX[f.kind].color, fillOpacity: 0.9, zIndex: 5 });
+      pg.setMap(map); fixGfx.push(pg);
+      kakao.maps.event.addListener(pg, 'click', () => { if (drawing || editing || Date.now() < lastPick) return; lastPick = Date.now() + 300; setPick({ roofId: null, kind: 'fix', idx: i }); });
+      const el = document.createElement('div'); el.className = 'lbl fix'; el.textContent = fixLabel(f);
+      const ov = new kakao.maps.CustomOverlay({ position: new kakao.maps.LatLng(f.c.lat, f.c.lng), content: el, yAnchor: f.kind === 'elec' ? 0.5 : 1.6, zIndex: 21 });
+      ov.setMap(map); fixGfx.push(ov);
+    });
+  }
+  /** 제안서·3D·CAD 용 */
+  function fixtureData() {
+    return fixtures.map(f => { const r = fixRoof(f); return { kind: f.kind, ring: fixRing(f), c: f.c, w: f.w, h: f.h, ang: f.ang || 0, label: fixLabel(f), baseH: r ? roofH(r) : 0, onRoof: !!r, hgt: FIX[f.kind].hgt }; });
+  }
+  /** 지붕 가장자리 ↔ 모듈 이격 치수(처마·옆·용마루). 건물 축 틀에서 지붕 bbox 와 모듈 bbox 차이. 제안서 배치도·CAD 평면도에 빨간 치수선으로 */
+  function roofDims(r) {
+    const res = r.result; if (!res || !res.modules || !res.modules.length || r.type === 'ground') return [];
+    const ang = res.buildingAngle || 0, o = Layout.centroid(r.points);
+    const rot = pts => Layout.toLocal(pts, o).map(p => Layout.rotate(p, -ang));
+    const rr = rot(r.points), mm = rot([].concat(...res.modules));
+    const bb = pts => ({ minX: Math.min(...pts.map(p => p.x)), maxX: Math.max(...pts.map(p => p.x)), minY: Math.min(...pts.map(p => p.y)), maxY: Math.max(...pts.map(p => p.y)) });
+    const R = bb(rr), M = bb(mm), geo = q => Layout.toGeo([Layout.rotate(q, ang)], o)[0];
+    const seg = (a, b, v) => ({ a: geo(a), b: geo(b), text: Math.round(v * 1000).toLocaleString('ko-KR') });
+    const out = [], xm = (M.minX + M.maxX) / 2, ym = (M.minY + M.maxY) / 2;
+    if (M.minY - R.minY > 0.05) out.push(seg({ x: xm, y: R.minY }, { x: xm, y: M.minY }, M.minY - R.minY));          // 남쪽 처마
+    if (R.maxY - M.maxY > 0.05) out.push(seg({ x: xm, y: M.maxY }, { x: xm, y: R.maxY }, R.maxY - M.maxY));          // 북쪽 처마
+    if (M.minX - R.minX > 0.05) out.push(seg({ x: R.minX, y: ym }, { x: M.minX, y: ym }, M.minX - R.minX));          // 서쪽
+    if (R.maxX - M.maxX > 0.05) out.push(seg({ x: M.maxX, y: ym }, { x: R.maxX, y: ym }, R.maxX - M.maxX));          // 동쪽
+    // 용마루 이격: 용마루선 양쪽에서 가장 가까운 모듈 줄까지
+    (res.ridgePos || []).forEach(p => {
+      const y = R.minY + p, ys = mm.map(q => q.y);
+      const below = Math.max(...ys.filter(v => v <= y + 0.01), -Infinity), above = Math.min(...ys.filter(v => v >= y - 0.01), Infinity);
+      if (isFinite(below) && y - below > 0.05 && y - below < 3) out.push(seg({ x: R.minX + 1.5, y: below }, { x: R.minX + 1.5, y }, y - below));
+      if (isFinite(above) && above - y > 0.05 && above - y < 3) out.push(seg({ x: R.minX + 1.5, y }, { x: R.minX + 1.5, y: above }, above - y));
+    });
+    return out;
+  }
   // ------------------------------------------------------------ 주차장 사각형
   /** 사각형 {c:{lat,lng}, w, h, ang(°, 수학각)} → 꼭짓점 4개 (서남·동남·동북·서북 순서, 돌리기 전 기준) */
   function rectPoints(rc) {
@@ -1258,6 +1369,7 @@
         frontLift: Number(opt.frontLift) || 0,
         blocks, maxLiftH: Number(opt.maxLiftH) || 4,   // 원단: 블록마다 {from,to,zf,zb,lifted} (처마 기준 m, 남쪽 끝 0)
         ridgePos,                                       // 동마다 용마루 자리(남쪽/서쪽 끝 0 기준 m) — 옮긴 것 반영
+        dims: roofDims(r),                              // 처마·옆·용마루 이격 치수선 [{a,b,text(mm)}] (지자체 제출용)
         slopeNote: r.terrain ? '지면 경사 ' + r.terrain.slopeDeg + '° ' + r.terrain.name : '',
       };
     });
@@ -1268,6 +1380,7 @@
       site: { name: siteName, addr: siteAddr, short: (siteAddr || '').split(' ').slice(-2).join(' ') }, kw: rs.reduce((a, r) => a + r.kw, 0),
       module: { w: moduleCfg.moduleWp, L: moduleCfg.modLmm, S: moduleCfg.modSmm, maker: '현대' },
       roofs: rs, origin, buildings: buildings.filter(b => !srcs.has(b.id) && distM(origin, Layout.centroid(b.ring)) <= 150).map(b => ({ ring: b.ring })),
+      fixtures: fixtureData(),
       lines: lastKepco, memo, costPerKw: rpsSt.costPerKw || Proposal.COST_PER_KW,
     };
     return data;
@@ -1284,12 +1397,15 @@
         hint('배치도·측면도 그리고 표 채우는 중…');
         data.underground = await askOX('한전 계통 — 지중 지역입니까?', '현장 앞 전주·전선이 없고 지중(땅속) 공급 지역이면 「지중」, 전주가 있는 가공(공중) 지역이면 「공중」. 한전연계비 계산에 씁니다.<br><small style="color:var(--muted)">' + (data.kw < 500 ? '500kW 미만 → 저압' : '500kW 이상 → 고압') + ' · 공중 ' + Math.round(Proposal.kepcoFeeOf(data.kw, data.kw >= 500, false)).toLocaleString() + '원 / 지중 ' + Math.round(Proposal.kepcoFeeOf(data.kw, data.kw >= 500, true)).toLocaleString() + '원 (VAT 별도)</small>', '지중', '공중');
         hint('배치도(위성·도면)·측면도 그리고 표 채우는 중…');
-        const imgs = { planMap: await Proposal.drawPlanSheet(data, { satellite: true }), plan: await Proposal.drawPlanSheet(data), section: Proposal.drawSectionSheet(data) };
+        const cover = await pickCover(data);                                       // 표지: 로드뷰 캡처 / 3D / 건너뛰기
+        const imgs = { planMap: await Proposal.drawPlanSheet(data, { satellite: true }), plan: await Proposal.drawPlanSheet(data), section: Proposal.drawSectionSheet(data), cover };
         const blob = await Proposal.fillTemplate(buf, data, imgs);
         const name = templateFile.name.replace(/\.pptx$/i, '') + '_' + (siteName || '현장').replace(/[\\/:*?"<>|]/g, '') + '_' + data.kw.toFixed(0) + 'kW.pptx';
         const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = name; document.body.appendChild(a); a.click(); a.remove();
         setTimeout(() => URL.revokeObjectURL(a.href), 60000);
-        hint('완성본을 내려받았습니다: ' + name + ' (37 위성 배치도 · 37-2 도면 배치도 · 38 측면도 · 47~49 손익·한전 계통 채움)');
+        hint('완성본을 내려받았습니다: ' + name + (cover ? ' (표지 그림 교체)' : '') + ' (37 위성 배치도 · 37-2 도면 배치도 · 38 측면도 · 47~49 손익·한전 계통 채움)');
+        // NAS 폴더가 지정돼 있으면 거기에도 저장
+        if (Nas.available() && await Nas.loadRoot()) { try { const sd = await siteFolder(); if (sd) { await Nas.write(sd.dir, name, blob); hint('제안서를 NAS 에도 저장했습니다: ' + sd.path + '/' + name); } } catch (e) { hint('내려받기는 됐지만 NAS 저장 실패: ' + e.message); } }
       } catch (e) { hint('원본 채우기 실패: ' + e.message + ' — 원본이 암호화돼 있으면 풀어서 다시 고르세요.'); }
       return;
     }
@@ -1302,8 +1418,15 @@
 
   /** 배치 결과를 3D 로. 지붕은 대장 높이(없으면 층수×층고), 토지는 0.5m 구조물, 주차장은 2.5m 캐노피. 주변 건물은 회색. */
   function open3d() {
+    const data = open3dData();
+    if (!data) { hint('먼저 배치를 하세요. 배치된 지붕·토지·주차장을 3D 로 띄웁니다.'); return; }
+    View3D.open(data);
+    hint('3D 조감도 — 끌어서 돌리고, 휠·두 손가락으로 확대. ☀ 로 동지 시각(그림자), 📷 로 PNG 저장. 빨간 모듈 = 음영으로 뺀 자리.');
+  }
+  /** 3D 데이터(조감도·표지 그림 공용) */
+  function open3dData() {
     const done = roofs.filter(r => r.result);
-    if (!done.length) { hint('먼저 배치를 하세요. 배치된 지붕·토지·주차장을 3D 로 띄웁니다.'); return; }
+    if (!done.length) return null;
     const all = [].concat(...done.map(r => r.points));
     const origin = Layout.centroid(all);
     const srcs = new Set(done.map(r => r.src));
@@ -1324,13 +1447,98 @@
           roofSlope: r.type === 'flush' ? (Number(opt.tilt) || 0) : r.type === 'ginseng' ? 10 : 0, mat,
           buildingAngle: res.buildingAngle || 0,
           grad: r.type === 'ground' && r.terrain ? { gE: r.terrain.gradE, gN: r.terrain.gradN } : null,   // 토지 기울기(3D 에서 땅을 기울여 그림)
-          modules: res.modules || [], moduleZ: res.moduleZ || null, ridgePos: res.ridgePos || null, rowAngle: res.rowAngle || 0, tilt: (r.type === 'flush' || r.attach) ? 0 : (Number(opt.tilt) || 0),
+          modules: res.modules || [], shadedModules: res.shadedModules || [], moduleZ: res.moduleZ || null, ridgePos: res.ridgePos || null, rowAngle: res.rowAngle || 0, tilt: (r.type === 'flush' || r.attach) ? 0 : (Number(opt.tilt) || 0),
           dSlope: opt.orient === 'portrait' ? opt.modL : opt.modS };
       }),
       buildings: buildings.filter(b => !srcs.has(b.id) && distM(origin, Layout.centroid(b.ring)) <= 250).map(b => ({ ring: b.ring, h: bldH(b) })),
+      fixtures: fixtureData(), lat: origin.lat,
     };
-    View3D.open(data);
-    hint('3D 조감도 — 끌어서 돌리고, 휠·두 손가락으로 확대. 📷 로 PNG 저장.');
+    return data;
+  }
+
+  // ------------------------------------------------------------ 제안서 표지 그림 (로드뷰 캡처 / 3D) · 화면 캡처 · NAS 저장 (2026-10-16)
+  /** 표지 그림 고르기 창: 왼쪽 로드뷰(업체가 보이게 방향을 맞춤) 캡처 또는 3D. 건너뛰면 null */
+  function pickCover(data) {
+    return new Promise(res => {
+      const m = $('coverModal'), host = $('rvHost'); m.classList.add('on'); host.innerHTML = '';
+      const c = data.origin; let rv = null;
+      const done = v => { m.classList.remove('on'); host.innerHTML = ''; rv = null; res(v); };
+      $('cvSkip').onclick = () => done(null);
+      $('cv3d').onclick = () => { try { hint('3D 그리는 중…'); const d3 = open3dData(); if (!d3) { hint('배치가 없습니다.'); return; } done(View3D.snapshot(d3, 1600, 1000)); } catch (e) { hint('3D 그림 실패: ' + e.message); } };
+      $('cvRvCap').onclick = async () => { try { hint('캡처 중… (크롬은 「이 탭」을 고르고 공유)'); done(await captureElement(host)); } catch (e) { hint('캡처 실패: ' + e.message); } };
+      try {
+        const rc = new kakao.maps.RoadviewClient(), pos = new kakao.maps.LatLng(c.lat, c.lng);
+        rc.getNearestPanoId(pos, 200, panoId => {
+          if (!panoId) { host.innerHTML = '<div style="padding:20px;color:#fff">200m 안에 로드뷰가 없습니다. 3D 를 쓰세요.</div>'; return; }
+          rv = new kakao.maps.Roadview(host); rv.setPanoId(panoId, pos);
+          kakao.maps.event.addListener(rv, 'init', () => {
+            // 로드뷰 자리에서 건물 쪽을 보게 (pan: 북 0°, 시계방향)
+            const p = rv.getPosition(); const dx = (c.lng - p.getLng()) * 111320 * Math.cos(c.lat * Math.PI / 180), dy = (c.lat - p.getLat()) * 110574;
+            rv.setViewpoint({ pan: (Math.atan2(dx, dy) * 180 / Math.PI + 360) % 360, tilt: 6, zoom: 0 });
+          });
+        });
+      } catch (e) { host.innerHTML = '<div style="padding:20px;color:#fff">로드뷰를 열 수 없습니다: ' + e.message + '</div>'; }
+    });
+  }
+  /** 화면의 한 요소를 그림으로. 앱: 네이티브 화면 캡처(Native.capture), PC: 탭 화면 공유(getDisplayMedia) */
+  async function captureElement(el) {
+    const r = el.getBoundingClientRect();
+    if (window.Native && window.Native.capture) {
+      const full = await new Promise((res, rej) => {
+        const id = 'cap' + Date.now();
+        window.onNativeCapture = (rid, ok, b64) => { if (rid !== id) return; ok ? res('data:image/png;base64,' + b64) : rej(new Error(b64 || '캡처 실패')); };
+        Native.capture(id); setTimeout(() => rej(new Error('캡처 시간 초과')), 15000);
+      });
+      return cropDataUrl(full, r, window.devicePixelRatio || 1);
+    }
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getDisplayMedia) throw new Error('이 브라우저는 화면 캡처를 지원하지 않습니다 (PC 크롬·엣지)');
+    const stream = await navigator.mediaDevices.getDisplayMedia({ video: { displaySurface: 'browser' }, preferCurrentTab: true, selfBrowserSurface: 'include', audio: false });
+    try {
+      const v = document.createElement('video'); v.srcObject = stream; v.muted = true; await v.play(); await new Promise(r2 => setTimeout(r2, 500));
+      const cv = document.createElement('canvas'); cv.width = v.videoWidth; cv.height = v.videoHeight; cv.getContext('2d').drawImage(v, 0, 0);
+      return cropDataUrl(cv.toDataURL('image/png'), r, v.videoWidth / window.innerWidth, v.videoHeight / window.innerHeight);
+    } finally { stream.getTracks().forEach(t => t.stop()); }
+  }
+  function cropDataUrl(url, r, sx, sy) {
+    sy = sy || sx;
+    return new Promise(res => { const im = new Image(); im.onload = () => { const cv = document.createElement('canvas'); const w = Math.max(1, Math.round(r.width * sx)), h = Math.max(1, Math.round(r.height * sy)); cv.width = w; cv.height = h; cv.getContext('2d').drawImage(im, Math.round(r.left * sx), Math.round(r.top * sy), w, h, 0, 0, w, h); res(cv.toDataURL('image/png')); }; im.src = url; });
+  }
+  /** 현장 NAS 폴더: 상담일지에서 주소로 상담번호를 찾아 "01.검토(N월)/{상담번호} {주소} {이름}" (없으면 만든다). 세션 동안 기억 */
+  let nasSite = null;
+  async function siteFolder() {
+    if (nasSite) return nasSite;
+    if (!Nas.available()) { hint('폴더 저장은 PC 크롬·엣지에서만 됩니다. 앱에서는 메일 첨부를 쓰세요.'); return null; }
+    await Nas.ensureRoot();
+    const addr = siteAddr || siteName;
+    hint('상담일지에서 상담번호 찾는 중… (' + addr + ')');
+    const m = addr ? await Proposal.consult(addr).catch(() => null) : null;
+    const hits = ((m && m.hits) || []).filter(h => h.no);
+    let no = '', name = '';
+    if (hits.length === 1) { no = hits[0].no; name = hits[0].name; }
+    else if (hits.length > 1) {
+      const s = prompt('상담일지에 여러 건이 있습니다. 번호를 고르세요:\n' + hits.map((h, i) => (i + 1) + ') ' + h.no + ' ' + (h.addr || '').split('\n')[0] + ' ' + h.name).join('\n'), '1');
+      const k = parseInt(s, 10) - 1; if (!(k >= 0 && k < hits.length)) return null; no = hits[k].no; name = hits[k].name;
+    } else {
+      no = prompt('상담일지에서 이 주소를 못 찾았습니다(또는 중계 미배포). 상담번호를 직접 넣으세요 (예 09-0101). 비우면 취소', '') || ''; if (!no.trim()) return null;
+      name = prompt('폴더 이름에 붙일 업체·이름 (비워도 됨)', siteName || '') || '';
+    }
+    const sd = await Nas.siteDir(no.trim(), (siteAddr || siteName || '').split('\n')[0], name.trim());
+    nasSite = sd; return sd;
+  }
+  /** 「💾 NAS 저장」: 배치도(위성·도면)·측면도·DXF·설정 JSON 을 현장 폴더에 */
+  async function saveToNas() {
+    try {
+      const data = await proposalData(false); if (!data) { hint('먼저 배치를 하세요.'); return; }
+      const sd = await siteFolder(); if (!sd) return;
+      const base = (siteName || '현장').replace(/[\\/:*?"<>|]/g, '') + '_' + data.kw.toFixed(0) + 'kW_' + new Date().toISOString().slice(0, 10);
+      hint('그림 그리는 중…');
+      await Nas.write(sd.dir, base + '_배치도_위성.png', Nas.dataUrlBlob(await Proposal.drawPlanSheet(data, { satellite: true })));
+      await Nas.write(sd.dir, base + '_배치도_도면.png', Nas.dataUrlBlob(await Proposal.drawPlanSheet(data)));
+      await Nas.write(sd.dir, base + '_측면도.png', Nas.dataUrlBlob(Proposal.drawSectionSheet(data)));
+      await Nas.write(sd.dir, base + '_배치.dxf', new Blob([Cp949.encode(Cad.dxf(data))], { type: 'application/dxf' }));
+      await Nas.write(sd.dir, base + '_설정.json', JSON.stringify({ saved: new Date().toISOString(), site: { name: siteName, addr: siteAddr }, kw: data.kw, state: JSON.parse(localStorage.getItem(STORE) || '{}'), rps: (window.RpsUI && RpsUI.getState) ? RpsUI.getState() : null }, null, 1));
+      hint('저장 완료: ' + sd.path + (sd.created ? ' (새 폴더)' : '') + ' — 배치도 2장·측면도·DXF·설정.json. 제안서 PPT 를 만들면 같은 폴더에 들어갑니다.');
+    } catch (e) { hint('저장 실패: ' + e.message); }
   }
   function clearParcels() {
     parcels.forEach(p => p.gfx && p.gfx.setMap(null));
@@ -1467,9 +1675,12 @@
   /** 사용자가 그린 장애물(타워·기설치 태양광·지장물). 높이는 지붕면 기준. */
   function blockersFor(r) {
     const c = Layout.centroid(r.points);
-    return edits.filter(e => e.op === 'obs').map(e => ({
+    const obs = edits.filter(e => e.op === 'obs').map(e => ({
       ring: [{ lat: e.s, lng: e.w }, { lat: e.s, lng: e.e }, { lat: e.n, lng: e.e }, { lat: e.n, lng: e.w }], dh: e.h || 1,
     })).filter(o => distM(c, Layout.centroid(o.ring)) < 150);
+    // 지붕 위에 놓인 전기실은 그 자리를 비우고 그림자(2.5m)도 드리운다. 사다리·지상 전기실은 영향 없음
+    fixtures.filter(f => f.kind === 'elec' && Layout.containsGeo(r.points, f.c)).forEach(f => obs.push({ ring: fixRing(f), dh: FIX.elec.hgt }));
+    return obs;
   }
   /** 음영 고려가 켜져 있으면 지붕 주변 건물 높이를 건축물대장에서 받아 둔다(4개씩 동시). */
   function ensureHeights() {
@@ -1763,6 +1974,8 @@
   function setPick(p) {
     const prev = picked; picked = p;
     [prev, p].filter(Boolean).forEach(q => { const r = roofs.find(x => x.id === q.roofId); if (r) recompute(r); });
+    if ((prev && prev.kind === 'fix') || (p && p.kind === 'fix')) drawFixtures();
+    if (p && p.kind === 'fix') { const f = fixtures[p.idx]; hint((f ? fixLabel(f) : '') + ' 선택 — Del 키로 지웁니다. 꾹 눌러 끌면 옮깁니다.'); return; }
     if (p) { const r = roofs.find(x => x.id === p.roofId); hint((r ? r.name + ' ' : '') + (p.kind === 'ridge' ? '용마루 ' : '벤츄레이터 ') + (p.idx + 1) + ' 선택 — Del 키로 지웁니다. 꾹 눌러 끌면 옮기고, 용마루는 끝을 끌면 길이가 바뀝니다.'); }
   }
   /** 주차장 모양 편집 켜고 끄기 (형태「주차장」을 다시 누르면) */
@@ -1793,6 +2006,7 @@
   /** 고른 용마루·벤츄레이터·꼭짓점을 지운다. 자동 벤츄레이터는 자리만 끄고, 손으로 놓은 것은 뺀다 */
   function deletePick() {
     if (!picked) return false;
+    if (picked.kind === 'fix') { const f = fixtures[picked.idx]; picked = null; if (f) { fixtures.splice(fixtures.indexOf(f), 1); afterFixtureChange(); hint(fixLabel(f) + ' 삭제'); } return true; }
     const r = roofs.find(x => x.id === picked.roofId); const p = picked; picked = null;
     if (!r) return false;
     if (p.kind === 'ridge') { deleteRidge(r, p.idx); return true; }
@@ -2084,6 +2298,7 @@
           azimuth: r.azimuth, margin: r.margin, tiers: r.tiers, terrain: r.terrain, moved: r.moved, flip: r.flip, ventN: r.ventN, ventPos: r.ventPos, ridgeOff: r.ridgeOff, ridgeExt: r.ridgeExt, ridgeOn: r.ridgeOn, attach: r.attach, ventExtra: r.ventExtra, ventH: r.ventH, rect: r.rect })),
         // 음영 장애물로 다시 쓰려고 주변 건물도 남긴다 (그림은 다시 그리지 않는다)
         buildings: buildings.map(b => ({ id: b.id, name: b.name, ring: b.ring, floors: b.floors })),
+        fixtures: fixtures.map(f => ({ id: f.id, kind: f.kind, c: f.c, w: f.w, h: f.h, ang: f.ang, manual: f.manual })),
       }));
     } catch (e) { /* 저장 실패는 치명적이지 않다 */ }
   }
@@ -2097,6 +2312,7 @@
       shade = Object.assign({ on: false, floorH: 3.5 }, st.shade || {});
       moduleCfg = Object.assign({}, MODULE_DEFAULT, st.moduleCfg || {});
       edits = Array.isArray(st.edits) ? st.edits : [];
+      fixtures = (Array.isArray(st.fixtures) ? st.fixtures : []).filter(f => f && f.c && FIX[f.kind]);
       // 예전 저장본엔 형태별 설정에 모듈 치수가 들어 있다. 이제 공통값이라 걷어낸다.
       Object.values(settings).forEach(s => { delete s.moduleWp; delete s.modL; delete s.modS; });
       buildings = (st.buildings || []).map(b => ({ ...b, gfx: null }));
