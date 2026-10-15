@@ -931,26 +931,36 @@
       return best;
     };
     // 주차장 사각형의 모서리(2.5m 안)를 눌렀으면 크기를 바꾼다
-    const findCorner = ll => {
-      const p = { lat: ll.getLat(), lng: ll.getLng() };
+    // 화면 픽셀 기준 거리(축소된 화면에서도 손가락으로 잡히게). 18px 안이면 그 점
+    const pxDist = (e, geo) => { const r = el.getBoundingClientRect(), pt = map.getProjection().containerPointFromCoords(new kakao.maps.LatLng(geo.lat, geo.lng)); return Math.hypot(e.clientX - r.left - pt.x, e.clientY - r.top - pt.y); };
+    const findCorner = e => {
+      let best = null;
       for (const r of roofs) {
         if (!r.rect) continue;
-        const loc = Layout.toLocal(r.points, p);
-        for (let i = 0; i < 4; i++) if (Math.hypot(loc[i].x, loc[i].y) <= 3.5) return { roof: r, idx: i };
+        for (let i = 0; i < 4; i++) { const d = pxDist(e, r.points[i]); if (d <= 18 && (!best || d < best.d)) best = { roof: r, idx: i, d }; }
       }
-      return null;
+      return best;
     };
     el.addEventListener('pointerdown', e => {
       if (drawing || editing || !e.isPrimary) return;
       down = { x: e.clientX, y: e.clientY, id: e.pointerId };
       // 모양 편집 중인 주차장의 꼭짓점 손잡이(2.5m 안)가 제일 먼저
-      let handle = (() => { const r = roofs.find(x => x.id === shapeEdit) || roofs.find(x => x.id === selectedId && x.rect); if (!r) return null; const ll = toLL(e), loc = Layout.toLocal(r.points, { lat: ll.getLat(), lng: ll.getLng() }); for (let i = 0; i < loc.length; i++) if (Math.hypot(loc[i].x, loc[i].y) <= 3.5) return { roof: r, idx: i }; return null; })();
+      let handle = (() => { const r = roofs.find(x => x.id === shapeEdit) || roofs.find(x => x.id === selectedId && x.rect); if (!r) return null; let best = null; for (let i = 0; i < r.points.length; i++) { const d = pxDist(e, r.points[i]); if (d <= 18 && (!best || d < best.d)) best = { roof: r, idx: i, d }; } return best; })();
       let cornerFromHandle = null;
       if (handle && handle.roof.rect) { cornerFromHandle = handle; handle = null; }   // 사각형이면 손잡이 끌기 = 사각형 유지 크기 조절
+      const corner = cornerFromHandle || findCorner(e);
+      if (corner) {
+        // 사각형 모서리는 꾹 누를 필요 없이 바로 끌린다(2026-10-16): 누르는 순간 지도 끌기를 막고, 4px 넘게 움직이면 크기 조절 시작
+        e.preventDefault();
+        const roof = corner.roof, ll = toLL(e);
+        moving = { corner, start: ll, last: ll, orig: roof.points.slice(), immediate: true, started: false, downX: e.clientX, downY: e.clientY };
+        try { el.setPointerCapture(e.pointerId); } catch (x) {}
+        map.setDraggable(false); map.setZoomable(false);
+        return;
+      }
       const vent = handle ? null : findVent(toLL(e));
       const ridge = (handle || vent) ? null : findRidge(toLL(e));
-      const corner = cornerFromHandle || ((handle || vent || ridge) ? null : findCorner(toLL(e)));
-      const roof = handle ? handle.roof : vent ? vent.roof : ridge ? ridge.roof : corner ? corner.roof : findRoof(toLL(e));
+      const roof = handle ? handle.roof : vent ? vent.roof : ridge ? ridge.roof : findRoof(toLL(e));
       if (!roof) return;
       stopHold();
       hold = setTimeout(() => {
@@ -974,19 +984,7 @@
           hint(roof.name + ' — 꼭짓점 ' + (handle.idx + 1) + ' 을 끌어 놓으세요.');
           return;
         }
-        if (corner) {
-          moving = { corner, start: ll, last: ll, orig: roof.points.slice() };
-          try { el.setPointerCapture(e.pointerId); } catch (x) {}
-          map.setDraggable(false); map.setZoomable(false);
-          if (navigator.vibrate) navigator.vibrate(40);
-          if (roof.gfx && roof.gfx.outline) roof.gfx.outline.setOptions({ strokeColor: '#00e5ff', strokeWeight: 4 });
-          // 고정되는 대각선 반대 점을 빨갛게 — 어느 점이 기준인지 보이게
-          const opp = (corner.idx + 2) % 4, hd = roof.gfx && roof.gfx.handles && roof.gfx.handles[opp];
-          if (hd) hd.setOptions({ fillColor: '#ff3b3b', strokeColor: '#fff', strokeWeight: 3 });
-          const CLOCK = ['7시', '5시', '1시', '11시'];   // 돌리기 전 기준(서남·동남·동북·서북)
-          hint(roof.name + ' — ' + CLOCK[corner.idx] + ' 점을 끌면 대각선 ' + CLOCK[opp] + ' 점(빨강)은 고정, 나머지 두 점은 가로·세로만 따라옵니다.');
-          return;
-        }
+
         if (ridge) {
           moving = { ridge, start: ll, last: ll, orig: ridge.seg.slice() };
           try { el.setPointerCapture(e.pointerId); } catch (x) {}
@@ -1005,9 +1003,19 @@
         hint(roof.name + ' — 끌어서 옮기세요. 손을 떼면 그 자리에 다시 배치합니다.');
       }, 550);
     });
+    const cornerStart = (roof, corner) => {
+      if (navigator.vibrate) navigator.vibrate(30);
+      if (roof.gfx && roof.gfx.outline) roof.gfx.outline.setOptions({ strokeColor: '#00e5ff', strokeWeight: 4 });
+      // 고정되는 대각선 반대 점을 빨갛게 — 어느 점이 기준인지 보이게
+      const opp = (corner.idx + 2) % 4, hd = roof.gfx && roof.gfx.handles && roof.gfx.handles[opp];
+      if (hd) hd.setOptions({ fillColor: '#ff3b3b', strokeColor: '#fff', strokeWeight: 3 });
+      const CLOCK = ['7시', '5시', '1시', '11시'];   // 돌리기 전 기준(서남·동남·동북·서북)
+      hint(roof.name + ' — ' + CLOCK[corner.idx] + ' 점을 끌면 대각선 ' + CLOCK[opp] + ' 점(빨강)은 고정, 나머지 두 점은 가로·세로만 따라옵니다.');
+    };
     el.addEventListener('pointermove', e => {
       if (hold && down && Math.hypot(e.clientX - down.x, e.clientY - down.y) > 8) stopHold();     // 움직이면 그냥 지도 끌기
       if (!moving) return;
+      if (moving.immediate && !moving.started) { if (Math.hypot(e.clientX - moving.downX, e.clientY - moving.downY) < 4) return; moving.started = true; cornerStart(moving.corner.roof, moving.corner); }
       e.preventDefault();
       const ll = toLL(e);
       const dLat = ll.getLat() - moving.start.getLat(), dLng = ll.getLng() - moving.start.getLng();
@@ -1079,10 +1087,11 @@
         return;
       }
       if (moving.corner) {
-        const { roof: r, idx } = moving.corner, ll = moving.last;
+        const { roof: r, idx } = moving.corner, ll = moving.last, tapped = moving.immediate && !moving.started;
         const dLat = ll.getLat() - moving.start.getLat(), dLng = ll.getLng() - moving.start.getLng();
         moving = null;
         map.setDraggable(true); map.setZoomable(true);
+        if (tapped) { if (r.id !== selectedId) { select(r.id); } lastPick = Date.now() + 300; return; }   // 그냥 탭: 그 주차장 선택만
         lastPick = Date.now() + 700;
         resizeRect(r, idx, { lat: moving_origCorner(r, idx).lat + dLat, lng: moving_origCorner(r, idx).lng + dLng });
         return;
