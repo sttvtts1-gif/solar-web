@@ -45,14 +45,14 @@ const Auth = (() => {
     try {
       const d = await call({ path: 'auth', op: 'check' });
       if (d && d.ok) { me = d; hide(); return true; }
-      if (d && /path 는/.test(d.errMsg || '')) { me = { email: '(중계 미배포)' }; hide(); return true; }   // 아직 auth 를 모르는 옛 중계
+      if (d && /path/i.test(d.errMsg || '')) { me = { email: '(중계 미배포)' }; hide(); return true; }   // 아직 auth 를 모르는 옛 중계
       localStorage.removeItem(KEY); show(d && d.errMsg || '다시 로그인하세요'); return false;
     } catch (e) { show('중계 서버에 닿지 못했습니다: ' + e.message + ' — 다시 시도'); return false; }
   }
   async function login(email, pw) {
     const d = await call({ path: 'auth', op: 'login', email, pw });
     if (d && d.ok) { localStorage.setItem(KEY, JSON.stringify({ token: d.token, exp: d.exp, email: d.email, name: d.name })); me = d; hide(); return d; }
-    if (d && /path 는/.test(d.errMsg || '')) { show('중계가 아직 회원 기능을 모릅니다(Apps Script 재배포 필요). 지금은 그냥 들어갑니다.', true); setTimeout(hide, 2500); return { ok: true, legacy: true }; }
+    if (d && /path/i.test(d.errMsg || '')) { show('중계가 아직 회원 기능을 모릅니다(Apps Script 재배포 필요). 지금은 그냥 들어갑니다.', true); setTimeout(hide, 2500); return { ok: true, legacy: true }; }
     show(d && d.errMsg || '로그인 실패', d && d.pending); return null;
   }
   async function signup(email, pw, name, company) {
