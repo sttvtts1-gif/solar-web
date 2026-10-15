@@ -210,7 +210,7 @@ const Proposal = (() => {
   function consult(addr) {
     const cfg = (typeof window !== 'undefined' && window.SOLAR_CONFIG) || {};
     if (!cfg.KEPCO_PROXY || !addr) return Promise.resolve(null);
-    const url = cfg.KEPCO_PROXY + '?path=consult&addr=' + encodeURIComponent(addr);
+    const url = cfg.KEPCO_PROXY + '?path=consult&addr=' + encodeURIComponent(addr) + '&token=' + encodeURIComponent((typeof Auth !== 'undefined' && Auth.token()) || '');
     if (window.Native && window.Native.fetch && window.NativeHttp) return window.NativeHttp.get(url, '').catch(() => null);
     return new Promise(res => {
       const cb = '__consult' + Date.now();

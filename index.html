@@ -273,6 +273,13 @@
         <div id="siteBody" class="scBody"></div>
       </div>
       <div class="scRow"><b>🏢 건축물대장</b><span id="bldHead" class="scHead"></span></div>
+      <div id="violBox" style="margin:6px 0;padding:6px 8px;border:1px dashed #a66;border-radius:6px;font-size:12px">
+        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap"><b>위반건축물 검토</b>
+          <label style="display:inline-flex;align-items:center;gap:4px;margin:0"><input type="checkbox" id="violManual" style="width:auto"> 위반건축물(수동)</label>
+          <label class="btn sm ghost" style="margin:0;cursor:pointer">대장 PDF 확인<input type="file" id="violPdf" accept="application/pdf" style="display:none"></label>
+        </div>
+        <div id="violText" style="margin-top:4px;color:var(--muted)">건물·대장을 받으면 비교합니다.</div>
+      </div>
       <div id="bldBody" class="scBody"></div>
       <div class="scRow"><b>⚡ 한전 선로 여유용량</b><span id="kepcoHead" class="scHead"></span></div>
       <div id="kepcoBody" class="scBody"></div>
@@ -427,6 +434,7 @@
     <h4>월별 절감 시뮬레이션 <span class="badge" id="s_planBadge" style="background:#334155"></span></h4>
     <div class="scrollx"><table class="cmp" id="s_table"></table></div>
     <div class="row" style="margin-top:10px">
+      <button class="btn ghost" id="btnPP" title="한전 파워플래너에 로그인해 사용량을 가져온다(비밀번호 저장 안 함, 공식 API 아님)">🔌 파워플래너 가져오기</button>
       <button class="btn accent" id="btnSelfMail">📧 메일로 보내기</button>
       <button class="btn ghost" id="btnSelfShare">텍스트 공유</button>
       <span style="font-size:11px;color:var(--muted)">업체명·받는 이메일은 수익분석 탭 아래 칸을 씁니다</span>
@@ -471,6 +479,21 @@
 
 <!-- 설정: 모듈 규격 등 앱 전체 공통값 -->
 <!-- 3D 조감도 -->
+<div class="modal" id="authModal">
+  <div class="box" style="width:min(94vw,420px)">
+    <h3 style="margin:0 0 6px">태양광 배치분석 — 로그인</h3>
+    <div style="font-size:12px;color:var(--muted);margin-bottom:10px">사내용입니다. 가입 신청 뒤 관리자 승인을 받아야 쓸 수 있습니다.</div>
+    <label>이메일<input id="au_email" type="email" autocomplete="username"></label>
+    <label>비밀번호<input id="au_pw" type="password" autocomplete="current-password"></label>
+    <details style="margin:8px 0"><summary style="cursor:pointer;font-size:13px">처음이면 가입 신청</summary>
+      <label>이름<input id="au_name" type="text"></label>
+      <label>회사·부서<input id="au_company" type="text"></label>
+      <button class="btn ghost" id="au_signup" style="margin-top:6px">가입 신청</button>
+    </details>
+    <div id="au_msg" style="min-height:18px;font-size:13px;margin:6px 0"></div>
+    <div class="row" style="justify-content:flex-end"><button class="btn accent" id="au_login">로그인</button></div>
+  </div>
+</div>
 <div class="modal" id="coverModal">
   <div class="box" style="width:min(96vw,980px);max-height:96vh;display:flex;flex-direction:column;gap:8px">
     <div class="row" style="align-items:center;gap:8px"><b style="flex:1">제안서 표지 그림</b><button class="btn sm ghost" id="cvSkip">건너뛰기(원본 그대로)</button></div>
@@ -536,7 +559,7 @@
   // 깃허브 Pages 는 화면 파일을 10분 캐시한다. 새로 올린 뒤에도 옛 화면이 나오지 않게,
   // 열 때마다 캐시 없이 index.html 을 다시 받아 버전 표식이 다르면 한 번 새로고침한다.
   // 버전 표식(APP_VER)은 web동기화.sh 가 올릴 때마다 시각으로 바꿔 넣는다.
-  window.APP_VER = '20261016082834';
+  window.APP_VER = '20261016083457';
   (function () {
     if (location.hostname.indexOf('github.io') < 0) return;
     fetch('index.html?nocache=' + Date.now(), { cache: 'no-store' }).then(r => r.text()).then(t => {
@@ -548,28 +571,29 @@
     }).catch(() => {});
   })();
 </script>
-<script src="config.js?v=20261016082834"></script>
-<script src="vendor/pdf.min.js?v=20261016082834"></script>
-<script src="layout.js?v=20261016082834"></script>
-<script src="vworld.js?v=20261016082834"></script>
-<script src="site.js?v=20261016082834"></script>
-<script src="terrain.js?v=20261016082834"></script>
-<script src="vendor/three.min.js?v=20261016082834"></script>
+<script src="config.js?v=20261016083457"></script>
+<script src="vendor/pdf.min.js?v=20261016083457"></script>
+<script src="layout.js?v=20261016083457"></script>
+<script src="vworld.js?v=20261016083457"></script>
+<script src="site.js?v=20261016083457"></script>
+<script src="terrain.js?v=20261016083457"></script>
+<script src="vendor/three.min.js?v=20261016083457"></script>
 <script src="view3d.js"></script>
-<script src="vendor/jszip.min.js?v=20261016082834"></script>
+<script src="vendor/jszip.min.js?v=20261016083457"></script>
 <script>window.JSZipLib = window.JSZip;</script><!-- pptxgen 번들이 전역 JSZip 을 덮어써서 따로 잡아 둔다 -->
-<script src="vendor/pptxgen.bundle.js?v=20261016082834"></script>
-<script src="proposal.js?v=20261016082834"></script>
-<script src="align.js?v=20261016082834"></script>
+<script src="vendor/pptxgen.bundle.js?v=20261016083457"></script>
+<script src="proposal.js?v=20261016083457"></script>
+<script src="align.js?v=20261016083457"></script>
 <script src="cp949.js"></script>
-<script src="nas.js?v=20261016082834"></script>
-<script src="cad.js?v=20261016082834"></script>
-<script src="kepco.js?v=20261016082834"></script>
-<script src="bld.js?v=20261016082834"></script>
-<script src="rps.js?v=20261016082834"></script>
-<script src="report.js?v=20261016082834"></script>
-<script src="rps_ui.js?v=20261016082834"></script>
-<script src="policy.js?v=20261016082834"></script>
-<script src="app.js?v=20261016082834"></script>
+<script src="nas.js?v=20261016083457"></script>
+<script src="auth.js?v=20261016083457"></script>
+<script src="cad.js?v=20261016083457"></script>
+<script src="kepco.js?v=20261016083457"></script>
+<script src="bld.js?v=20261016083457"></script>
+<script src="rps.js?v=20261016083457"></script>
+<script src="report.js?v=20261016083457"></script>
+<script src="rps_ui.js?v=20261016083457"></script>
+<script src="policy.js?v=20261016083457"></script>
+<script src="app.js?v=20261016083457"></script>
 </body>
 </html>

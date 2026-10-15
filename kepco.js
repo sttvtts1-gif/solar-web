@@ -25,7 +25,7 @@ const Kepco = (() => {
       window[cb] = d => { done(); resolve(d); };
       sc.onerror = () => { done(); reject(new Error('한전 중계 서버에 닿지 못했습니다')); };
       const t = setTimeout(() => { done(); reject(new Error('한전 중계 응답 시간 초과')); }, timeoutMs || 20000);
-      const q = Object.assign({ path: 'dispersedGeneration', callback: cb }, params);
+      const q = Object.assign({ path: 'dispersedGeneration', callback: cb, token: (typeof Auth !== 'undefined' && Auth.token()) || '' }, params);
       sc.src = cfg().KEPCO_PROXY + '?' + Object.keys(q).map(k => k + '=' + encodeURIComponent(q[k])).join('&');
       document.head.appendChild(sc);
     });

@@ -124,6 +124,7 @@
     // 문제 확인용 읽기 전용 손잡이 (콘솔에서 __solar.buildings 등)
     window.__solar = { get map() { return map; }, get buildings() { return buildings; }, get roofs() { return roofs; }, get fixtures() { return fixtures; }, snapshot3d: (w, h) => { const d = open3dData(); return d ? View3D.snapshot(d, w || 800, h || 500) : null; } };
     bindUi();
+    if (typeof Auth !== 'undefined') Auth.init();                 // 로그인 게이트(중계 재배포 전엔 통과)
     renderTypes();
     fillSettings();
     RpsUI.init();
@@ -210,6 +211,36 @@
     $('btnElecPos').onclick = () => { let f = fixtures.find(x => x.kind === 'elec'); const mc = map.getCenter(); if (!f) { addFixture('elec'); f = fixtures.find(x => x.kind === 'elec'); } f.c = { lat: mc.getLat(), lng: mc.getLng() }; afterFixtureChange(); hint('전기실을 화면 가운데에 놓았습니다. 꾹 눌러 끌어 자리를 잡으세요. 탭 후 Del 로 삭제.'); };
     $('btnLadder').onclick = () => addFixture('ladder');
     $('btnNas').onclick = saveToNas;
+    // 위반건축물: 대장 PDF 읽기 / 수동 체크
+    $('violPdf').addEventListener('change', async e => {
+      const f = e.target.files && e.target.files[0]; if (!f) return;
+      try {
+        if (!window.pdfjsLib) throw new Error('PDF 라이브러리가 없습니다');
+        pdfjsLib.GlobalWorkerOptions.workerSrc = 'vendor/pdf.worker.min.js';
+        const pdf = await pdfjsLib.getDocument({ data: await f.arrayBuffer() }).promise;
+        let text = '';
+        for (let i = 1; i <= Math.min(3, pdf.numPages); i++) { const pg = await pdf.getPage(i); const tc = await pg.getTextContent(); text += tc.items.map(it => it.str).join(' ') + '\n'; }
+        const hit = /위\s*반\s*건\s*축\s*물/.test(text);
+        siteViolation = Object.assign(siteViolation || {}, { pdf: hit, note: hit ? f.name : '', pdfName: f.name });
+        hint(hit ? '⛔ 대장 PDF 에 "위반건축물" 표기가 있습니다: ' + f.name : '대장 PDF 에 "위반건축물" 글자가 없습니다: ' + f.name + ' (스캔본이면 글자를 못 읽을 수 있음)');
+        checkViolation(); e.target.value = '';
+      } catch (x) { hint('PDF 읽기 실패: ' + x.message); }
+    });
+    $('violManual').addEventListener('change', e => { siteViolation = Object.assign(siteViolation || {}, { manual: e.target.checked }); checkViolation(); });
+    // 파워플래너: 아이디·비밀번호 → 중계가 로그인 → 메뉴(링크)·표를 보여 준다. 비밀번호는 저장하지 않는다
+    $('btnPP').onclick = async () => {
+      if (!(window.SOLAR_CONFIG || {}).KEPCO_PROXY) { hint('중계 주소가 없습니다.'); return; }
+      const id = prompt('한전 파워플래너 아이디(또는 고객번호)', localStorage.getItem('solar.pp.id') || ''); if (!id) return;
+      const pw = prompt('비밀번호 (저장하지 않습니다)', ''); if (!pw) return;
+      localStorage.setItem('solar.pp.id', id);
+      hint('파워플래너 로그인 중… (중계 → 한전)');
+      try {
+        const d = await Auth.call({ path: 'pp', op: 'login', id, pw }, 60000);
+        if (!d || !d.ok) { hint('파워플래너 로그인 실패: ' + ((d && (d.errMsg || d.failed)) || '') + (d && d.text ? ' — ' + d.text.slice(0, 120) : '')); return; }
+        window.__pp = d;
+        ppShow(d, '로그인 성공: ' + (d.title || ''));
+      } catch (e) { hint('파워플래너 중계 오류: ' + e.message); }
+    };
     $('btnNasPick').onclick = async () => { try { const h = await Nas.ensureRoot(true); nasSite = null; hint('저장 폴더: ' + h.name + ' — 이 안의 01.검토(N월) 폴더에서 상담번호로 현장 폴더를 찾습니다.'); } catch (e) { hint('폴더 지정 취소/실패: ' + e.message); } };
     $('btnProposal').onclick = () => {
       if (!window.Native && window.JSZip && $('tplFile')) { hint('원본 제안서(.pptx)를 고르세요 — 37·38쪽 그림과 47~49쪽 표를 채워 완성본으로 내려받습니다.'); $('tplFile').value = ''; $('tplFile').click(); }
@@ -511,9 +542,11 @@
     renderList(); save();
   }
 
+  let siteLL = null, siteParcelRing = null, siteViolation = null;   // 위반건축물 검토용(2026-10-16)
   function siteInfoAt(lat, lng, vworldName) {
     const k = lat.toFixed(4) + ',' + lng.toFixed(4);
     if (k === siteKey) return;
+    siteLL = { lat, lng }; siteParcelRing = null; siteViolation = null;
     siteNameSrc = 'addr';                         // 새 건물: 검색 때 이름을 버리고 이 건물 기준으로 다시
     if (vworldName) setSiteName(vworldName, 'vworld', true);
     loadSiteInfo(lat, lng);
@@ -542,6 +575,8 @@
         // 약 1km × 0.9km 상자 (V-World 한 번에 1000필지까지)
         const dLat = 0.008, dLng = 0.0105;
         VWorld.parcelsInBox({ lat: lat - dLat, lng: lng - dLng }, { lat: lat + dLat, lng: lng + dLng }).then(ps => {
+          const mine = ps.find(p => p.ring && Layout.containsGeo(p.ring, { lat, lng }));
+          if (mine) { siteParcelRing = mine.ring; checkViolation(); }
           const near = ps.map(p => {
             const pnu = (p.props || {}).pnu || '';
             if (pnu.slice(0, 10) !== b.code) return null;
@@ -557,12 +592,35 @@
     });
   }
 
+  /**
+   * 위반건축물 검토(2026-10-16): 건축HUB 표제부엔 위반 여부 항목이 없다. 대신
+   *  (1) 지도(V-World 건물 외곽선) 상 필지 안 건물 수·면적 vs 대장 동 수·건축면적 → 대장 외 건물 의심
+   *  (2) 건축물대장 PDF(세움터·정부24 열람본) 첫 장에 "위반건축물" 글자가 있으면 표기
+   *  (3) 손으로 체크
+   */
+  function checkViolation() {
+    const box = $('violBox'); if (!box) return;
+    const inSite = b => siteParcelRing ? Layout.containsGeo(siteParcelRing, Layout.centroid(b.ring)) : (siteLL && distM(siteLL, Layout.centroid(b.ring)) <= 40);
+    const vb = buildings.filter(b => b.ring && b.ring.length >= 3 && inSite(b));
+    const nV = vb.length, aV = Math.round(vb.reduce((a, b) => a + Layout.area(Layout.toLocal(b.ring, Layout.centroid(b.ring))), 0));
+    const nB = siteBld.length, aB = Math.round(siteBld.reduce((a, x) => a + (x.archArea || 0), 0));
+    const lines = [];
+    if (nV && !nB) lines.push('⚠ 대장은 없는데 지도에 건물 ' + nV + '동(약 ' + aV.toLocaleString() + '㎡) — 무허가·미등재 의심');
+    else if (nV > nB) lines.push('⚠ 지도상 ' + nV + '동 vs 대장 ' + nB + '동 — 대장 외 건물 ' + (nV - nB) + '동 의심(증축·가설 포함, 현장 확인)');
+    else if (aB > 0 && aV > aB * 1.25) lines.push('⚠ 지도상 건물 면적 약 ' + aV.toLocaleString() + '㎡ vs 대장 건축면적 ' + aB.toLocaleString() + '㎡ — 대장보다 큼(증축 의심)');
+    else if (nB) lines.push('지도상 ' + nV + '동 / 대장 ' + nB + '동 · 면적 ' + aV.toLocaleString() + ' / ' + aB.toLocaleString() + '㎡ — 특이점 없음');
+    if (siteViolation && siteViolation.pdf) lines.push('⛔ 대장 PDF 에 "위반건축물" 표기 있음' + (siteViolation.note ? ' — ' + siteViolation.note : ''));
+    if (siteViolation && siteViolation.manual) lines.push('⛔ 위반건축물(수동 체크)');
+    $('violText').innerHTML = lines.map(l => '<div' + (/^[⚠⛔]/.test(l) ? ' style="color:#ff8a80"' : '') + '>' + l + '</div>').join('') || '<div style="color:var(--muted)">건물·대장을 받으면 비교합니다.</div>';
+    const ck = $('violManual'); if (ck) ck.checked = !!(siteViolation && siteViolation.manual);
+  }
   function loadBld(bcode, mountain, bun, ji) {
     if (!Bld.available()) { $('bldHead').textContent = '키 미등록 (공공데이터포털 건축HUB)'; return; }
     if (!bun) { $('bldHead').textContent = '지번을 못 찾음'; return; }
     Bld.title(bcode, mountain, bun, ji).then(list => {
-      if (!list.length) { $('bldHead').textContent = '대장 없음 (미등재·무허가일 수 있음)'; return; }
+      if (!list.length) { $('bldHead').textContent = '대장 없음 (미등재·무허가일 수 있음)'; siteBld = []; checkViolation(); return; }
       siteBld = list;
+      setTimeout(checkViolation, 0);
       const named = list.find(x => x.name && x.name.trim());
       if (named && siteNameSrc !== 'search') setSiteName(named.name, 'bld');
       $('bldHead').textContent = list.length + '동' + (list[0].addr ? ' · ' + list[0].addr : '');
@@ -1185,6 +1243,21 @@
 
   // ------------------------------------------------------------ 지붕 위치 보정
   /** 지붕(과 합산 링)을 동쪽 dxM · 북쪽 dyM 만큼 옮긴다 */
+  // ------------------------------------------------------------ 파워플래너 결과 보기 (2026-10-16, 첫 판: 로그인 + 메뉴 탐색 + 표 읽기)
+  /** 중계가 준 페이지(제목·링크·표)를 자가소비 탭 아래 상자에. 링크를 누르면 그 페이지를 같은 세션으로 다시 받는다. 월별 kWh 표가 보이면 그대로 표시 */
+  function ppShow(d, head) {
+    let box = $('ppBox');
+    if (!box) { box = document.createElement('div'); box.id = 'ppBox'; box.className = 'sec'; box.style.marginTop = '10px'; $('btnPP').parentElement.parentElement.appendChild(box); }
+    const links = (d.links || []).filter(l => /사용|요금|지침|전력|현황|조회|통계|월|일별|시간/.test(l.text)).slice(0, 30);
+    box.innerHTML = '<h4>🔌 한전 파워플래너 <small style="color:var(--muted)">' + (head || '') + '</small></h4>'
+      + (links.length ? '<div style="display:flex;flex-wrap:wrap;gap:4px">' + links.map((l, i) => '<button class="btn sm ghost" data-pp="' + i + '" title="' + l.href + '">' + l.text + '</button>').join('') + '</div>' : '<div style="color:var(--muted)">메뉴 링크를 못 찾았습니다.</div>')
+      + ((d.tables || []).filter(t => t.length >= 2).slice(0, 4).map(t => '<div class="scrollx"><table class="cmp">' + t.slice(0, 40).map(r => '<tr>' + r.map(c => '<td>' + c + '</td>').join('') + '</tr>').join('') + '</table></div>').join('') || '')
+      + '<div style="font-size:12px;color:var(--muted);margin-top:4px">공식 API 가 아니라 화면을 읽는 방식입니다. 월별 사용량 표가 보이면 자가소비 계산에 쓸 수 있게 다음 단계에서 연결합니다.</div>';
+    box.querySelectorAll('[data-pp]').forEach(b => b.onclick = async () => {
+      const l = links[+b.dataset.pp]; hint('파워플래너 페이지 받는 중… ' + l.text);
+      try { const r = await Auth.call({ path: 'pp', op: 'get', url: l.href, sess: d.sess }, 60000); if (r && r.ok) { r.sess = r.sess || d.sess; window.__pp = r; ppShow(r, l.text + ' · ' + (r.title || '')); } else hint('받기 실패: ' + ((r && r.errMsg) || '')); } catch (e) { hint('오류: ' + e.message); }
+    });
+  }
   // ------------------------------------------------------------ 전기실 · 사다리 (2026-10-16)
   /** 용량(kW)별 전기실 앞×뒤 기본 크기(사용자 지정) */
   function elecSizeFor(kw) { return kw < 100 ? [2, 3] : kw < 250 ? [3, 4] : kw < 500 ? [4, 5] : kw < 1000 ? [16, 5] : [16, 8]; }
