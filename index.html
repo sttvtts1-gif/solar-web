@@ -234,6 +234,35 @@
   /* 문서 보기: 세로로 길게 이어 보므로 화면 거의 전체 */
   #pageModal .box { max-height: 96%; height: 96%; max-width: 900px; }
   #pageModal h3 { position: sticky; top: -12px; background: var(--panel); margin: -12px -12px 8px; padding: 12px; z-index: 2; }
+
+  /* ---------------------------------------------------------- 화면 모드: 컨설팅(기본) / 카탈로그(목록형)
+     컨설팅 = 지금까지의 화면 그대로. 카탈로그 = 배치 탭을 단계별 목록(카드)으로 펼쳐 항목을 골라가며 배치한다.
+     버튼·동작은 같은 요소를 쓰므로 app.js 는 손대지 않는다. */
+  #uiMode { display: flex; justify-content: flex-end; align-items: center; gap: 6px; margin: 0 0 8px; font-size: 11px; color: var(--muted); }
+  #uiMode .seg { display: inline-flex; border: 1px solid var(--line); border-radius: 999px; overflow: hidden; }
+  #uiMode .seg button { height: 26px; padding: 0 10px; border: 0; background: transparent; color: var(--muted); font-size: 12px; font-weight: 700; }
+  #uiMode .seg button.on { background: var(--accent); color: #222; }
+  .catHead { display: none; }
+  body.catalog .catHead { display: flex; align-items: baseline; gap: 8px; grid-column: 1 / -1; margin: 10px 0 4px; font-size: 13px; font-weight: 800; color: var(--fg); border-left: 3px solid var(--accent); padding-left: 8px; }
+  body.catalog .catHead b { white-space: nowrap; }
+  body.catalog .catHead small { flex: 1; min-width: 0; font-weight: 400; color: var(--muted); font-size: 11px; line-height: 1.35; }
+  body.catalog #summary:empty { display: none; }
+  body.catalog #actRow { display: grid; grid-template-columns: repeat(2, 1fr); gap: 6px; }
+  body.catalog #actRow .btn { height: auto; min-height: 56px; padding: 10px 12px; text-align: left; white-space: normal; display: flex; flex-direction: column; justify-content: center; gap: 3px; font-size: 14px; line-height: 1.3; border: 1px solid var(--line); }
+  body.catalog #actRow .btn.accent { border-color: var(--accent); }
+  body.catalog #actRow .btn[data-desc]::after { content: attr(data-desc); font-size: 11px; font-weight: 400; color: var(--muted); line-height: 1.35; }
+  body.catalog #actRow .btn.accent[data-desc]::after { color: #4a3e00; }
+  body.catalog #actRow input[type=file] { display: none; }
+  body.catalog .types { grid-template-columns: repeat(3, 1fr); gap: 6px; }
+  body.catalog .type { padding: 10px 6px 8px; font-size: 12.5px; }
+  body.catalog .type .pic { height: 54px; width: 68px; }
+  body.catalog .type b { font-size: 14px; }
+  body.catalog #roofs .roof { padding: 8px 10px; }
+  body.catalog #summary { background: rgba(255,255,255,.06); border: 1px solid var(--line); border-radius: 12px; padding: 8px 10px; margin-top: 4px; }
+  @media (min-width: 900px) {
+    body.catalog #actRow { grid-template-columns: repeat(2, 1fr); }
+    body.catalog .types { grid-template-columns: repeat(5, 1fr); }
+  }
 </style>
 </head>
 <body>
@@ -265,6 +294,9 @@
 
   <!-- 배치 · 보기 모드 -->
   <div id="modeView">
+    <!-- 화면 모드: 컨설팅(기본, 지금 화면) / 카탈로그(단계별 목록). 선택은 이 기기에 기억된다 -->
+    <div id="uiMode"><span>화면</span><span class="seg"><button data-mode="consult" class="on">컨설팅 (기본)</button><button data-mode="catalog">카탈로그</button></span></div>
+    <div class="catHead"><b>① 입지 정보</b><small>지번 검색 → 건축물대장 · 한전 선로</small></div>
     <!-- 입지 정보: 지번을 고르면 건축물대장 + 한전 선로를 바로 펼쳐 보여준다 -->
     <div id="siteCard" class="siteCard" style="display:none">
       <div id="siteRow" style="display:none">
@@ -277,23 +309,27 @@
       <div id="kepcoBody" class="scBody"></div>
       <p class="scNote">건축물대장: 국토부 건축HUB 표제부(위반건축물 여부는 이 자료에 없음). 한전: 분산전원연계정보 — 번지 자료가 없으면 읍면동 전체 선로, 단위는 문서에 없음(kW 추정). 실제 접속 가능 여부는 한전 접속가능용량조회로 확인.</p>
     </div>
+    <div class="catHead"><b>② 지붕 형태</b><small>누르면 고른 지붕(없으면 전체)에 적용 · 한 번 더 누르면 줄 방향 뒤집기</small></div>
     <div class="types" id="types"></div>
     <div class="row" style="gap:12px">
       <label class="chk"><input id="shadeOn" type="checkbox"><span>음영 고려 <small style="color:var(--muted)">동지(12/21) 9~15시 · 반경 120m 더 높은 건물(건축물대장 높이, 없으면 층수×층고) · 장애물·벤츄레이터 그림자</small></span></label>
     </div>
-    <div class="row">
-      <button class="btn accent" id="btnBuildings">🏢 건물 가져오기</button>
-      <button class="btn ghost" id="btnDraw">✎ 직접 그리기</button>
-      <button class="btn ghost" id="btnParcel" title="화면 안 필지를 불러와 누르면 노지 2단 배치">▭ 토지 가져오기</button>
-      <button class="btn ghost" id="btnEdit">✂ 모듈 편집</button>
-      <button class="btn ghost" id="btnAlign" title="건물 외곽선을 위성사진 지붕 경계에 자동으로 맞춤">🎯 지붕 위치 자동보정</button>
-      <button class="btn ghost" id="btn3d" title="배치 결과를 3D 로">🏙 3D 조감도</button>
-      <button class="btn ghost" id="btnCad" title="배치 평면도·측면도·배면도를 DXF 로">📐 CAD(DXF)</button>
-      <button class="btn ghost" id="btnProposal" title="원본 제안서를 골라 배치도·측면도·손익을 채운 완성본으로">📑 제안서 PPT</button>
+    <div class="row" id="actRow">
+      <div class="catHead"><b>③ 배치 작업</b><small>지붕·토지를 지도에서 가져오거나 그리고, 모듈을 다듬는다</small></div>
+      <button class="btn accent" id="btnBuildings" data-desc="화면 안 건물 외곽선을 불러와 지붕 형태대로 자동 배치">🏢 건물 가져오기</button>
+      <button class="btn ghost" id="btnDraw" data-desc="지도 위에 점을 찍어 지붕·부지 외곽선을 직접 그림">✎ 직접 그리기</button>
+      <button class="btn ghost" id="btnParcel" title="화면 안 필지를 불러와 누르면 노지 2단 배치" data-desc="화면 안 필지를 불러와 누르면 노지 2단 배치">▭ 토지 가져오기</button>
+      <button class="btn ghost" id="btnEdit" data-desc="드래그로 모듈 삭제·복원, 장애물 지정">✂ 모듈 편집</button>
+      <button class="btn ghost" id="btnAlign" title="건물 외곽선을 위성사진 지붕 경계에 자동으로 맞춤" data-desc="건물 외곽선을 위성사진 지붕 경계에 자동으로 맞춤">🎯 지붕 위치 자동보정</button>
+      <div class="catHead"><b>④ 결과 · 내보내기</b><small>배치 결과를 확인하고 문서로 만든다</small></div>
+      <button class="btn ghost" id="btn3d" title="배치 결과를 3D 로" data-desc="배치 결과를 3D 로">🏙 3D 조감도</button>
+      <button class="btn ghost" id="btnCad" title="배치 평면도·측면도·배면도를 DXF 로" data-desc="배치 평면도·측면도·배면도를 DXF 로">📐 CAD(DXF)</button>
+      <button class="btn ghost" id="btnProposal" title="원본 제안서를 골라 배치도·측면도·손익을 채운 완성본으로" data-desc="원본 제안서를 골라 배치도·측면도·손익을 채운 완성본으로">📑 제안서 PPT</button>
       <input type="file" id="tplFile" accept=".pptx" style="display:none">
-      <button class="btn ghost" id="btnShare">공유</button>
-      <button class="btn ghost" id="btnClear">전체 삭제</button>
+      <button class="btn ghost" id="btnShare" data-desc="지붕별 용량·면적을 글로 공유 (공유창이 없으면 클립보드 복사)">공유</button>
+      <button class="btn ghost" id="btnClear" data-desc="지도 위 지붕·배치를 모두 지움">전체 삭제</button>
     </div>
+    <div class="catHead"><b>⑤ 지붕 목록 · 합계</b><small>지붕을 고르면 ②의 형태와 아래 상세 설정이 그 지붕에 적용</small></div>
     <div id="summary"></div>
     <div id="roofs"></div>
     <details>
@@ -521,7 +557,7 @@
   // 깃허브 Pages 는 화면 파일을 10분 캐시한다. 새로 올린 뒤에도 옛 화면이 나오지 않게,
   // 열 때마다 캐시 없이 index.html 을 다시 받아 버전 표식이 다르면 한 번 새로고침한다.
   // 버전 표식(APP_VER)은 web동기화.sh 가 올릴 때마다 시각으로 바꿔 넣는다.
-  window.APP_VER = '20261015070114';
+  window.APP_VER = '20261015100000';
   (function () {
     if (location.hostname.indexOf('github.io') < 0) return;
     fetch('index.html?nocache=' + Date.now(), { cache: 'no-store' }).then(r => r.text()).then(t => {
@@ -531,6 +567,21 @@
         location.replace(location.pathname + '?v=' + m[1]);
       }
     }).catch(() => {});
+  })();
+</script>
+<script>
+  // 화면 모드(컨설팅/카탈로그) — 이 기기의 localStorage 에 기억. 기본은 컨설팅(지금까지의 화면).
+  (function () {
+    const KEY = 'solar.uiMode';
+    const btns = document.querySelectorAll('#uiMode button');
+    function apply(v) {
+      const cat = v === 'catalog';
+      document.body.classList.toggle('catalog', cat);
+      btns.forEach(b => b.classList.toggle('on', (b.dataset.mode === 'catalog') === cat));
+    }
+    let saved = null; try { saved = localStorage.getItem(KEY); } catch (e) {}
+    apply(saved);
+    btns.forEach(b => { b.onclick = () => { try { localStorage.setItem(KEY, b.dataset.mode); } catch (e) {} apply(b.dataset.mode); }; });
   })();
 </script>
 <script src="config.js?v=20261015070114"></script>
