@@ -241,7 +241,22 @@
         ppShow(d, '로그인 성공: ' + (d.title || ''));
       } catch (e) { hint('파워플래너 중계 오류: ' + e.message); }
     };
-    $('btnNasPick').onclick = async () => { try { const h = await Nas.ensureRoot(true); nasSite = null; hint('저장 폴더: ' + h.name + ' — 이 안의 연도·월 폴더에서 주소로 현장 폴더를 찾습니다(없으면 이달에 새로 만듭니다).'); } catch (e) { hint('폴더 지정 취소/실패: ' + e.message); } };
+    $('btnNasPick').onclick = async () => { try { const h = await Nas.ensureRoot(true); nasSite = null; $('nasRootName').textContent = h.name; hint('저장 폴더: ' + h.name + ' — 이 안의 연도·월 폴더에서 주소로 현장 폴더를 찾습니다(없으면 이달에 새로 만듭니다).'); } catch (e) { hint('폴더 지정 취소/실패: ' + e.message); } };
+    if (window.Nas && Nas.available()) Nas.loadRoot().then(h => { if (h && $('nasRootName')) $('nasRootName').textContent = h.name; });
+    // 📂 불러오기: NAS 에 저장한 …_설정.json → 그때의 배치·설정·수익분석 상태를 되살린다
+    $('btnLoad').onclick = () => { $('loadFile').value = ''; $('loadFile').click(); };
+    $('loadFile').addEventListener('change', async e => {
+      const f = e.target.files && e.target.files[0]; if (!f) return;
+      try {
+        const j = JSON.parse(await f.text());
+        if (!j || !j.state || !Array.isArray(j.state.roofs)) throw new Error('설정 파일이 아닙니다 (…_설정.json 을 고르세요)');
+        if (!confirm((j.site && (j.site.name || j.site.addr) || f.name) + ' — 이 설정을 불러올까요? 지금 화면의 배치는 바뀝니다.')) return;
+        const st = j.state; if (j.site) { if (j.site.name) st.siteName = j.site.name; if (j.site.addr) st.siteAddr = j.site.addr; }
+        localStorage.setItem(STORE, JSON.stringify(st));
+        if (j.rps) try { localStorage.setItem('solar.rps.v1', JSON.stringify(j.rps)); } catch (x) {}
+        hint('불러오는 중…'); location.reload();
+      } catch (x) { hint('불러오기 실패: ' + x.message); }
+    });
     $('btnProposal').onclick = () => {
       if (!window.Native && window.JSZip && $('tplFile')) { hint('원본 제안서(.pptx)를 고르세요 — 37·38쪽 그림과 47~49쪽 표를 채워 완성본으로 내려받습니다.'); $('tplFile').value = ''; $('tplFile').click(); }
       else makeProposal(null);
@@ -769,6 +784,17 @@
   function clearParcel() { if (parcelGfx) { parcelGfx.setMap(null); parcelGfx = null; } }
 
   /** O / X 창. 확인(O) 이면 true. */
+  /** 글 입력 창. window.prompt 는 다른 탭에 갔다 오면 크롬이 닫아 버려서(스프레드시트 보고 오면 사라짐) 페이지 안 창으로 (2026-10-20) */
+  function askText(title, body, def) {
+    return new Promise(resolve => {
+      $('txt_title').textContent = title; $('txt_body').innerHTML = body || ''; $('txt_input').value = def || '';
+      $('txtModal').classList.add('on'); setTimeout(() => $('txt_input').focus(), 50);
+      const done = v => { $('txtModal').classList.remove('on'); $('txt_input').onkeydown = null; resolve(v); };
+      $('txt_ok').onclick = () => done($('txt_input').value);
+      $('txt_cancel').onclick = () => done(null);
+      $('txt_input').onkeydown = e => { if (e.key === 'Enter') done($('txt_input').value); if (e.key === 'Escape') done(null); };
+    });
+  }
   function askOX(title, body, oLabel, xLabel) {
     return new Promise(resolve => {
       $('ox_title').textContent = title; $('ox_body').innerHTML = body;
@@ -1473,7 +1499,7 @@
         hint('배치도(위성·도면)·측면도 그리고 표 채우는 중…');
         // 표지 업체명: 현장 이름이 주소와 같거나 주소처럼 보이면 비워 두고 묻는다 (2026-10-20 사용자 지시)
         const looksAddr = s => !s || s === siteAddr || /d+(-d+)?s*$|[시군구읍면동리로길]s+S*d/.test(s);
-        const bizName = prompt('표지에 넣을 업체명 (예: (주)그린테크)', looksAddr(siteName) ? '' : siteName);
+        const bizName = await askText('표지에 넣을 업체명', '제안서 1쪽의 업체명 자리에 들어갑니다. 다른 탭(상담일지 등)을 보고 와도 이 창은 그대로 있습니다. 예: (주)그린테크', looksAddr(siteName) ? '' : siteName);
         if (bizName === null) { hint('제안서 만들기를 취소했습니다.'); return; }
         data.site.name = bizName.trim() || data.site.name;
         const cover = await pickCover(data);                                       // 표지: 로드뷰 캡처 / 3D / 건너뛰기
@@ -1652,6 +1678,10 @@
   /** 「💾 NAS 저장」: 배치도(위성·도면)·측면도·DXF·설정 JSON 을 현장 폴더에 */
   async function saveToNas() {
     try {
+      if (!Nas.available()) { hint('폴더 저장은 PC 크롬·엣지에서만 됩니다. 앱에서는 메일 첨부를 쓰세요.'); return; }
+      // 폴더 고르기 창은 버튼을 누른 직후에만 열 수 있다(기다린 뒤 열면 크롬이 막는다) → 제일 먼저
+      try { const h = await Nas.ensureRoot(); const nm = $('nasRootName'); if (nm) nm.textContent = h.name; } catch (e) { hint(e.name === 'AbortError' ? '폴더 고르기를 취소했습니다. N:\\02. 제안서작성 을 고르면 됩니다.' : '폴더 접근 실패: ' + e.message); return; }
+      if (!roofs.some(r => r.result)) { hint('먼저 배치를 하세요.'); return; }
       const data = await proposalData(false); if (!data) { hint('먼저 배치를 하세요.'); return; }
       const sd = await siteFolder(); if (!sd) return;
       const base = (siteName || '현장').replace(/[\\/:*?"<>|]/g, '') + '_' + data.kw.toFixed(0) + 'kW_' + new Date().toISOString().slice(0, 10);
@@ -2416,7 +2446,7 @@
   function save() {
     try {
       localStorage.setItem(STORE, JSON.stringify({
-        curType, settings, siteName, shade, moduleCfg, edits,
+        curType, settings, siteName, siteAddr, shade, moduleCfg, edits,
         roofs: roofs.map(r => ({ id: r.id, name: r.name, type: r.type, points: r.points, src: r.src, floors: r.floors, floorsManual: r.floorsManual, spans: r.spans, vent: r.vent,
           parcels: r.parcels, extra: r.extra, review: r.review && !r.review.pending ? r.review : undefined, force: r.force,
           azimuth: r.azimuth, margin: r.margin, tiers: r.tiers, terrain: r.terrain, moved: r.moved, flip: r.flip, ventN: r.ventN, ventPos: r.ventPos, ridgeOff: r.ridgeOff, ridgeExt: r.ridgeExt, ridgeOn: r.ridgeOn, attach: r.attach, ventExtra: r.ventExtra, ventH: r.ventH, rect: r.rect })),
@@ -2432,7 +2462,7 @@
       if (!st) return;
       curType = Layout.PRESETS[st.curType] ? st.curType : 'slab';
       settings = Object.assign({ ginseng: {}, flush: {}, slab: {} }, st.settings || {});
-      siteName = st.siteName || '';
+      siteName = st.siteName || ''; siteAddr = st.siteAddr || siteAddr || '';
       shade = Object.assign({ on: false, floorH: 3.5 }, st.shade || {});
       moduleCfg = Object.assign({}, MODULE_DEFAULT, st.moduleCfg || {});
       edits = Array.isArray(st.edits) ? st.edits : [];
