@@ -207,7 +207,7 @@
     };
     $('btnAlign').onclick = () => alignAll();
     // 전기실: 없으면 용량 기준 크기로 놓고, 있으면 앞×뒤 크기 입력. 「전기실 위치」는 지도 가운데로 옮겨 손으로 자리 잡기
-    $('btnElec').onclick = () => { const f = fixtures.find(x => x.kind === 'elec'); if (!f) { addFixture('elec'); return; } const s = prompt('전기실 앞 × 뒤 (m)  — 용량 기준: 100kW 미만 2×3 · 250 미만 3×4 · 500 미만 4×5 · 1MW 미만 16×5 · 이상 16×8', f.w + ' ' + f.h); if (s === null) return; const m = s.trim().split(/[\s,x×]+/).map(parseFloat); if (!(m[0] >= 1 && m[1] >= 1)) return; f.w = m[0]; f.h = m[1]; f.manual = true; afterFixtureChange(); hint('전기실 ' + f.w + '×' + f.h + 'm'); };
+    $('btnElec').onclick = () => openElec();
     $('btnElecPos').onclick = () => { let f = fixtures.find(x => x.kind === 'elec'); const mc = map.getCenter(); if (!f) { addFixture('elec'); f = fixtures.find(x => x.kind === 'elec'); } f.c = { lat: mc.getLat(), lng: mc.getLng() }; afterFixtureChange(); hint('전기실을 화면 가운데에 놓았습니다. 꾹 눌러 끌어 자리를 잡으세요. 탭 후 Del 로 삭제.'); };
     $('btnLadder').onclick = () => addFixture('ladder');
     $('btnNas').onclick = saveToNas;
@@ -1306,6 +1306,33 @@
   function fixLabel(f) { return f.kind === 'elec' ? '전기실 ' + f.w + '×' + f.h + 'm' : '사다리'; }
   /** 전기실·사다리가 어느 지붕 위에 있는지(중심이 지붕 안) */
   function fixRoof(f) { return roofs.find(r => r.type !== 'ground' && r.type !== 'parking' && Layout.containsGeo(r.points, f.c)) || null; }
+  /** ⚡ 전기실 창: 용량 기준 크기 표시·앞×뒤 입력·각도(↶↷, 건물맞춤)·가운데로·삭제 (2026-10-20 사용자 지시). 전기실이 없으면 먼저 놓는다 */
+  function openElec() {
+    if (!roofs.some(r => r.result)) { hint('먼저 배치를 하세요. 전기실 크기는 배치 용량으로 정합니다.'); return; }
+    let f = fixtures.find(x => x.kind === 'elec');
+    if (!f) { addFixture('elec'); f = fixtures.find(x => x.kind === 'elec'); }
+    const kw = totalKw(), [aw, ah] = elecSizeFor(kw);
+    const m = $('elecModal'); m.classList.add('on');
+    $('el_info').innerHTML = '배치 용량 <b>' + kw.toFixed(1) + 'kW</b> → 기준 크기 <b>' + aw + '×' + ah + 'm</b> <span style="font-size:11px">(100kW 미만 2×3 · 250 미만 3×4 · 500 미만 4×5 · 1MW 미만 16×5 · 이상 16×8)</span>' + (f.manual ? ' · 지금은 직접 입력값' : '');
+    $('el_w').value = f.w; $('el_h').value = f.h;
+    const showAng = () => { $('el_ang').textContent = Math.round(-(f.ang || 0)) + '°'; };
+    showAng();
+    const apply = () => { drawFixtures(); roofs.forEach(recompute); renderList(); save(); const b = $('btnElec'); if (b) b.textContent = '⚡ 전기실 ' + f.w + '×' + f.h; };
+    const turn = dv => { f.ang = (((f.ang || 0) - dv) + 540) % 360 - 180; showAng(); apply(); };
+    const hold = (btn, dv) => {
+      let timer = null, ticks = 0, fired = false;
+      btn.onpointerdown = e => { e.preventDefault(); fired = false; ticks = 0; timer = setTimeout(function rep() { fired = true; ticks++; turn(dv * (ticks > 15 ? 3 : 1)); timer = setTimeout(rep, 90); }, 350); };
+      const end = e => { if (timer) { clearTimeout(timer); timer = null; } if (e && e.type === 'pointerup' && !fired) turn(dv); fired = false; };
+      btn.onpointerup = end; btn.onpointerleave = end; btn.onpointercancel = end; btn.oncontextmenu = e => e.preventDefault(); btn.style.touchAction = 'none';
+    };
+    hold($('el_rotL'), -1); hold($('el_rotR'), 1);
+    $('el_rotB').onclick = () => { const r = fixRoof(f) || roofs.find(x => x.id === selectedId) || roofs[0]; f.ang = (r && r.result && r.result.buildingAngle) || 0; showAng(); apply(); };
+    $('el_auto').onclick = () => { f.manual = false; f.w = aw; f.h = ah; $('el_w').value = aw; $('el_h').value = ah; apply(); };
+    $('el_center').onclick = () => { const c = map.getCenter(); f.c = { lat: c.getLat(), lng: c.getLng() }; apply(); hint('전기실을 화면 가운데에 놓았습니다. 꾹 눌러 끌어 자리를 잡으세요.'); };
+    $('el_del').onclick = () => { fixtures.splice(fixtures.indexOf(f), 1); m.classList.remove('on'); afterFixtureChange(); hint('전기실 삭제'); };
+    $('el_close').onclick = () => m.classList.remove('on');
+    $('el_ok').onclick = () => { const w = parseFloat($('el_w').value), h = parseFloat($('el_h').value); if (w >= 1 && h >= 1) { if (w !== aw || h !== ah) f.manual = true; f.w = w; f.h = h; } apply(); m.classList.remove('on'); hint('전기실 ' + f.w + '×' + f.h + 'm · ' + Math.round(-(f.ang || 0)) + '°'); };
+  }
   function addFixture(kind) {
     const r = roofs.find(x => x.id === selectedId) || roofs[0];
     const [w, h] = kind === 'elec' ? elecSizeFor(totalKw()) : [0.6, 1.2];
