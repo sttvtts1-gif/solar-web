@@ -529,12 +529,13 @@
 <div class="modal" id="ppModal">
   <div class="box" style="width:min(94vw,440px)">
     <h3 style="margin:0 0 6px">🔌 한전 파워플래너 가져오기</h3>
-    <div style="font-size:12px;color:var(--muted);margin-bottom:8px">고객의 파워플래너 아이디·비밀번호로 중계가 로그인해 <b>최근 12개월 요일별 시간대 사용량</b>과 적용 요금제·계약전력을 가져옵니다. 비밀번호는 저장하지 않습니다. (공식 API 가 아니라 화면을 읽는 방식 — 한전 사이트가 바뀌면 안 될 수 있음)</div>
+    <div style="font-size:12px;color:var(--muted);margin-bottom:8px">고객의 파워플래너 아이디·비밀번호로 중계가 로그인해 <b>최근 12개월 요일별 시간대 사용량</b>과 적용 요금제·계약전력을 가져옵니다. 회원 구분은 한전 로그인 화면의 개인(고객번호·아이디)/법인(사업자등록번호) 구분과 같습니다. 비밀번호는 저장하지 않습니다. (공식 API 가 아니라 화면을 읽는 방식 — 한전 사이트가 바뀌면 안 될 수 있음)</div>
     <label style="display:block;margin:6px 0 0">아이디 (고객번호)<input id="pp_id" type="text" autocomplete="off" style="width:100%;box-sizing:border-box"></label>
     <label style="display:block;margin:6px 0 0">비밀번호<input id="pp_pw" type="password" autocomplete="off" style="width:100%;box-sizing:border-box"></label>
     <div style="display:flex;gap:10px;margin-top:8px;flex-wrap:wrap">
       <label style="margin:0">회원 구분<select id="pp_type"><option value="I">개인</option><option value="C">법인</option></select></label>
-      <label style="margin:0">계약방식<select id="pp_mode"><option>상계거래</option><option>단순병렬</option></select></label>
+      <label style="margin:0">계약방식<select id="pp_mode"><option>상계거래</option><option>단순병렬</option><option>자가PPA</option></select></label>
+      <label style="margin:0;display:none" id="pp_rateWrap">잉여 판매단가 SMP+REC (원/kWh)<input id="pp_rate" type="number" step="1" min="0" style="width:110px"></label>
     </div>
     <div class="row" style="justify-content:flex-end;gap:8px;margin-top:12px"><button class="btn ghost" id="pp_cancel">취소</button><button class="btn accent" id="pp_ok">가져오기</button></div>
   </div>
@@ -621,7 +622,7 @@
   // 깃허브 Pages 는 화면 파일을 10분 캐시한다. 새로 올린 뒤에도 옛 화면이 나오지 않게,
   // 열 때마다 캐시 없이 index.html 을 다시 받아 버전 표식이 다르면 한 번 새로고침한다.
   // 버전 표식(APP_VER)은 web동기화.sh 가 올릴 때마다 시각으로 바꿔 넣는다.
-  window.APP_VER = '20261021075213';
+  window.APP_VER = '20261021075908';
   (function () {
     if (location.hostname.indexOf('github.io') < 0) return;
     fetch('index.html?nocache=' + Date.now(), { cache: 'no-store' }).then(r => r.text()).then(t => {
@@ -633,30 +634,30 @@
     }).catch(() => {});
   })();
 </script>
-<script src="config.js?v=20261021075213"></script>
-<script src="vendor/pdf.min.js?v=20261021075213"></script>
-<script src="layout.js?v=20261021075213"></script>
-<script src="vworld.js?v=20261021075213"></script>
-<script src="site.js?v=20261021075213"></script>
-<script src="terrain.js?v=20261021075213"></script>
-<script src="vendor/three.min.js?v=20261021075213"></script>
+<script src="config.js?v=20261021075908"></script>
+<script src="vendor/pdf.min.js?v=20261021075908"></script>
+<script src="layout.js?v=20261021075908"></script>
+<script src="vworld.js?v=20261021075908"></script>
+<script src="site.js?v=20261021075908"></script>
+<script src="terrain.js?v=20261021075908"></script>
+<script src="vendor/three.min.js?v=20261021075908"></script>
 <script src="view3d.js"></script>
-<script src="vendor/jszip.min.js?v=20261021075213"></script>
+<script src="vendor/jszip.min.js?v=20261021075908"></script>
 <script>window.JSZipLib = window.JSZip;</script><!-- pptxgen 번들이 전역 JSZip 을 덮어써서 따로 잡아 둔다 -->
-<script src="vendor/pptxgen.bundle.js?v=20261021075213"></script>
-<script src="proposal.js?v=20261021075213"></script>
-<script src="align.js?v=20261021075213"></script>
+<script src="vendor/pptxgen.bundle.js?v=20261021075908"></script>
+<script src="proposal.js?v=20261021075908"></script>
+<script src="align.js?v=20261021075908"></script>
 <script src="cp949.js"></script>
-<script src="nas.js?v=20261021075213"></script>
-<script src="auth.js?v=20261021075213"></script>
-<script src="cad.js?v=20261021075213"></script>
-<script src="kepco.js?v=20261021075213"></script>
-<script src="bld.js?v=20261021075213"></script>
-<script src="rps.js?v=20261021075213"></script>
-<script src="report.js?v=20261021075213"></script>
-<script src="pp.js?v=20261021075213"></script>
-<script src="rps_ui.js?v=20261021075213"></script>
-<script src="policy.js?v=20261021075213"></script>
-<script src="app.js?v=20261021075213"></script>
+<script src="nas.js?v=20261021075908"></script>
+<script src="auth.js?v=20261021075908"></script>
+<script src="cad.js?v=20261021075908"></script>
+<script src="kepco.js?v=20261021075908"></script>
+<script src="bld.js?v=20261021075908"></script>
+<script src="rps.js?v=20261021075908"></script>
+<script src="report.js?v=20261021075908"></script>
+<script src="pp.js?v=20261021075908"></script>
+<script src="rps_ui.js?v=20261021075908"></script>
+<script src="policy.js?v=20261021075908"></script>
+<script src="app.js?v=20261021075908"></script>
 </body>
 </html>

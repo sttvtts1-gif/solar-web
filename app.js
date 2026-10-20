@@ -1279,10 +1279,11 @@
     if (!(window.SOLAR_CONFIG || {}).KEPCO_PROXY) { hint('중계 주소가 없습니다.'); return; }
     const m = $('ppModal'); m.classList.add('on');
     $('pp_id').value = localStorage.getItem('solar.pp.id') || ''; $('pp_pw').value = '';
-    const st = (typeof RpsUI !== 'undefined' && RpsUI.getState && RpsUI.getState()) || {}; if (st.ppMode) $('pp_mode').value = st.ppMode;
+    const st = (typeof RpsUI !== 'undefined' && RpsUI.getState && RpsUI.getState()) || {}; if (st.ppMode) $('pp_mode').value = st.ppMode; $('pp_rate').value = st.ppRate || 0; $('pp_mode').onchange = () => { $('pp_rateWrap').style.display = $('pp_mode').value === '자가PPA' ? '' : 'none'; }; $('pp_mode').onchange();
     $('pp_cancel').onclick = () => m.classList.remove('on');
     $('pp_ok').onclick = async () => {
       const id = $('pp_id').value.trim(), pw = $('pp_pw').value, type = $('pp_type').value, mode = $('pp_mode').value;
+      if (typeof RpsUI !== 'undefined' && RpsUI.getState) RpsUI.getState().ppRate = parseFloat($('pp_rate').value) || 0;
       if (!id || !pw) { hint('아이디와 비밀번호를 넣으세요.'); return; }
       localStorage.setItem('solar.pp.id', id); m.classList.remove('on');
       const pg = progress('🔌 파워플래너 가져오기');
@@ -1306,7 +1307,7 @@
     const d = res.discovery || {};
     const esc = s => String(s || '').replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
     box.innerHTML = '<h4>🔌 파워플래너 진단</h4><div style="font-size:12px;white-space:pre-wrap;word-break:break-all;max-height:40vh;overflow:auto;background:#0b1220;padding:8px;border-radius:6px">'
-      + esc('페이지: ' + res.pageNote + '\n자료 호출 url: ' + (d.url || '(못 찾음)') + '\n파라미터 후보: ' + (d.params || []).join(', ') + '\n숨은 필드: ' + (d.hidden || []).join(', ') + '\n요금제: ' + res.contract + '\n\n--- getChartData ---\n' + (d.snippet || '') + '\n\n--- 첫 달 응답 앞부분 (' + ((res.months[0] || {}).code || '') + ') ---\n' + ((res.months[0] || {}).raw || '')) + '</div>';
+      + esc('페이지: ' + res.pageNote + '\n자료 호출 url: ' + (d.url || '(못 찾음)') + '\n후보: ' + (d.candidates || []).join(' | ') + '\n시험 결과: ' + (d.tries || []).map(t => t.url + ' → ' + (t.err || (t.code + ' ' + t.len + 'B ' + (t.json ? 'JSON' : 'HTML') + ' : ' + String(t.head || '').replace(/\s+/g, ' ').slice(0, 160)))).join('\n  ') + '\n페이지 .do 목록: ' + (d.doUrls || []).join(' | ') + '\n숨은 필드: ' + (d.hidden || []).join(', ') + '\n요금제: ' + res.contract + '\n\n--- getChartData ---\n' + (d.fn || d.snippet || '') + '\n\n--- 첫 달 응답 앞부분 (' + ((res.months[0] || {}).code || '') + ') ---\n' + ((res.months[0] || {}).raw || '')) + '</div>';
   }
   function ppShow(d, head) {
     let box = $('ppBox');

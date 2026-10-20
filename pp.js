@@ -99,7 +99,7 @@ const PP = (() => {
    * 자가소비 계산. usage = fetchUsage 결과, capacity kW, rates: 월별 { energyCharge } (RPS.computeSelf 의 monthly), mode: '상계거래'|'단순병렬'
    * @returns { monthly:[{y,m,use,gen,self,surplus,saving,selfRate,surplusRate}], total:{use,gen,self,surplus,saving}, re100, surplusPct }
    */
-  function compute(usage, capacity, monthlyRates, mode) {
+  function compute(usage, capacity, monthlyRates, mode, ppaRate) {
     const monthly = [];
     usage.months.forEach(x => {
       if (!x.hourly) return;
@@ -110,7 +110,7 @@ const PP = (() => {
         use += n[w] * u; gen += n[w] * g; self += n[w] * Math.min(u, g);
       }
       const rate = (monthlyRates && monthlyRates[x.m - 1] && monthlyRates[x.m - 1].energyCharge) || 0;
-      const selfRate = rate + 9 + 5, surplusRate = mode === '단순병렬' ? 0 : rate;
+      const selfRate = rate + 9 + 5, surplusRate = mode === '단순병렬' ? 0 : mode === '자가PPA' ? (Number(ppaRate) || 0) : rate;   // 자가PPA: 잉여 × (SMP+REC), 엑셀 G 열과 같음
       const surplus = gen - self, saving = self * selfRate + surplus * surplusRate;
       monthly.push({ y: x.y, m: x.m, use, gen, self, surplus, saving, selfRate, surplusRate });
     });
