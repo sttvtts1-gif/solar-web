@@ -1684,12 +1684,20 @@
     const pg = window.__prog; if (pg) pg.step('NAS 에서 현장 폴더 찾는 중 — ' + addr);
     // 상담일지(상담번호)는 새 폴더 이름에만 쓰니 뒤에서 돌리고, 못 찾았을 때만 3초까지 기다린다
     const consultP = Promise.race([Proposal.consult(addr).catch(() => null), new Promise(r => setTimeout(() => r(null), 3000))]);
-    let sd = await Nas.siteDir({ addr, altAddr: siteName !== addr ? siteName : '', no: '', name: '', noCreate: true });
+    const yearLine = document.createElement('div'); if (pg) $('prog_log').appendChild(yearLine);
+    const onYear = yn => { yearLine.textContent = '   … ' + yn + ' 훑는 중'; };
+    // 1) 주소로 전체 연도·월 검색  2) 없으면 상담일지의 상담번호로 한 번 더  3) 그래도 없으면 올해·이달에 새 폴더
+    let sd = await Nas.siteDir({ addr, altAddr: siteName !== addr ? siteName : '', no: '', name: '', noCreate: true, onYear });
+    let h = null;
     if (!sd) {
-      if (pg) pg.step('기존 폴더 없음 → 상담번호 확인 뒤 새 폴더 만들기');
-      const m = await consultP; const h = ((m && m.hits) || []).find(x => x.no);
+      const m = await consultP; h = ((m && m.hits) || []).find(x => x.no);
+      if (h) { if (pg) pg.step('주소로 못 찾음 → 상담번호 ' + h.no + ' 로 다시 검색'); sd = await Nas.siteDir({ addr: '', no: h.no, name: '', noCreate: true, onYear }); }
+    }
+    if (!sd) {
+      if (pg) pg.step('기존 폴더 없음 → 올해·이달에 새 폴더 만들기');
       sd = await Nas.siteDir({ addr, altAddr: siteName !== addr ? siteName : '', no: h ? h.no : '', name: (h && h.name) || (siteName && siteName !== addr ? siteName : '') });
     }
+    yearLine.remove();
     nasSite = sd;
     hint(sd.created ? 'NAS 에 현장 폴더를 새로 만들었습니다: ' + sd.path : 'NAS 현장 폴더(' + sd.matched + ' 일치): ' + sd.path);
     return sd;

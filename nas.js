@@ -79,9 +79,10 @@ const Nas = (() => {
     // 연도 폴더 목록: 고른 폴더가 연도 폴더 자체면 그것만
     let years = yearOf(r.name) ? [[r.name, r]] : (await dirs(r)).filter(([n]) => yearOf(n));
     years.sort((a, b) => yearOf(b[0]) - yearOf(a[0]));
-    const searchYears = years.slice(0, 2);                       // 최근 2개 연도만 훑는다(NAS 가 느려서)
+    const searchYears = years;                                   // 전체 연도(최근부터)·전체 월을 훑는다 (2026-10-20 사용자 지시)
     if (!years.length) { const e = new Error('고른 폴더(' + r.name + ') 안에 "01. 제안서작성(YYYY년)" 폴더가 없습니다. 아래 「폴더 다시 고르기」로 N:\\02. 제안서작성 을 고르세요.'); e.repick = true; throw e; }
     for (const [yn, yh] of searchYears) {
+      if (o.onYear) o.onYear(yn);
       const months = (await dirs(yh)).filter(([n]) => /검토|\d+월/.test(n)).sort((a, b) => (parseInt((b[0].match(/\((\d+)월\)/) || [])[1] || 0, 10)) - (parseInt((a[0].match(/\((\d+)월\)/) || [])[1] || 0, 10)));
       for (const [mn, mh] of months) {
         for (const [sn, sh] of await dirs(mh)) {
