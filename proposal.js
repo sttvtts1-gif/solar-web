@@ -53,9 +53,15 @@ const Proposal = (() => {
   /** 전기실(회색 상자)·사다리(검정) */
   function drawFixtures(g, fixtures, o, X, Y, fs) {
     (fixtures || []).forEach(f => {
+      if (f.lines) {
+        // 등받이 사다리 기호: 레일·디딤대·등받이 선
+        g.strokeStyle = '#111'; g.lineWidth = 1.4;
+        f.lines.forEach(seg => { const s = toXY(seg, o); g.beginPath(); s.forEach((p, i) => i ? g.lineTo(X(p.x), Y(p.y)) : g.moveTo(X(p.x), Y(p.y))); g.stroke(); });
+      } else {
       const ring = toXY(f.ring, o);
       g.beginPath(); ring.forEach((p, i) => i ? g.lineTo(X(p.x), Y(p.y)) : g.moveTo(X(p.x), Y(p.y))); g.closePath();
-      g.fillStyle = f.kind === 'elec' ? '#8d99a6' : '#222'; g.fill(); g.strokeStyle = '#111'; g.lineWidth = 1.5; g.stroke();
+      g.fillStyle = '#8d99a6'; g.fill(); g.strokeStyle = '#111'; g.lineWidth = 1.5; g.stroke();
+      }
       const c = toXY([f.c], o)[0];
       g.font = 'bold ' + fs + 'px ' + FONT; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillStyle = '#111';
       const tw = g.measureText(f.label).width + 8;

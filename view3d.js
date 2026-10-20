@@ -224,7 +224,15 @@ const View3D = (() => {
       if (f.kind === 'elec') { const m = extrude(xy, f.hgt || 2.5, 0x7b8794, 1); m.position.y = f.baseH || 0; scene.add(m); return; }
       // 사다리: 지면에서 처마(가장 가까운 건물 지붕 높이)까지
       const top = Math.max(2, (data.roofs.filter(r => r.type !== 'ground' && r.type !== 'parking').map(r => r.baseH).sort((a, b) => Math.abs(a - 4) - Math.abs(b - 4))[0]) || 4);
-      const m = extrude(xy, top + 0.9, 0xd9d9d9, 1); scene.add(m);
+      // 등받이 사다리: 레일 2개(지면~처마+0.9m), 디딤대 0.3m 마다, 2.2m 위부터 0.7m 마다 반원 등받이 테 (2026-10-20)
+      const ang = (f.ang || 0) * Math.PI / 180, cx = xy.reduce((a, p) => a + p.x, 0) / xy.length, cy = xy.reduce((a, p) => a + p.y, 0) / xy.length;
+      const g = new THREE.Group(), mat = new THREE.MeshLambertMaterial({ color: 0xd9d9d9 }), hw = (f.w || 0.6) / 2, H = top + 0.9;
+      [-hw, hw].forEach(x => { const b = new THREE.Mesh(new THREE.BoxGeometry(0.05, H, 0.05), mat); b.position.set(x, H / 2, 0); g.add(b); });
+      for (let y = 0.3; y < H; y += 0.3) { const b = new THREE.Mesh(new THREE.BoxGeometry(hw * 2, 0.03, 0.03), mat); b.position.set(0, y, 0); g.add(b); }
+      const R = hw + 0.18;
+      for (let y = 2.2; y < H; y += 0.7) { const t = new THREE.Mesh(new THREE.TorusGeometry(R, 0.02, 4, 16, Math.PI), mat); t.rotation.x = Math.PI / 2; t.rotation.z = Math.PI; t.position.set(0, y, 0); g.add(t); }
+      for (const x of [-R, 0, R]) { const v = new THREE.Mesh(new THREE.BoxGeometry(0.03, H - 2.2, 0.03), mat); v.position.set(x, 2.2 + (H - 2.2) / 2, x === 0 ? R : 0); g.add(v); }
+      g.position.set(cx, 0, -cy); g.rotation.y = ang; scene.add(g);
     });
     data.roofs.forEach(r => {
       const surf = roofSurface(r, o);

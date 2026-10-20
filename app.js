@@ -122,7 +122,7 @@
     });
 
     // 문제 확인용 읽기 전용 손잡이 (콘솔에서 __solar.buildings 등)
-    window.__solar = { get map() { return map; }, get buildings() { return buildings; }, get roofs() { return roofs; }, get fixtures() { return fixtures; }, snapshot3d: (w, h) => { const d = open3dData(); return d ? View3D.snapshot(d, w || 800, h || 500) : null; }, pickCover: () => pickCover({ origin: roofs.length ? Layout.centroid(roofs[0].points) : { lat: 35.9, lng: 128.5 } }) };
+    window.__solar = { get map() { return map; }, get buildings() { return buildings; }, get roofs() { return roofs; }, get fixtures() { return fixtures; }, fixtureData: () => fixtureData(), snapshot3d: (w, h) => { const d = open3dData(); return d ? View3D.snapshot(d, w || 800, h || 500) : null; }, pickCover: () => pickCover({ origin: roofs.length ? Layout.centroid(roofs[0].points) : { lat: 35.9, lng: 128.5 } }) };
     bindUi();
     if (typeof Auth !== 'undefined') Auth.init();                 // 로그인 게이트(중계 재배포 전엔 통과)
     renderTypes();
@@ -1143,9 +1143,7 @@
       const sh = rg => rg.map(p => ({ lat: p.lat + dLat, lng: p.lng + dLng }));
       if (moving.fix) {
         const f = moving.fix.f; f.c = { lat: moving.orig.lat + dLat, lng: moving.orig.lng + dLng };
-        const pg = fixGfx[moving.fix.idx * 2], ov = fixGfx[moving.fix.idx * 2 + 1];
-        if (pg) pg.setPath(fixRing(f).map(p => new kakao.maps.LatLng(p.lat, p.lng)));
-        if (ov) ov.setPosition(new kakao.maps.LatLng(f.c.lat, f.c.lng));
+        drawFixtures();
         moving.last = ll;
         return;
       }
@@ -1303,7 +1301,26 @@
   function elecSizeFor(kw) { return kw < 100 ? [2, 3] : kw < 250 ? [3, 4] : kw < 500 ? [4, 5] : kw < 1000 ? [16, 5] : [16, 8]; }
   function totalKw() { return roofs.reduce((a, r) => a + (r.result ? r.result.kw : 0), 0); }
   function fixRing(f) { return rectPoints({ c: f.c, w: f.w, h: f.h, ang: f.ang || 0 }); }
-  function fixLabel(f) { return f.kind === 'elec' ? '전기실 ' + f.w + '×' + f.h + 'm' : '사다리'; }
+  function fixLabel(f) { return f.kind === 'elec' ? '전기실 ' + f.w + '×' + f.h + 'm' : '사다리(등받이)'; }
+  /**
+   * 등받이(안전 케이지) 사다리 평면 기호 — 사다리 틀(폭 w × 길이 h) 안에서: 양쪽 레일 2줄, 디딤대(가로대) 0.25m 마다,
+   * 레일 바깥을 U 자로 감싸는 등받이 띠(길이 방향 아래쪽 끝이 둥글다). 돌린 각도·자리는 fixRing 과 같다.
+   * @returns [[{lat,lng}...], ...] 선 목록
+   */
+  function ladderLines(f) {
+    const w = f.w || 0.6, h = f.h || 1.2, hw = w / 2, hh = h / 2, ang = f.ang || 0;
+    const geo = pts => Layout.toGeo(pts.map(p => Layout.rotate(p, ang)), f.c);
+    const out = [geo([{ x: -hw, y: -hh }, { x: -hw, y: hh }]), geo([{ x: hw, y: -hh }, { x: hw, y: hh }])];   // 레일
+    for (let y = -hh + 0.15; y <= hh - 0.1 + 1e-9; y += 0.25) out.push(geo([{ x: -hw, y }, { x: hw, y }]));     // 디딤대
+    // 등받이: 레일에서 0.18m 바깥, 위(지붕 쪽 y=+hh)는 열려 있고 아래(바깥)는 반원
+    const cw = hw + 0.18, cy = -hh + cw * 0.6, cage = [{ x: -cw, y: hh }];
+    for (let k = 0; k <= 12; k++) { const t = Math.PI + Math.PI * k / 12; cage.push({ x: cw * Math.cos(t), y: cy + cw * 0.9 * Math.sin(t) }); }
+    cage.push({ x: cw, y: hh });
+    out.push(geo(cage));
+    // 등받이 테(링) 표시: 길이 방향으로 2~3개
+    for (let y = cy + 0.35; y <= hh - 0.05; y += 0.4) out.push(geo([{ x: -cw, y }, { x: -hw, y }]), geo([{ x: hw, y }, { x: cw, y }]));
+    return out;
+  }
   /** 전기실·사다리가 어느 지붕 위에 있는지(중심이 지붕 안) */
   function fixRoof(f) { return roofs.find(r => r.type !== 'ground' && r.type !== 'parking' && Layout.containsGeo(r.points, f.c)) || null; }
   /** ⚡ 전기실 창: 용량 기준 크기 표시·앞×뒤 입력·각도(↶↷, 건물맞춤)·가운데로·삭제 (2026-10-20 사용자 지시). 전기실이 없으면 먼저 놓는다 */
@@ -1367,9 +1384,11 @@
     fixGfx.forEach(g => g.setMap(null)); fixGfx = [];
     fixtures.forEach((f, i) => {
       const on = picked && picked.kind === 'fix' && picked.idx === i;
+      const isL = f.kind === 'ladder';
       const pg = new kakao.maps.Polygon({ path: fixRing(f).map(p => new kakao.maps.LatLng(p.lat, p.lng)),
-        strokeWeight: 2, strokeColor: on ? '#00e5ff' : '#fff', fillColor: on ? '#00e5ff' : FIX[f.kind].color, fillOpacity: 0.9, zIndex: 5 });
+        strokeWeight: isL ? 0 : 2, strokeColor: on ? '#00e5ff' : '#fff', fillColor: on ? '#00e5ff' : (isL ? '#fff' : FIX[f.kind].color), fillOpacity: isL ? (on ? 0.35 : 0.12) : 0.9, zIndex: 5 });
       pg.setMap(map); fixGfx.push(pg);
+      if (isL) ladderLines(f).forEach(seg => { const pl = new kakao.maps.Polyline({ path: seg.map(p => new kakao.maps.LatLng(p.lat, p.lng)), strokeWeight: 2, strokeColor: on ? '#00e5ff' : '#ffeb3b', strokeOpacity: 1, zIndex: 6 }); pl.setMap(map); fixGfx.push(pl); });
       kakao.maps.event.addListener(pg, 'click', () => { if (drawing || editing || Date.now() < lastPick) return; lastPick = Date.now() + 300; setPick({ roofId: null, kind: 'fix', idx: i }); });
       const el = document.createElement('div'); el.className = 'lbl fix'; el.textContent = fixLabel(f);
       const ov = new kakao.maps.CustomOverlay({ position: new kakao.maps.LatLng(f.c.lat, f.c.lng), content: el, yAnchor: f.kind === 'elec' ? 0.5 : 1.6, zIndex: 21 });
@@ -1378,7 +1397,7 @@
   }
   /** 제안서·3D·CAD 용 */
   function fixtureData() {
-    return fixtures.map(f => { const r = fixRoof(f); return { kind: f.kind, ring: fixRing(f), c: f.c, w: f.w, h: f.h, ang: f.ang || 0, label: fixLabel(f), baseH: r ? roofH(r) : 0, onRoof: !!r, hgt: FIX[f.kind].hgt }; });
+    return fixtures.map(f => { const r = fixRoof(f); return { kind: f.kind, ring: fixRing(f), c: f.c, w: f.w, h: f.h, ang: f.ang || 0, label: fixLabel(f), baseH: r ? roofH(r) : 0, onRoof: !!r, hgt: FIX[f.kind].hgt, lines: f.kind === 'ladder' ? ladderLines(f) : null }; });
   }
   /** 지붕 가장자리 ↔ 모듈 이격 치수(처마·옆·용마루). 건물 축 틀에서 지붕 bbox 와 모듈 bbox 차이. 제안서 배치도·CAD 평면도에 빨간 치수선으로 */
   function roofDims(r) {

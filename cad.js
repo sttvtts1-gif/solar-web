@@ -59,7 +59,7 @@ const Cad = (() => {
       (r.dims || []).forEach(dm => { const a = toXY([dm.a], o)[0], b = toXY([dm.b], o)[0]; w.line('DIM', a, b); const vert = Math.abs(b.x - a.x) < Math.abs(b.y - a.y); w.text('DIM', vert ? { x: Math.max(a.x, b.x) + 0.3, y: (a.y + b.y) / 2 } : { x: (a.x + b.x) / 2, y: Math.max(a.y, b.y) + 0.3 }, 0.35, dm.text, 0, !vert); });
     });
     // 전기실·사다리 (FRAME 층)
-    (d.fixtures || []).forEach(f => { w.poly('FRAME', toXY(f.ring, o), true); const c = toXY([f.c], o)[0]; w.text('TEXT', { x: c.x, y: c.y + (f.kind === 'elec' ? 0 : 1.2) }, 0.5, f.label, 0, true); });
+    (d.fixtures || []).forEach(f => { if (f.lines) f.lines.forEach(seg => w.poly('FRAME', toXY(seg, o), false)); else w.poly('FRAME', toXY(f.ring, o), true); const c = toXY([f.c], o)[0]; w.text('TEXT', { x: c.x, y: c.y + (f.kind === 'elec' ? 0 : 1.2) }, 0.5, f.label, 0, true); });
     // ---- 측면도 (오른쪽), 배면도 (그 아래)
     let ox = maxX + 25;
     const picks = d.roofs.slice().sort((a, b) => b.kw - a.kw).slice(0, 2);
