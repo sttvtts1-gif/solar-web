@@ -527,6 +527,8 @@ const Proposal = (() => {
   async function fillTemplate(zipBuf, d, imgs) {
     const JZ = (typeof window !== 'undefined' && (window.JSZipLib || window.JSZip)) || (typeof JSZip !== 'undefined' ? JSZip : require('jszip'));
     const zip = await JZ.loadAsync(zipBuf, { createFolders: false });
+    // 어떤 pptx 는 항목 이름 끝에 NUL 이 붙어 있어(DRM 복호화본 등) 브라우저 JSZip 이 'ppt/slides/slide37.xml' 을 못 찾는다 → 이름 정리 (2026-10-20)
+    Object.keys(zip.files).forEach(k => { const c = k.replace(/\0+$/, ''); if (c !== k) { const e = zip.files[k]; e.name = c; zip.files[c] = e; delete zip.files[k]; } });
     // 1쪽 표지: 제일 큰 그림(업체 사진 자리)을 로드뷰/3D 로 바꾸고, 업체명·주소 글을 현장 것으로 (2026-10-16 사용자 지시)
     if (imgs && imgs.cover && zip.file('ppt/slides/slide1.xml')) {
       let s1 = await zip.file('ppt/slides/slide1.xml').async('string');
