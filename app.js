@@ -241,7 +241,7 @@
         ppShow(d, '로그인 성공: ' + (d.title || ''));
       } catch (e) { hint('파워플래너 중계 오류: ' + e.message); }
     };
-    $('btnNasPick').onclick = async () => { try { const h = await Nas.ensureRoot(true); nasSite = null; hint('저장 폴더: ' + h.name + ' — 이 안의 01.검토(N월) 폴더에서 상담번호로 현장 폴더를 찾습니다.'); } catch (e) { hint('폴더 지정 취소/실패: ' + e.message); } };
+    $('btnNasPick').onclick = async () => { try { const h = await Nas.ensureRoot(true); nasSite = null; hint('저장 폴더: ' + h.name + ' — 이 안의 연도·월 폴더에서 주소로 현장 폴더를 찾습니다(없으면 이달에 새로 만듭니다).'); } catch (e) { hint('폴더 지정 취소/실패: ' + e.message); } };
     $('btnProposal').onclick = () => {
       if (!window.Native && window.JSZip && $('tplFile')) { hint('원본 제안서(.pptx)를 고르세요 — 37·38쪽 그림과 47~49쪽 표를 채워 완성본으로 내려받습니다.'); $('tplFile').value = ''; $('tplFile').click(); }
       else makeProposal(null);
@@ -1639,21 +1639,15 @@
     if (nasSite) return nasSite;
     if (!Nas.available()) { hint('폴더 저장은 PC 크롬·엣지에서만 됩니다. 앱에서는 메일 첨부를 쓰세요.'); return null; }
     await Nas.ensureRoot();
-    const addr = siteAddr || siteName;
-    hint('상담일지에서 상담번호 찾는 중… (' + addr + ')');
-    const m = addr ? await Proposal.consult(addr).catch(() => null) : null;
-    const hits = ((m && m.hits) || []).filter(h => h.no);
+    // N:\02. 제안서작성 아래에서 주소로 현장 폴더를 스스로 찾는다(2026-10-20 사용자 지시). 상담번호는 찾으면 보조로, 새 폴더 이름에만 쓴다
+    const addr = (siteAddr || siteName || '').split('\n')[0];
+    hint('NAS 에서 현장 폴더 찾는 중… (' + addr + ')');
     let no = '', name = '';
-    if (hits.length === 1) { no = hits[0].no; name = hits[0].name; }
-    else if (hits.length > 1) {
-      const s = prompt('상담일지에 여러 건이 있습니다. 번호를 고르세요:\n' + hits.map((h, i) => (i + 1) + ') ' + h.no + ' ' + (h.addr || '').split('\n')[0] + ' ' + h.name).join('\n'), '1');
-      const k = parseInt(s, 10) - 1; if (!(k >= 0 && k < hits.length)) return null; no = hits[k].no; name = hits[k].name;
-    } else {
-      no = prompt('상담일지에서 이 주소를 못 찾았습니다(또는 중계 미배포). 상담번호를 직접 넣으세요 (예 09-0101). 비우면 취소', '') || ''; if (!no.trim()) return null;
-      name = prompt('폴더 이름에 붙일 업체·이름 (비워도 됨)', siteName || '') || '';
-    }
-    const sd = await Nas.siteDir(no.trim(), (siteAddr || siteName || '').split('\n')[0], name.trim());
-    nasSite = sd; return sd;
+    try { const m = await Promise.race([Proposal.consult(addr), new Promise(r => setTimeout(() => r(null), 8000))]); const h = ((m && m.hits) || []).find(x => x.no); if (h) { no = h.no; name = h.name || ''; } } catch (e) {}
+    const sd = await Nas.siteDir({ addr, altAddr: siteName !== addr ? siteName : '', no, name: name || (siteName && siteName !== addr ? siteName : '') });
+    nasSite = sd;
+    hint(sd.created ? 'NAS 에 현장 폴더를 새로 만들었습니다: ' + sd.path : 'NAS 현장 폴더(' + sd.matched + ' 일치): ' + sd.path);
+    return sd;
   }
   /** 「💾 NAS 저장」: 배치도(위성·도면)·측면도·DXF·설정 JSON 을 현장 폴더에 */
   async function saveToNas() {

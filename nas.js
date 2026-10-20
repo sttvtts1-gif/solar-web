@@ -1,12 +1,11 @@
 /*
- * NAS 폴더 저장 (PC 크롬·엣지 전용, 2026-10-16).
+ * NAS 폴더 저장 (PC 크롬·엣지 전용, 2026-10-16 / 10-20 주소로 스스로 찾기).
  *
  * 브라우저의 폴더 접근 기능(File System Access API)으로 사용자가 한 번 고른 폴더
- *   N:\02. 제안서작성\01. 제안서작성(2026년)
- * 아래에 "01.검토(N월)\{상담번호} {주소} {이름}" 폴더를 찾아(없으면 만들어) 파일을 쓴다.
+ *   N:\02. 제안서작성            ← 여기를 고른다 (연도 폴더 "01. 제안서작성(2026년)" 를 골라도 된다)
+ * 아래 연도 폴더 → 월 폴더("01.검토(10월)") → 현장 폴더("10-0102 경남 김해시 주촌면 골든루트로130번길 8 덕우") 를
+ * **주소로 스스로 찾아** 파일을 쓴다. 없으면 올해 연도·이달 월 폴더에 "{상담번호} {주소} {업체명}" 폴더를 만든다.
  * 폴더 핸들은 IndexedDB 에 남겨 두어 다음에 다시 고르지 않아도 된다(권한 확인만).
- *
- * 상담번호(예 09-0101)는 상담일지 시트 A열. 앞 두 자리가 월 → "01.검토(9월)".
  * 안드로이드 웹뷰·사파리에는 이 API 가 없어 안내만 한다.
  */
 const Nas = (() => {
@@ -47,28 +46,59 @@ const Nas = (() => {
     await saveRoot(h);
     return h;
   }
-  const monthOf = no => parseInt(String(no).slice(0, 2), 10) || (new Date().getMonth() + 1);
   const clean = s => String(s || '').replace(/[\\/:*?"<>|]/g, ' ').replace(/\s+/g, ' ').trim();
+  const norm = s => String(s || '').replace(/\s+/g, '').toLowerCase();
 
   /**
-   * 현장 폴더를 찾는다. 상담번호로 시작하는 폴더가 어느 월 폴더에든 있으면 그것. 없으면 상담번호 월의 "01.검토(N월)" 안에 만든다.
-   * @returns { dir, path, created }
+   * 주소에서 폴더 이름과 맞춰 볼 조각: 끝의 번지(숫자-숫자)와 그 앞 리·동·로·길 이름. "경남 김해시 주촌면 골든루트로130번길 8" → ['8','골든루트로130번길']
+   * 괄호·쉼표 뒤(건물명 등)는 뺀다. 번지가 없으면 마지막 두 어절.
    */
-  async function siteDir(no, addr, name) {
-    const r = await ensureRoot();
-    const key = clean(no);
-    if (!key) throw new Error('상담번호가 없습니다.');
-    const months = [];
-    for await (const [n, h] of r.entries()) if (h.kind === 'directory') months.push([n, h]);
-    for (const [mn, mh] of months) {
-      for await (const [n, h] of mh.entries()) if (h.kind === 'directory' && n.startsWith(key)) return { dir: h, path: r.name + '/' + mn + '/' + n, created: false };
+  function addrKeys(addr) {
+    const a = String(addr || '').replace(/\(.*?\)/g, ' ').split(/[,\n]/)[0].trim().split(/\s+/).filter(Boolean);
+    if (!a.length) return [];
+    let i = a.length - 1;
+    while (i > 0 && !/\d/.test(a[i])) i--;                       // 번지(숫자 있는 어절)를 뒤에서 찾는다
+    const keys = /\d/.test(a[i]) ? [a[i], a[i - 1]].filter(Boolean) : a.slice(-2);
+    return keys.map(norm);
+  }
+  async function dirs(h) { const out = []; for await (const [n, e] of h.entries()) if (e.kind === 'directory') out.push([n, e]); return out; }
+  const yearOf = n => { const m = /제안서작성\((\d{4})년\)/.exec(n); return m ? +m[1] : 0; };
+
+  /**
+   * 현장 폴더를 주소로 찾는다. 연도(최근부터) → 월 → 현장 폴더 이름에 주소 조각이 다 들어 있으면 그것.
+   * 없으면 올해 "01. 제안서작성(YYYY년)\01.검토(M월)" 안에 "{상담번호} {주소} {업체명}" 을 만든다.
+   * @param {{addr, altAddr?, no?, name?}} o
+   * @returns { dir, path, created, matched }
+   */
+  async function siteDir(o) {
+    const r = o.__root || await ensureRoot();   // __root: 검사용
+    const keySets = [o.addr, o.altAddr].filter(Boolean).map(addrKeys).filter(k => k.length);
+    const noKey = o.no ? norm(o.no) : '';
+    // 연도 폴더 목록: 고른 폴더가 연도 폴더 자체면 그것만
+    let years = yearOf(r.name) ? [[r.name, r]] : (await dirs(r)).filter(([n]) => yearOf(n));
+    years.sort((a, b) => yearOf(b[0]) - yearOf(a[0]));
+    if (!years.length) throw new Error('고른 폴더 안에 "01. 제안서작성(YYYY년)" 폴더가 없습니다. N:\\02. 제안서작성 을 고르세요.');
+    for (const [yn, yh] of years) {
+      const months = (await dirs(yh)).filter(([n]) => /검토|\d+월/.test(n)).sort((a, b) => (parseInt((b[0].match(/\((\d+)월\)/) || [])[1] || 0, 10)) - (parseInt((a[0].match(/\((\d+)월\)/) || [])[1] || 0, 10)));
+      for (const [mn, mh] of months) {
+        for (const [sn, sh] of await dirs(mh)) {
+          const ns = norm(sn);
+          if (noKey && ns.startsWith(noKey)) return { dir: sh, path: yn + '/' + mn + '/' + sn, created: false, matched: '상담번호' };
+          if (keySets.some(keys => keys.every(k => ns.includes(k)))) return { dir: sh, path: yn + '/' + mn + '/' + sn, created: false, matched: '주소' };
+        }
+      }
     }
-    const want = '01.검토(' + monthOf(key) + '월)';
-    let mh = (months.find(([n]) => n === want) || [])[1];
-    if (!mh) mh = await r.getDirectoryHandle(want, { create: true });
-    const folder = clean(key + ' ' + clean(addr) + (name ? ' ' + clean(name) : ''));
+    // 못 찾음 → 올해·이달에 새로
+    const now = new Date(), Y = now.getFullYear(), M = now.getMonth() + 1;
+    let yh = (years.find(([n]) => yearOf(n) === Y) || [])[1], yn = '01. 제안서작성(' + Y + '년)';
+    if (!yh) yh = yearOf(r.name) ? r : await r.getDirectoryHandle(yn, { create: true }); else yn = years.find(([n]) => yearOf(n) === Y)[0];
+    const months = await dirs(yh);
+    let mm = months.find(([n]) => new RegExp('\\(' + M + '월\\)').test(n));
+    const mn = mm ? mm[0] : '01.검토(' + M + '월)';
+    const mh = mm ? mm[1] : await yh.getDirectoryHandle(mn, { create: true });
+    const folder = clean([o.no || '', clean(String(o.addr || '').split(/[\n,]/)[0]), o.name || ''].filter(Boolean).join(' '));
     const dir = await mh.getDirectoryHandle(folder, { create: true });
-    return { dir, path: r.name + '/' + want + '/' + folder, created: true };
+    return { dir, path: yn + '/' + mn + '/' + folder, created: true, matched: '' };
   }
   async function write(dir, fileName, blobOrText) {
     const fh = await dir.getFileHandle(clean(fileName), { create: true });
@@ -78,5 +108,5 @@ const Nas = (() => {
   }
   const dataUrlBlob = u => { const [h, b] = u.split(','); const bin = atob(b); const a = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) a[i] = bin.charCodeAt(i); return new Blob([a], { type: (h.match(/data:([^;]+)/) || [])[1] || 'application/octet-stream' }); };
 
-  return { available, ensureRoot, siteDir, write, dataUrlBlob, loadRoot };
+  return { available, ensureRoot, siteDir, write, dataUrlBlob, loadRoot, addrKeys };
 })();
