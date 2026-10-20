@@ -524,9 +524,28 @@ const Proposal = (() => {
     const cv = document.createElement('canvas'); cv.width = im.naturalWidth; cv.height = im.naturalHeight; cv.getContext('2d').drawImage(im, 0, 0);
     return dataUrlBytes(cv.toDataURL('image/jpeg', 0.92));
   }
+  /**
+   * 깨끗한 JSZip (2026-10-20): 이 페이지 안에서는 JSZip 이 zip 항목 이름을 NUL 로 두 배 늘려 읽는다(어느 스크립트 영향인지 못 찾음 —
+   * 빈 iframe 의 같은 jszip.min.js 는 정상). 그래서 숨은 iframe 에 jszip 을 따로 올려 그 realm 의 JSZip 으로 원본을 읽고 쓴다.
+   * 바이트는 그 realm 의 Uint8Array 로 감싸서 넘긴다(다른 realm 의 typed array 는 instanceof 에 안 걸린다).
+   */
+  let cleanRealmP = null;
+  function cleanRealm() {
+    if (typeof document === 'undefined') return Promise.resolve(null);
+    if (!cleanRealmP) cleanRealmP = new Promise((res, rej) => {
+      const ifr = document.createElement('iframe'); ifr.style.display = 'none'; document.body.appendChild(ifr);
+      const s = ifr.contentDocument.createElement('script'); s.src = 'vendor/jszip.min.js';
+      s.onload = () => res(ifr.contentWindow); s.onerror = () => rej(new Error('jszip 을 못 올렸습니다'));
+      ifr.contentDocument.head.appendChild(s);
+    });
+    return cleanRealmP;
+  }
   async function fillTemplate(zipBuf, d, imgs) {
-    const JZ = (typeof window !== 'undefined' && (window.JSZipLib || window.JSZip)) || (typeof JSZip !== 'undefined' ? JSZip : require('jszip'));
-    const zip = await JZ.loadAsync(zipBuf, { createFolders: false });
+    const W = await cleanRealm().catch(() => null);
+    const JZ = (W && W.JSZip) || (typeof window !== 'undefined' && (window.JSZipLib || window.JSZip)) || (typeof JSZip !== 'undefined' ? JSZip : require('jszip'));
+    const U8 = b => (W && b && b.buffer && !(b instanceof W.Uint8Array)) ? new W.Uint8Array(b) : b;
+    const zip = await JZ.loadAsync(W ? new W.Uint8Array(zipBuf instanceof ArrayBuffer ? zipBuf : zipBuf.buffer || zipBuf) : zipBuf, { createFolders: false });
+    if (W) { const orig = zip.file.bind(zip); zip.file = (n, data, o) => data === undefined ? orig(n) : orig(n, U8(data), o); }   // 쓰기는 전부 그 realm 바이트로
     // 어떤 pptx 는 항목 이름 끝에 NUL 이 붙어 있어(DRM 복호화본 등) 브라우저 JSZip 이 'ppt/slides/slide37.xml' 을 못 찾는다 → 이름 정리 (2026-10-20)
     Object.keys(zip.files).forEach(k => { const c = k.replace(/\0+$/, ''); if (c !== k) { const e = zip.files[k]; e.name = c; zip.files[c] = e; delete zip.files[k]; } });
     // 1쪽 표지: 제일 큰 그림(업체 사진 자리)을 로드뷰/3D 로 바꾸고, 업체명·주소 글을 현장 것으로 (2026-10-16 사용자 지시)
