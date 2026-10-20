@@ -114,7 +114,14 @@ const PP = (() => {
     const d = pr.discovery || {};
     onStep && onStep('로그인 성공 (' + Math.round((pr.ms && pr.ms.login || 0) / 1000) + '초) · 자료 호출 ' + (d.url ? '찾음 (selectType=' + (d.chartType || '') + ')' : '못 찾음') + ' · 시험 ' + ((d.tries || []).length) + '회');
     if (!d.url) return { fetched: new Date().toISOString(), id: String(id).replace(/.(?=.{3})/g, '*'), months: [], okN: 0, contract: pr.contract || '', discovery: d, pageNote: pr.pageNote || '' };
-    const r = await callTimed({ path: 'pp', op: 'usage', id, pw, type: type || 'I', months: ms.map(x => x.y + '-' + x.m).join(',') }, '12개월 사용량 받는 중', onStep, 240000);
+    // 2단계: 세션을 이어받아 4개월씩 3번(chunk of 4) — 한 번에 12개월이면 중계 6분 제한에 걸릴 수 있다
+    const r = { ok: true, months: [], contract: '', discovery: d, pageNote: pr.pageNote };
+    for (let i = 0; i < ms.length; i += 4) {
+      const part = ms.slice(i, i + 4);
+      const rr = await callTimed({ path: 'pp', op: 'usage', sess: pr.sess, chartType: d.chartType || '', months: part.map(x => x.y + '-' + x.m).join(',') }, (i / 4 + 1) + '/3 사용량 받는 중 (' + part[0].y + '.' + part[0].m + '~' + part[part.length - 1].m + '월)', onStep, 200000);
+      if (!rr || !rr.ok) throw new Error((rr && rr.errMsg) || '사용량 받기 실패');
+      r.months = r.months.concat(rr.months || []); if (rr.contract) r.contract = rr.contract;
+    }
     if (!r || !r.ok) { const lg = (r && r.login) || {}; throw new Error(((r && (r.errMsg || r.failed)) || '파워플래너 응답 없음') + (lg.chk || lg.failed ? ' [통합아이디 확인: ' + (lg.chk || '-') + ' · SSO ' + (lg.ssoYn || '-') + ' · APT ' + (lg.aptYn || '-') + ' · ' + (lg.failed || '') + ' · ' + (lg.title || '') + ']' : '')); }
     onStep && onStep('응답 해석 중…');
     const months = (r.months || []).map(x => { const p = parseMonth(x.raw); return { y: x.y, m: x.m, hourly: p ? p.hourly : null, note: p ? p.note : '', raw: p ? '' : String(x.raw || '').slice(0, 1500), url: x.url, code: x.code }; });
