@@ -55,6 +55,20 @@ const PP = (() => {
       return null;
     };
     if (j) {
+      // C) 숫자 배열 묶음: {SUN:[24개],MON:[...]} 또는 [[24개]×7] 또는 [[7개]×24] 또는 {rows:[{..},..]}
+      const rowSetsOf = x => {
+        const sets = [];
+        (function walk(v, depth) {
+          if (depth > 6 || !v || typeof v !== 'object') return;
+          const vals = Array.isArray(v) ? v : Object.values(v);
+          const numArr = a => Array.isArray(a) && a.length >= 7 && a.every(e => !isNaN(num(e)));
+          const arrs = vals.filter(numArr);
+          if (arrs.length >= 7) sets.push(arrs.map(a => a.map(num)));
+          vals.forEach(e => walk(e, depth + 1));
+        })(x, 0);
+        return sets;
+      };
+      for (const rows of rowSetsOf(j)) { const r = fromRows(rows, 'arrays'); if (r) return r; }
       const arrays = []; (function walk(x, depth) { if (depth > 6 || !x) return; if (Array.isArray(x)) { if (x.length >= 7 && typeof x[0] === 'object') arrays.push(x); x.forEach(e => walk(e, depth + 1)); } else if (typeof x === 'object') Object.keys(x).forEach(k => walk(x[k], depth + 1)); })(j, 0);
       for (const arr of arrays) {
         const keys = Object.keys(arr[0] || {});
