@@ -245,7 +245,7 @@ const View3D = (() => {
     });
     if (!isFinite(minX)) { minX = -50; maxX = 50; minY = -50; maxY = 50; }
     view.target = new THREE.Vector3((minX + maxX) / 2, maxH / 2, -(minY + maxY) / 2);
-    view.dist = Math.max(60, Math.hypot(maxX - minX, maxY - minY) * 1.1);
+    view.dist = Math.max(40, Math.hypot(maxX - minX, maxY - minY) * 0.8);   // 배치된 지붕이 화면을 채우게(주변 건물보다 모듈이 크게, 2026-10-20)
   }
 
   function place() {
@@ -310,7 +310,7 @@ const View3D = (() => {
     const fit = () => { const w = host.clientWidth, h = host.clientHeight; renderer.setSize(w, h); renderer.domElement.style.width = '100%'; renderer.domElement.style.height = '100%'; camera.aspect = w / h; camera.updateProjectionMatrix(); };
     camera = new THREE.PerspectiveCamera(50, 1, 0.5, 5000);
     build(data);
-    view.az = -35; view.el = 35; auto = false;
+    view.az = -35; view.el = 42; auto = false;
     fit();
     window.addEventListener('resize', fit);
     renderer.domElement.__fit = fit;

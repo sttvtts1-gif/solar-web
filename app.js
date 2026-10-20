@@ -1601,7 +1601,12 @@
   }
   /** 화면의 한 요소를 그림으로. 앱: 네이티브 화면 캡처(Native.capture), PC: 탭 화면 공유(getDisplayMedia) */
   async function captureElement(el) {
-    const r = el.getBoundingClientRect();
+    el.classList.add('capturing');                      // 로드뷰 화살표·도로명·미니맵·확대축소·로고 숨김 (index.html .capturing)
+    try { return await captureElementRaw(el); } finally { el.classList.remove('capturing'); }
+  }
+  async function captureElementRaw(el) {
+    await new Promise(r2 => setTimeout(r2, 120));
+    let r = el.getBoundingClientRect();
     if (window.Native && window.Native.capture) {
       const full = await new Promise((res, rej) => {
         const id = 'cap' + Date.now();
@@ -1613,7 +1618,8 @@
     if (!navigator.mediaDevices || !navigator.mediaDevices.getDisplayMedia) throw new Error('이 브라우저는 화면 캡처를 지원하지 않습니다 (PC 크롬·엣지)');
     const stream = await navigator.mediaDevices.getDisplayMedia({ video: { displaySurface: 'browser' }, preferCurrentTab: true, selfBrowserSurface: 'include', audio: false });
     try {
-      const v = document.createElement('video'); v.srcObject = stream; v.muted = true; await v.play(); await new Promise(r2 => setTimeout(r2, 500));
+      const v = document.createElement('video'); v.srcObject = stream; v.muted = true; await v.play(); await new Promise(r2 => setTimeout(r2, 700));
+      r = el.getBoundingClientRect();                   // 공유가 시작되면 크롬이 위에 띠를 띄워 화면이 아래로 밀린다 → 다시 잰다
       const cv = document.createElement('canvas'); cv.width = v.videoWidth; cv.height = v.videoHeight; cv.getContext('2d').drawImage(v, 0, 0);
       return cropDataUrl(cv.toDataURL('image/png'), r, v.videoWidth / window.innerWidth, v.videoHeight / window.innerHeight);
     } finally { stream.getTracks().forEach(t => t.stop()); }
