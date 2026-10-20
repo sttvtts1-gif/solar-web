@@ -222,6 +222,17 @@ const View3D = (() => {
     (data.fixtures || []).forEach(f => {
       const xy = local(f.ring, o);
       if (f.kind === 'elec') { const m = extrude(xy, f.hgt || 2.5, 0x7b8794, 1); m.position.y = f.baseH || 0; scene.add(m); return; }
+      if (f.kind === 'bridge') {
+        // 구름사다리: 두 지붕 사이를 처마 높이에서 수평으로 잇는 레일 2개 + 디딤대 (2026-10-21)
+        const ang = (f.ang || 0) * Math.PI / 180, cx = xy.reduce((a, p) => a + p.x, 0) / xy.length, cy = xy.reduce((a, p) => a + p.y, 0) / xy.length;
+        const hs = data.roofs.filter(r => r.type !== 'ground' && r.type !== 'parking').map(r => r.baseH).filter(h => h > 0);
+        const y0 = (hs.length ? Math.max(...hs) : 4) + 0.1, L = f.h || 1.2, hw = (f.w || 0.6) / 2;
+        const g = new THREE.Group(), mat = new THREE.MeshLambertMaterial({ color: 0xd9d9d9 });
+        [-hw, hw].forEach(x => { const b = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.06, L), mat); b.position.set(x, y0, 0); g.add(b); });
+        for (let z = -L / 2 + 0.15; z < L / 2; z += 0.3) { const b = new THREE.Mesh(new THREE.BoxGeometry(hw * 2, 0.03, 0.04), mat); b.position.set(0, y0, z); g.add(b); }
+        [-hw - 0.1, hw + 0.1].forEach(x => { const r = new THREE.Mesh(new THREE.BoxGeometry(0.03, 1.0, L), mat); r.position.set(x, y0 + 0.5, 0); g.add(r); });   // 양쪽 난간
+        g.position.set(cx, 0, -cy); g.rotation.y = ang; scene.add(g); return;
+      }
       // 사다리: 지면에서 처마(가장 가까운 건물 지붕 높이)까지
       const top = Math.max(2, (data.roofs.filter(r => r.type !== 'ground' && r.type !== 'parking').map(r => r.baseH).sort((a, b) => Math.abs(a - 4) - Math.abs(b - 4))[0]) || 4);
       // 등받이 사다리: 레일 2개(지면~처마+0.9m), 디딤대 0.3m 마다, 2.2m 위부터 0.7m 마다 반원 등받이 테 (2026-10-20)

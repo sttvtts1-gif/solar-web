@@ -49,7 +49,8 @@
   let obsGfx = [];               // 지도에 그린 장애물 상자
   let fixtures = [];             // 전기실·사다리 { id, kind:'elec'|'ladder', c:{lat,lng}, w, h, ang }  (현장 단위, 2026-10-16)
   let fixGfx = [];               // 지도에 그린 전기실·사다리
-  const FIX = { elec: { label: '전기실', color: '#5b6b7a', hgt: 2.5 }, ladder: { label: '사다리', color: '#111', hgt: 0 } };
+  const FIX = { elec: { label: '전기실', color: '#5b6b7a', hgt: 2.5 }, ladder: { label: '사다리', color: '#111', hgt: 0 }, bridge: { label: '구름사다리', color: '#111', hgt: 0 } };
+  const BRIDGE_MAX_GAP = 2.0;   // 동 사이 간격이 이 이하일 때만 구름사다리로 잇는다 (2026-10-21 사용자 지시)
   const heights = {};            // 건물 id → 대장 높이(m) (음영용, 앱을 켤 때마다 다시 받음)
   let heightJob = null;
   // 설정(⚙) 의 공통값. 모듈 치수는 mm 로 받아 m 로 넘긴다.
@@ -210,6 +211,7 @@
     // 전기실: 없으면 용량 기준 크기로 놓고, 있으면 앞×뒤 크기 입력. 「전기실 위치」는 지도 가운데로 옮겨 손으로 자리 잡기
     $('btnElec').onclick = () => openElec();
     $('btnElecPos').onclick = () => { let f = fixtures.find(x => x.kind === 'elec'); const mc = map.getCenter(); if (!f) { addFixture('elec'); f = fixtures.find(x => x.kind === 'elec'); } f.c = { lat: mc.getLat(), lng: mc.getLng() }; afterFixtureChange(); hint('전기실을 화면 가운데에 놓았습니다. 꾹 눌러 끌어 자리를 잡으세요. 탭 후 Del 로 삭제.'); };
+    $('btnBridge').onclick = addBridges;
     $('btnLadder').onclick = () => { addFixture('ladder'); const l = fixtures.filter(x => x.kind === 'ladder').pop(); if (l) openElec(l); };
     $('btnNas').onclick = saveToNas;
     // 위반건축물: 대장 PDF 읽기 / 수동 체크
@@ -229,19 +231,7 @@
     });
     $('violManual').addEventListener('change', e => { siteViolation = Object.assign(siteViolation || {}, { manual: e.target.checked }); checkViolation(); });
     // 파워플래너: 아이디·비밀번호 → 중계가 로그인 → 메뉴(링크)·표를 보여 준다. 비밀번호는 저장하지 않는다
-    $('btnPP').onclick = async () => {
-      if (!(window.SOLAR_CONFIG || {}).KEPCO_PROXY) { hint('중계 주소가 없습니다.'); return; }
-      const id = prompt('한전 파워플래너 아이디(또는 고객번호)', localStorage.getItem('solar.pp.id') || ''); if (!id) return;
-      const pw = prompt('비밀번호 (저장하지 않습니다)', ''); if (!pw) return;
-      localStorage.setItem('solar.pp.id', id);
-      hint('파워플래너 로그인 중… (중계 → 한전)');
-      try {
-        const d = await Auth.call({ path: 'pp', op: 'login', id, pw }, 60000);
-        if (!d || !d.ok) { hint('파워플래너 로그인 실패: ' + ((d && (d.errMsg || d.failed)) || '') + (d && d.text ? ' — ' + d.text.slice(0, 120) : '')); return; }
-        window.__pp = d;
-        ppShow(d, '로그인 성공: ' + (d.title || ''));
-      } catch (e) { hint('파워플래너 중계 오류: ' + e.message); }
-    };
+    $('btnPP').onclick = () => openPPModal();
     $('btnNasPick').onclick = async () => { try { const h = await Nas.ensureRoot(true); nasSite = null; $('nasRootName').textContent = h.name; hint('저장 폴더: ' + h.name + ' — 이 안의 연도·월 폴더에서 주소로 현장 폴더를 찾습니다(없으면 이달에 새로 만듭니다).'); } catch (e) { hint('폴더 지정 취소/실패: ' + e.message); } };
     if (window.Nas && Nas.available()) Nas.loadRoot().then(h => { if (h && $('nasRootName')) $('nasRootName').textContent = h.name; });
     // 📂 불러오기: NAS 에 저장한 …_설정.json → 그때의 배치·설정·수익분석 상태를 되살린다
@@ -1284,6 +1274,40 @@
   /** 지붕(과 합산 링)을 동쪽 dxM · 북쪽 dyM 만큼 옮긴다 */
   // ------------------------------------------------------------ 파워플래너 결과 보기 (2026-10-16, 첫 판: 로그인 + 메뉴 탐색 + 표 읽기)
   /** 중계가 준 페이지(제목·링크·표)를 자가소비 탭 아래 상자에. 링크를 누르면 그 페이지를 같은 세션으로 다시 받는다. 월별 kWh 표가 보이면 그대로 표시 */
+  /** 🔌 파워플래너 창 → PP.fetchUsage → 자가소비 탭(RpsUI.setPP) (2026-10-21). 해석 실패면 진단(응답 앞부분)을 보여 준다 */
+  function openPPModal() {
+    if (!(window.SOLAR_CONFIG || {}).KEPCO_PROXY) { hint('중계 주소가 없습니다.'); return; }
+    const m = $('ppModal'); m.classList.add('on');
+    $('pp_id').value = localStorage.getItem('solar.pp.id') || ''; $('pp_pw').value = '';
+    const st = (typeof RpsUI !== 'undefined' && RpsUI.getState && RpsUI.getState()) || {}; if (st.ppMode) $('pp_mode').value = st.ppMode;
+    $('pp_cancel').onclick = () => m.classList.remove('on');
+    $('pp_ok').onclick = async () => {
+      const id = $('pp_id').value.trim(), pw = $('pp_pw').value, type = $('pp_type').value, mode = $('pp_mode').value;
+      if (!id || !pw) { hint('아이디와 비밀번호를 넣으세요.'); return; }
+      localStorage.setItem('solar.pp.id', id); m.classList.remove('on');
+      const pg = progress('🔌 파워플래너 가져오기');
+      try {
+        pg.step('중계로 로그인 요청 (비밀번호는 저장하지 않음)');
+        const res = await PP.fetchUsage(id, pw, type, t => pg.step(t));
+        pg.step('받은 달: ' + res.okN + '/12' + (res.contract ? ' · ' + res.contract : ''));
+        if (typeof RpsUI !== 'undefined' && RpsUI.setPP) RpsUI.setPP(res, mode);
+        if (res.okN) { pg.done('자가소비 탭에 반영했습니다 (' + res.okN + '개월)'); }
+        else {
+          pg.fail(new Error('로그인은 됐지만 요일별 사용량 표를 해석하지 못했습니다. 아래 진단 내용을 캡처해 보내 주세요.'));
+          ppDiag(res);
+        }
+      } catch (e) { pg.fail(e); }
+    };
+    setTimeout(() => $('pp_id').focus(), 50);
+  }
+  function ppDiag(res) {
+    let box = $('ppBox');
+    if (!box) { box = document.createElement('div'); box.id = 'ppBox'; box.className = 'sec'; box.style.marginTop = '10px'; $('btnPP').parentElement.parentElement.appendChild(box); }
+    const d = res.discovery || {};
+    const esc = s => String(s || '').replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
+    box.innerHTML = '<h4>🔌 파워플래너 진단</h4><div style="font-size:12px;white-space:pre-wrap;word-break:break-all;max-height:40vh;overflow:auto;background:#0b1220;padding:8px;border-radius:6px">'
+      + esc('페이지: ' + res.pageNote + '\n자료 호출 url: ' + (d.url || '(못 찾음)') + '\n파라미터 후보: ' + (d.params || []).join(', ') + '\n숨은 필드: ' + (d.hidden || []).join(', ') + '\n요금제: ' + res.contract + '\n\n--- getChartData ---\n' + (d.snippet || '') + '\n\n--- 첫 달 응답 앞부분 (' + ((res.months[0] || {}).code || '') + ') ---\n' + ((res.months[0] || {}).raw || '')) + '</div>';
+  }
   function ppShow(d, head) {
     let box = $('ppBox');
     if (!box) { box = document.createElement('div'); box.id = 'ppBox'; box.className = 'sec'; box.style.marginTop = '10px'; $('btnPP').parentElement.parentElement.appendChild(box); }
@@ -1302,7 +1326,50 @@
   function elecSizeFor(kw) { return kw < 100 ? [2, 3] : kw < 250 ? [3, 4] : kw < 500 ? [4, 5] : kw < 1000 ? [16, 5] : [16, 8]; }
   function totalKw() { return roofs.reduce((a, r) => a + (r.result ? r.result.kw : 0), 0); }
   function fixRing(f) { return rectPoints({ c: f.c, w: f.w, h: f.h, ang: f.ang || 0 }); }
-  function fixLabel(f) { return f.kind === 'elec' ? '전기실 ' + f.w + '×' + f.h + 'm' : '사다리(등받이)'; }
+  function fixLabel(f) { return f.kind === 'elec' ? '전기실 ' + f.w + '×' + f.h + 'm' : f.kind === 'bridge' ? '구름사다리 ' + (f.gap != null ? f.gap.toFixed(1) + 'm' : '') : '사다리(등받이)'; }
+  /** 구름사다리 평면 기호: 레일 2줄 + 디딤대 0.3m 마다 + 양 끝 걸침판 (등받이 없음). 길이 h 는 간격 + 양쪽 0.3m 걸침 */
+  function bridgeLines(f) {
+    const w = f.w || 0.6, h = f.h || 1.2, hw = w / 2, hh = h / 2, ang = f.ang || 0;
+    const geo = pts => Layout.toGeo(pts.map(p => Layout.rotate(p, ang)), f.c);
+    const out = [geo([{ x: -hw, y: -hh }, { x: -hw, y: hh }]), geo([{ x: hw, y: -hh }, { x: hw, y: hh }])];
+    for (let y = -hh + 0.15; y <= hh - 0.1 + 1e-9; y += 0.3) out.push(geo([{ x: -hw, y }, { x: hw, y }]));
+    [-hh, -hh + 0.3, hh - 0.3, hh].forEach(y => out.push(geo([{ x: -hw - 0.12, y }, { x: hw + 0.12, y }])));   // 걸침판 표시
+    return out;
+  }
+  /**
+   * 두 외곽선(지번 좌표) 사이 최단 거리와 그 점. 한쪽 꼭짓점 ↔ 다른쪽 변 의 최소(서로 겹치지 않는 다각형이면 충분하다).
+   * @returns { d(m), a:{lat,lng}, b:{lat,lng} }
+   */
+  function polyGap(A, B) {
+    const o = Layout.centroid(A), a = Layout.toLocal(A, o), b = Layout.toLocal(B, o);
+    let best = null;
+    const vs = (P, Q, flip) => { for (const p of P) for (let i = 0; i < Q.length; i++) { const s = Q[i], t = Q[(i + 1) % Q.length], vx = t.x - s.x, vy = t.y - s.y, L = vx * vx + vy * vy || 1;
+      const u = Math.max(0, Math.min(1, ((p.x - s.x) * vx + (p.y - s.y) * vy) / L)), q = { x: s.x + u * vx, y: s.y + u * vy }, d = Math.hypot(q.x - p.x, q.y - p.y);
+      if (!best || d < best.d) best = { d, pa: flip ? q : p, pb: flip ? p : q }; } };
+    vs(a, b, false); vs(b, a, true);
+    if (!best) return null;
+    const [ga, gb] = Layout.toGeo([best.pa, best.pb], o);
+    return { d: best.d, a: ga, b: gb, pa: best.pa, pb: best.pb, o };
+  }
+  /** 🌉 구름사다리: 2m 이하로 붙은 동 쌍마다 가장 가까운 곳에 놓는다. 없으면 가장 가까운 간격을 알려 준다 */
+  function addBridges() {
+    const bl = roofs.filter(r => r.type !== 'ground' && r.type !== 'parking' && r.points && r.points.length >= 3);
+    if (bl.length < 2) { hint('구름사다리는 동이 2개 이상 있어야 놓습니다.'); return; }
+    let placed = 0, nearest = null;
+    for (let i = 0; i < bl.length; i++) for (let j = i + 1; j < bl.length; j++) {
+      const g = polyGap(bl[i].points, bl[j].points); if (!g) continue;
+      if (!nearest || g.d < nearest.d) nearest = Object.assign({ names: bl[i].name + '↔' + bl[j].name }, g);
+      if (g.d > BRIDGE_MAX_GAP + 0.05) continue;
+      if (fixtures.some(f => f.kind === 'bridge' && f.a === bl[i].id && f.b === bl[j].id)) continue;   // 이미 놓음
+      const dx = g.pb.x - g.pa.x, dy = g.pb.y - g.pa.y, ang = Math.atan2(-dx, dy) * 180 / Math.PI;   // 길이 축(y)을 간격 방향으로
+      const c = Layout.toGeo([{ x: (g.pa.x + g.pb.x) / 2, y: (g.pa.y + g.pb.y) / 2 }], g.o)[0];
+      fixtures.push({ id: Date.now().toString(36) + Math.random().toString(36).slice(2, 5), kind: 'bridge', c, w: 0.6, h: Math.max(0.8, g.d + 0.6), ang, gap: g.d, a: bl[i].id, b: bl[j].id });
+      placed++;
+    }
+    afterFixtureChange();
+    if (placed) hint('구름사다리 ' + placed + '개를 놓았습니다(간격 ' + BRIDGE_MAX_GAP + 'm 이하인 동 사이). 탭하면 크기·각도, 꾹 눌러 끌면 이동.');
+    else hint('간격 ' + BRIDGE_MAX_GAP + 'm 이하로 붙은 동이 없습니다' + (nearest ? ' — 가장 가까운 ' + nearest.names + ' 이 ' + nearest.d.toFixed(1) + 'm' : '') + '. 구름사다리는 2m 이하에서만 놓습니다.');
+  }
   /**
    * 등받이(안전 케이지) 사다리 평면 기호 — 사다리 틀(폭 w × 길이 h) 안에서: 양쪽 레일 2줄, 디딤대(가로대) 0.25m 마다,
    * 레일 바깥을 U 자로 감싸는 등받이 띠(길이 방향 아래쪽 끝이 둥글다). 돌린 각도·자리는 fixRing 과 같다.
@@ -1331,12 +1398,13 @@
       if (!roofs.some(r => r.result)) { hint('먼저 배치를 하세요. 전기실 크기는 배치 용량으로 정합니다.'); return; }
       addFixture('elec'); f = fixtures.find(x => x.kind === 'elec');
     }
-    const isLadder = f.kind === 'ladder';
-    const kw = totalKw(), [aw, ah] = isLadder ? [0.6, 1.2] : elecSizeFor(kw);
+    const isLadder = f.kind === 'ladder' || f.kind === 'bridge', isBridge = f.kind === 'bridge';
+    const kw = totalKw(), [aw, ah] = isBridge ? [0.6, Math.max(0.8, (f.gap || 0) + 0.6)] : isLadder ? [0.6, 1.2] : elecSizeFor(kw);
     const m = $('elecModal'); m.classList.add('on');
-    $('el_title').textContent = isLadder ? '🪜 사다리' : '⚡ 전기실';
+    $('el_title').textContent = isBridge ? '🌉 구름사다리' : isLadder ? '🪜 사다리' : '⚡ 전기실';
     $('el_wl').textContent = isLadder ? '폭 (m)' : '앞 (m)'; $('el_hl').textContent = isLadder ? '길이 (m)' : '뒤 (m)';
-    $('el_info').innerHTML = isLadder ? '사다리(기본 0.6×1.2m). 각도를 돌려 처마 방향에 맞추세요.'
+    $('el_info').innerHTML = isBridge ? '동 사이 간격 <b>' + (f.gap != null ? f.gap.toFixed(2) : '?') + 'm</b> (2m 이하만 가능). 길이 = 간격 + 양쪽 0.3m 걸침.'
+      : isLadder ? '사다리(기본 0.6×1.2m). 각도를 돌려 처마 방향에 맞추세요.'
       : '배치 용량 <b>' + kw.toFixed(1) + 'kW</b> → 기준 크기 <b>' + aw + '×' + ah + 'm</b> <span style="font-size:11px">(100kW 미만 2×3 · 250 미만 3×4 · 500 미만 4×5 · 1MW 미만 16×5 · 이상 16×8)</span>' + (f.manual ? ' · 지금은 직접 입력값' : '');
     $('el_w').value = f.w; $('el_h').value = f.h;
     const showAng = () => { $('el_ang').textContent = Math.round(-(f.ang || 0)) + '°'; };
@@ -1353,10 +1421,10 @@
     $('el_rotB').onclick = () => { const r = fixRoof(f) || roofs.find(x => x.id === selectedId) || roofs[0]; f.ang = (r && r.result && r.result.buildingAngle) || 0; showAng(); apply(); };
     $('el_auto').onclick = () => { f.manual = false; f.w = aw; f.h = ah; $('el_w').value = aw; $('el_h').value = ah; apply(); };
     $('el_center').onclick = () => { const c = map.getCenter(); f.c = { lat: c.getLat(), lng: c.getLng() }; apply(); hint('전기실을 화면 가운데에 놓았습니다. 꾹 눌러 끌어 자리를 잡으세요.'); };
-    $('el_del').onclick = () => { fixtures.splice(fixtures.indexOf(f), 1); m.classList.remove('on'); afterFixtureChange(); hint((isLadder ? '사다리' : '전기실') + ' 삭제'); };
+    $('el_del').onclick = () => { fixtures.splice(fixtures.indexOf(f), 1); m.classList.remove('on'); afterFixtureChange(); hint((isBridge ? '구름사다리' : isLadder ? '사다리' : '전기실') + ' 삭제'); };
     $('el_center').textContent = '화면 가운데로';
     $('el_close').onclick = () => m.classList.remove('on');
-    $('el_ok').onclick = () => { const w = parseFloat($('el_w').value), h = parseFloat($('el_h').value); if (w >= 1 && h >= 1) { if (w !== aw || h !== ah) f.manual = true; f.w = w; f.h = h; } apply(); m.classList.remove('on'); hint((isLadder ? '사다리 ' : '전기실 ') + f.w + '×' + f.h + 'm · ' + Math.round(-(f.ang || 0)) + '°'); };
+    $('el_ok').onclick = () => { const w = parseFloat($('el_w').value), h = parseFloat($('el_h').value); if (w >= 1 && h >= 1) { if (w !== aw || h !== ah) f.manual = true; f.w = w; f.h = h; } apply(); m.classList.remove('on'); hint((isBridge ? '구름사다리 ' : isLadder ? '사다리 ' : '전기실 ') + f.w + '×' + f.h + 'm · ' + Math.round(-(f.ang || 0)) + '°'); };
   }
   function addFixture(kind) {
     const r = roofs.find(x => x.id === selectedId) || roofs[0];
@@ -1387,11 +1455,11 @@
     scheduleLabels();
     fixtures.forEach((f, i) => {
       const on = picked && picked.kind === 'fix' && picked.idx === i;
-      const isL = f.kind === 'ladder';
+      const isL = f.kind === 'ladder' || f.kind === 'bridge';
       const pg = new kakao.maps.Polygon({ path: fixRing(f).map(p => new kakao.maps.LatLng(p.lat, p.lng)),
         strokeWeight: isL ? 0 : 2, strokeColor: on ? '#00e5ff' : '#fff', fillColor: on ? '#00e5ff' : (isL ? '#fff' : FIX[f.kind].color), fillOpacity: isL ? (on ? 0.35 : 0.12) : 0.9, zIndex: 5 });
       pg.setMap(map); fixGfx.push(pg);
-      if (isL) ladderLines(f).forEach(seg => { const pl = new kakao.maps.Polyline({ path: seg.map(p => new kakao.maps.LatLng(p.lat, p.lng)), strokeWeight: 2, strokeColor: on ? '#00e5ff' : '#ffeb3b', strokeOpacity: 1, zIndex: 6 }); pl.setMap(map); fixGfx.push(pl); });
+      if (isL) (f.kind === 'bridge' ? bridgeLines(f) : ladderLines(f)).forEach(seg => { const pl = new kakao.maps.Polyline({ path: seg.map(p => new kakao.maps.LatLng(p.lat, p.lng)), strokeWeight: 2, strokeColor: on ? '#00e5ff' : '#ffeb3b', strokeOpacity: 1, zIndex: 6 }); pl.setMap(map); fixGfx.push(pl); });
       kakao.maps.event.addListener(pg, 'click', () => { if (drawing || editing || Date.now() < lastPick) return; lastPick = Date.now() + 300; setPick({ roofId: null, kind: 'fix', idx: i }); });
       const el = document.createElement('div'); el.className = 'lbl fix'; el.textContent = fixLabel(f);
       const ov = new kakao.maps.CustomOverlay({ position: new kakao.maps.LatLng(f.c.lat, f.c.lng), content: el, xAnchor: 0, yAnchor: 0, zIndex: 21 });
@@ -1454,7 +1522,7 @@
   }
   /** 제안서·3D·CAD 용 */
   function fixtureData() {
-    return fixtures.map(f => { const r = fixRoof(f); return { kind: f.kind, ring: fixRing(f), c: f.c, w: f.w, h: f.h, ang: f.ang || 0, label: fixLabel(f), baseH: r ? roofH(r) : 0, onRoof: !!r, hgt: FIX[f.kind].hgt, lines: f.kind === 'ladder' ? ladderLines(f) : null }; });
+    return fixtures.map(f => { const r = fixRoof(f); return { kind: f.kind, ring: fixRing(f), c: f.c, w: f.w, h: f.h, ang: f.ang || 0, label: fixLabel(f), baseH: r ? roofH(r) : 0, onRoof: !!r, hgt: FIX[f.kind].hgt, lines: f.kind === 'ladder' ? ladderLines(f) : f.kind === 'bridge' ? bridgeLines(f) : null, gap: f.gap }; });
   }
   /** 지붕 가장자리 ↔ 모듈 이격 치수(처마·옆·용마루). 건물 축 틀에서 지붕 bbox 와 모듈 bbox 차이. 제안서 배치도·CAD 평면도에 빨간 치수선으로 */
   function roofDims(r) {

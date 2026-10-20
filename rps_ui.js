@@ -128,6 +128,25 @@ const RpsUI = (() => {
   }
 
   // ------------------------------------------------------------ 자가소비 그리기
+  /** 파워플래너 실사용량 기반 자가소비 (pp.js) — st.pp 에 저장, 자가소비 탭 아래 표로 */
+  function setPP(res, mode) { st.pp = res; if (mode) st.ppMode = mode; save(); renderSelf(); }
+  function renderPP() {
+    const box = $('ppResult'); if (!box) return;
+    const u = st.pp;
+    if (!u || !u.okN) { box.style.display = 'none'; return; }
+    const r = PP.compute(u, st.capacity, selfRes.monthly, st.ppMode || '상계거래');
+    const k = v => Math.round(v).toLocaleString();
+    box.style.display = '';
+    box.innerHTML = '<h4>🔌 파워플래너 실사용량 기반 자가소비 <span class="badge" style="background:#334155">' + (st.ppMode || '상계거래') + '</span> <small style="color:var(--muted)">' + u.okN + '개월 · ' + (u.contract || '') + ' · ' + u.fetched.slice(0, 10) + '</small></h4>'
+      + '<div class="cards four">'
+      + [['연 사용량', k(r.total.use) + ' kWh', '#1e293b'], ['연 발전량', k(r.total.gen) + ' kWh', '#4f46e5'], ['자가소비 (RE100 ' + (r.re100 * 100).toFixed(1) + '%)', k(r.total.self) + ' kWh', '#059669'], ['잉여 ' + (r.surplusPct * 100).toFixed(1) + '%', k(r.total.surplus) + ' kWh', '#ea580c'], ['연 절감액', fmt(r.total.saving) + ' 원', '#0f766e']]
+        .map(([l, v, c]) => '<div class="card" style="background:' + c + '"><small>' + l + '</small><b>' + v + '</b></div>').join('') + '</div>'
+      + '<div class="scrollx"><table class="cmp"><tr><th>월</th><th>사용량</th><th>발전량</th><th>자가소비</th><th>잉여</th><th class="opt">자가단가</th><th class="opt">잉여단가</th><th>절감액</th></tr>'
+      + r.monthly.map(m => '<tr><td>' + m.y + '.' + m.m + '</td><td>' + k(m.use) + '</td><td>' + k(m.gen) + '</td><td>' + k(m.self) + '</td><td>' + k(m.surplus) + '</td><td class="opt">' + m.selfRate.toFixed(1) + '</td><td class="opt">' + m.surplusRate.toFixed(1) + '</td><td>' + fmt(m.saving) + '</td></tr>').join('')
+      + '<tr class="hl"><td>합계</td><td>' + k(r.total.use) + '</td><td>' + k(r.total.gen) + '</td><td>' + k(r.total.self) + '</td><td>' + k(r.total.surplus) + '</td><td class="opt"></td><td class="opt"></td><td>' + fmt(r.total.saving) + '</td></tr></table></div>'
+      + '<div style="font-size:12px;color:var(--muted);margin-top:4px">발전량 = 설비용량 × 월별 시간대 발전량(kWh/kW, 사내 엑셀 「자가소비 연간분석표」 표) · 자가소비 = 시간대별 min(사용, 발전) · 절감 = 자가소비×(전력량+기후환경 9+연료비 5) + 잉여×' + ((st.ppMode || '상계거래') === '단순병렬' ? '0' : '전력량요금') + '</div>'
+      + (u.months.some(m => !m.hourly) ? '<div style="font-size:12px;color:#fbbf24">해석 못 한 달: ' + u.months.filter(m => !m.hourly).map(m => m.y + '.' + m.m).join(', ') + '</div>' : '');
+  }
   function renderSelf() {
     selfRes = RPS.computeSelf(st);
     const r = selfRes;
@@ -153,6 +172,7 @@ const RpsUI = (() => {
       + '<tr class="hl"><td>합계/평균</td><td class="opt">9.0</td><td>' + (sum('energyCharge') / 12).toFixed(1) + '</td><td class="opt">5.0</td><td>' + (sum('totalUnitRate') / 12).toFixed(1) + '</td><td>' + fmt(sum('gen')) + '</td><td>' + fmt(sum('saving1Y')) + '</td><td>' + fmt(sum('saving20Y')) + '</td></tr>';
 
     drawSelfChart();
+    try { renderPP(); } catch (e) { console.warn('renderPP', e); }
   }
   function fillSel(id, opts, val) {
     const el = $(id);
@@ -269,5 +289,5 @@ const RpsUI = (() => {
     try { const s = JSON.parse(localStorage.getItem(STORE) || 'null'); if (s) st = Object.assign(st, s); } catch (e) {}
   }
 
-  return { init, setCapacity, setSite, render, renderSelf, getState: () => st };
+  return { init, setCapacity, setSite, render, renderSelf, setPP, getState: () => st };
 })();
