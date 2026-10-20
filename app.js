@@ -1511,6 +1511,13 @@
     const s = document.createElement('span'); s.style.cssText = 'font-size:12px;max-width:52vw;overflow:hidden;text-overflow:ellipsis;white-space:nowrap'; s.textContent = name;
     const x = document.createElement('button'); x.className = 'btn sm ghost'; x.textContent = '닫기'; x.onclick = () => { bar.remove(); setTimeout(() => URL.revokeObjectURL(url), 1000); };
     bar.appendChild(a); bar.appendChild(s); bar.appendChild(x);
+    // PC 크롬: 「다른 이름으로 저장」— 크롬 다운로드 경로(DocuRay 암호화 → 백신 검사 실패)를 피해 원하는 폴더(NAS·바탕화면)에 바로 쓴다 (2026-10-20)
+    if (window.showSaveFilePicker) {
+      const sv = document.createElement('button'); sv.className = 'btn accent'; sv.textContent = '💾 다른 이름으로 저장';
+      sv.title = '크롬 다운로드 폴더 대신 원하는 곳에 바로 저장 (내려받은 파일이 안 열릴 때 이걸로)';
+      sv.onclick = async () => { try { const h = await window.showSaveFilePicker({ suggestedName: name, types: [{ description: 'PowerPoint', accept: { 'application/vnd.openxmlformats-officedocument.presentationml.presentation': ['.pptx'] } }] }); const w = await h.createWritable(); await w.write(blob); await w.close(); hint('저장했습니다: ' + h.name); } catch (e) { if (e.name !== 'AbortError') hint('저장 실패: ' + e.message); } };
+      bar.insertBefore(sv, a);
+    }
     if (window.Native && window.Native.mail && blob.size < 25 * 1048576) {
       const m = document.createElement('button'); m.className = 'btn ghost'; m.textContent = '📧 메일 첨부'; m.onclick = async () => { const b64 = await new Promise(res => { const fr = new FileReader(); fr.onload = () => res(fr.result); fr.readAsDataURL(blob); }); Native.mail('', name, '제안서', JSON.stringify([{ name, dataUrl: b64 }])); };
       bar.appendChild(m);
