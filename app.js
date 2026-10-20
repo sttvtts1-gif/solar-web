@@ -1479,12 +1479,11 @@
         const imgs = { planMap: await Proposal.drawPlanSheet(data, { satellite: true }), plan: await Proposal.drawPlanSheet(data), section: Proposal.drawSectionSheet(data), cover };
         const blob = await Proposal.fillTemplate(buf, data, imgs);
         const name = templateFile.name.replace(/\.pptx$/i, '') + '_' + (siteName || '현장').replace(/[\\/:*?"<>|]/g, '') + '_' + data.kw.toFixed(0) + 'kW.pptx';
-        const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = name; document.body.appendChild(a); a.click(); a.remove();
-        setTimeout(() => URL.revokeObjectURL(a.href), 60000);
+        showDownload(blob, name);                                                   // 자동 내려받기 + 화면 버튼(자동이 막혀도 직접 누르게)
         hint('완성본을 내려받았습니다: ' + name + (cover ? ' (표지 그림 교체)' : '') + ' (37 위성 배치도 · 37-2 도면 배치도 · 38 측면도 · 47~49 손익·한전 계통 채움)');
         // NAS 폴더가 지정돼 있으면 거기에도 저장
         if (Nas.available() && await Nas.loadRoot()) { try { const sd = await siteFolder(); if (sd) { await Nas.write(sd.dir, name, blob); hint('제안서를 NAS 에도 저장했습니다: ' + sd.path + '/' + name); } } catch (e) { hint('내려받기는 됐지만 NAS 저장 실패: ' + e.message); } }
-      } catch (e) { hint('원본 채우기 실패: ' + e.message + ' — 원본이 암호화돼 있으면 풀어서 다시 고르세요.'); }
+      } catch (e) { hint('원본 채우기 실패: ' + e.message + ' — 원본이 암호화돼 있으면 풀어서 다시 고르세요.'); showError('제안서 만들기 실패', e); }
       return;
     }
     try {
@@ -1501,6 +1500,30 @@
     if (!data) { hint('먼저 배치를 하세요. 배치된 지붕·토지·주차장을 3D 로 띄웁니다.'); return; }
     View3D.open(data);
     hint('3D 조감도 — 끌어서 돌리고, 휠·두 손가락으로 확대. ☀ 로 동지 시각(그림자), 📷 로 PNG 저장. 빨간 모듈 = 음영으로 뺀 자리.');
+  }
+  /** 완성 파일 내려받기: 자동으로 한 번 시도하고, 화면 아래에 「⬇ 내려받기」 막대를 띄워 직접 누를 수 있게(크롬이 자동 내려받기를 막는 경우·앱) */
+  function showDownload(blob, name) {
+    const url = URL.createObjectURL(blob);
+    let bar = $('dlBar');
+    if (!bar) { bar = document.createElement('div'); bar.id = 'dlBar'; bar.style.cssText = 'position:fixed;left:50%;bottom:16px;transform:translateX(-50%);z-index:9999;background:#1a2f1f;color:#fff;border:2px solid #ffd54a;border-radius:10px;padding:10px 14px;display:flex;gap:10px;align-items:center;max-width:94vw;box-shadow:0 4px 18px rgba(0,0,0,.5)'; document.body.appendChild(bar); }
+    bar.innerHTML = '';
+    const a = document.createElement('a'); a.href = url; a.download = name; a.textContent = '⬇ 내려받기 (' + Math.round(blob.size / 1048576) + 'MB)'; a.className = 'btn accent'; a.style.textDecoration = 'none';
+    const s = document.createElement('span'); s.style.cssText = 'font-size:12px;max-width:52vw;overflow:hidden;text-overflow:ellipsis;white-space:nowrap'; s.textContent = name;
+    const x = document.createElement('button'); x.className = 'btn sm ghost'; x.textContent = '닫기'; x.onclick = () => { bar.remove(); setTimeout(() => URL.revokeObjectURL(url), 1000); };
+    bar.appendChild(a); bar.appendChild(s); bar.appendChild(x);
+    if (window.Native && window.Native.mail && blob.size < 25 * 1048576) {
+      const m = document.createElement('button'); m.className = 'btn ghost'; m.textContent = '📧 메일 첨부'; m.onclick = async () => { const b64 = await new Promise(res => { const fr = new FileReader(); fr.onload = () => res(fr.result); fr.readAsDataURL(blob); }); Native.mail('', name, '제안서', JSON.stringify([{ name, dataUrl: b64 }])); };
+      bar.appendChild(m);
+    }
+    try { a.click(); } catch (e) {}
+    hint('완성: ' + name + ' — 내려받기가 자동으로 시작되지 않으면 아래 「⬇ 내려받기」를 누르세요.');
+  }
+  /** 실패를 화면 가운데에 크게(안내줄은 다른 글로 덮이니까) */
+  function showError(title, e) {
+    let box = $('errBox');
+    if (!box) { box = document.createElement('div'); box.id = 'errBox'; box.style.cssText = 'position:fixed;left:50%;top:40%;transform:translate(-50%,-50%);z-index:9999;background:#3a1212;color:#fff;border:2px solid #ff5252;border-radius:10px;padding:14px 16px;max-width:90vw;font-size:13px;box-shadow:0 4px 18px rgba(0,0,0,.5)'; document.body.appendChild(box); }
+    box.innerHTML = '<b>' + title + '</b><div style="margin:6px 0;white-space:pre-wrap;word-break:break-all">' + String(e && e.message || e) + '</div><div style="font-size:11px;color:#f7c6c6;white-space:pre-wrap;max-height:30vh;overflow:auto">' + String(e && e.stack || '').split('\n').slice(0, 4).join('\n') + '</div>';
+    const x = document.createElement('button'); x.className = 'btn sm ghost'; x.textContent = '닫기'; x.onclick = () => box.remove(); box.appendChild(x);
   }
   /** 3D 데이터(조감도·표지 그림 공용) */
   function open3dData() {
