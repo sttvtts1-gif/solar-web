@@ -122,7 +122,7 @@
     });
 
     // 문제 확인용 읽기 전용 손잡이 (콘솔에서 __solar.buildings 등)
-    window.__solar = { get map() { return map; }, get buildings() { return buildings; }, get roofs() { return roofs; }, get fixtures() { return fixtures; }, snapshot3d: (w, h) => { const d = open3dData(); return d ? View3D.snapshot(d, w || 800, h || 500) : null; } };
+    window.__solar = { get map() { return map; }, get buildings() { return buildings; }, get roofs() { return roofs; }, get fixtures() { return fixtures; }, snapshot3d: (w, h) => { const d = open3dData(); return d ? View3D.snapshot(d, w || 800, h || 500) : null; }, pickCover: () => pickCover({ origin: roofs.length ? Layout.centroid(roofs[0].points) : { lat: 35.9, lng: 128.5 } }) };
     bindUi();
     if (typeof Auth !== 'undefined') Auth.init();                 // 로그인 게이트(중계 재배포 전엔 통과)
     renderTypes();
@@ -247,7 +247,7 @@
       else makeProposal(null);
     };
     if ($('tplFile')) $('tplFile').onchange = () => { const f = $('tplFile').files && $('tplFile').files[0]; if (f) makeProposal(f); };
-    $('v3d_close').onclick = () => View3D.close();
+    $('v3d_close').onclick = () => { View3D.close(); const u = $('v3d_use'); if (u) { u.style.display = 'none'; u.onclick = null; } };
     $('v3d_auto').onclick = () => { $('v3d_auto').classList.toggle('accent', View3D.toggleAuto()); };
     $('v3d_snap').onclick = () => {
       const url = View3D.snapshot(); if (!url) return;
@@ -1540,7 +1540,14 @@
       const c = data.origin; let rv = null;
       const done = v => { m.classList.remove('on'); host.innerHTML = ''; rv = null; res(v); };
       $('cvSkip').onclick = () => done(null);
-      $('cv3d').onclick = () => { try { hint('3D 그리는 중…'); const d3 = open3dData(); if (!d3) { hint('배치가 없습니다.'); return; } done(View3D.snapshot(d3, 1600, 1000)); } catch (e) { hint('3D 그림 실패: ' + e.message); } };
+      // 3D: 조감도 창을 띄워 돌려 보고(끌어서 회전·휠 확대·☀ 시각) 「✔ 표지로 사용」을 누르면 그 화면을 쓴다 (2026-10-20 사용자 지시)
+      $('cv3d').onclick = () => {
+        const d3 = open3dData(); if (!d3) { hint('배치가 없습니다.'); return; }
+        View3D.open(d3);
+        const use = $('v3d_use'); use.style.display = '';
+        use.onclick = () => { const url = View3D.snapshot(); use.style.display = 'none'; use.onclick = null; View3D.close(); if (url) done(url); else hint('3D 화면을 못 잡았습니다. 다시 시도하세요.'); };
+        hint('조감도를 돌려 원하는 각도로 맞춘 뒤 「✔ 표지로 사용」을 누르세요. 「닫기」면 표지 창으로 돌아갑니다.');
+      };
       $('cvRvCap').onclick = async () => { try { hint('캡처 중… (크롬은 「이 탭」을 고르고 공유)'); done(await captureElement(host)); } catch (e) { hint('캡처 실패: ' + e.message); } };
       try {
         const rc = new kakao.maps.RoadviewClient(), pos = new kakao.maps.LatLng(c.lat, c.lng);
