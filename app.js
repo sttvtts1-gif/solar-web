@@ -1446,7 +1446,7 @@
         slopeNote: r.terrain ? '지면 경사 ' + r.terrain.slopeDeg + '° ' + r.terrain.name : '',
       };
     });
-    const memoRes = withMemo ? await Proposal.consult(siteAddr || siteName).catch(() => null) : null;
+    const memoRes = withMemo && typeof withMemo.then === 'function' ? await withMemo.catch(() => null) : withMemo ? await Proposal.consult(siteAddr || siteName).catch(() => null) : null;
     const memo = memoRes && memoRes.hits ? memoRes.hits.map(h => (h.tab ? '[' + h.tab + '] ' : '') + h.text).slice(0, 4) : [];
     const rpsSt = (window.RpsUI && RpsUI.getState) ? RpsUI.getState() : {};
     const data = {
@@ -1460,17 +1460,22 @@
   }
 
   async function makeProposal(templateFile) {
-    const data = await proposalData(true);
+    // 상담일지 조회(중계, 몇 초)는 뒤에서 돌리고 바로 질문부터 — 파일 고른 뒤 한참 기다리지 않게 (2026-10-20)
+    const memoP = Proposal.consult(siteAddr || siteName).catch(() => null);
+    const data = await proposalData(false);
     if (!data) return;
     if (typeof PptxGenJS === 'undefined') { hint('PPT 라이브러리(vendor/pptxgen.bundle.js)가 없습니다.'); return; }
+    const withMemo = async () => { const m = await memoP; data.memo = m && m.hits ? m.hits.map(h => (h.tab ? '[' + h.tab + '] ' : '') + h.text).slice(0, 4) : []; };
     if (templateFile) {
       try {
-        hint('원본 제안서 읽는 중… (' + Math.round(templateFile.size / 1048576) + 'MB)');
-        const buf = await templateFile.arrayBuffer();
-        hint('배치도·측면도 그리고 표 채우는 중…');
+        const bufP = templateFile.arrayBuffer();                               // 파일 읽기도 동시에
+        hint('원본 제안서 읽는 중… (' + Math.round(templateFile.size / 1048576) + 'MB) — 그동안 아래 질문에 답하세요');
         data.underground = await askOX('한전 계통 — 지중 지역입니까?', '현장 앞 전주·전선이 없고 지중(땅속) 공급 지역이면 「지중」, 전주가 있는 가공(공중) 지역이면 「공중」. 한전연계비 계산에 씁니다.<br><small style="color:var(--muted)">' + (data.kw < 500 ? '500kW 미만 → 저압' : '500kW 이상 → 고압') + ' · 공중 ' + Math.round(Proposal.kepcoFeeOf(data.kw, data.kw >= 500, false)).toLocaleString() + '원 / 지중 ' + Math.round(Proposal.kepcoFeeOf(data.kw, data.kw >= 500, true)).toLocaleString() + '원 (VAT 별도)</small>', '지중', '공중');
         hint('배치도(위성·도면)·측면도 그리고 표 채우는 중…');
         const cover = await pickCover(data);                                       // 표지: 로드뷰 캡처 / 3D / 건너뛰기
+        hint('원본 제안서 읽는 중… (' + Math.round(templateFile.size / 1048576) + 'MB)');
+        const buf = await bufP; await withMemo();
+        hint('배치도·측면도 그리고 표 채우는 중…');
         const imgs = { planMap: await Proposal.drawPlanSheet(data, { satellite: true }), plan: await Proposal.drawPlanSheet(data), section: Proposal.drawSectionSheet(data), cover };
         const blob = await Proposal.fillTemplate(buf, data, imgs);
         const name = templateFile.name.replace(/\.pptx$/i, '') + '_' + (siteName || '현장').replace(/[\\/:*?"<>|]/g, '') + '_' + data.kw.toFixed(0) + 'kW.pptx';
@@ -1483,6 +1488,7 @@
       return;
     }
     try {
+      await withMemo();
       const { pptx, fileName } = await Proposal.build(data);
       const how = await Proposal.save(pptx, fileName);
       hint('제안서 5쪽(배치도·측면도·손익 ①②③)을 ' + (how === 'mail' ? '메일 첨부로 보냈습니다' : '내려받았습니다') + ': ' + fileName + ' — 파워포인트 「슬라이드 재사용」으로 원본 37·38·47~49쪽 자리에 넣으세요.');
