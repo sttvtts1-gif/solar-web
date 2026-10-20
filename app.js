@@ -1468,13 +1468,13 @@
     const withMemo = async () => { const m = await memoP; data.memo = m && m.hits ? m.hits.map(h => (h.tab ? '[' + h.tab + '] ' : '') + h.text).slice(0, 4) : []; };
     if (templateFile) {
       try {
-        const bufP = templateFile.arrayBuffer();                               // 파일 읽기도 동시에
-        hint('원본 제안서 읽는 중… (' + Math.round(templateFile.size / 1048576) + 'MB) — 그동안 아래 질문에 답하세요');
+        hint('원본 제안서: ' + templateFile.name + ' (' + Math.round(templateFile.size / 1048576) + 'MB) — 아래 질문에 답하면 읽기 시작합니다');
         data.underground = await askOX('한전 계통 — 지중 지역입니까?', '현장 앞 전주·전선이 없고 지중(땅속) 공급 지역이면 「지중」, 전주가 있는 가공(공중) 지역이면 「공중」. 한전연계비 계산에 씁니다.<br><small style="color:var(--muted)">' + (data.kw < 500 ? '500kW 미만 → 저압' : '500kW 이상 → 고압') + ' · 공중 ' + Math.round(Proposal.kepcoFeeOf(data.kw, data.kw >= 500, false)).toLocaleString() + '원 / 지중 ' + Math.round(Proposal.kepcoFeeOf(data.kw, data.kw >= 500, true)).toLocaleString() + '원 (VAT 별도)</small>', '지중', '공중');
         hint('배치도(위성·도면)·측면도 그리고 표 채우는 중…');
         const cover = await pickCover(data);                                       // 표지: 로드뷰 캡처 / 3D / 건너뛰기
+        // 파일 읽기는 질문이 끝난 뒤에(DRM PC 에서 큰 파일 읽기가 화면을 몇 초 멈춰 질문이 늦게 뜨던 문제, 2026-10-20)
         hint('원본 제안서 읽는 중… (' + Math.round(templateFile.size / 1048576) + 'MB)');
-        const buf = await bufP; await withMemo();
+        const buf = await templateFile.arrayBuffer(); await withMemo();
         hint('배치도·측면도 그리고 표 채우는 중…');
         const imgs = { planMap: await Proposal.drawPlanSheet(data, { satellite: true }), plan: await Proposal.drawPlanSheet(data), section: Proposal.drawSectionSheet(data), cover };
         const blob = await Proposal.fillTemplate(buf, data, imgs);
