@@ -792,7 +792,8 @@
     const p = {
       step: t => add((++n) + '. ' + t),
       done: t => { add('✔ ' + t, '#8ce99a'); $('prog_close').style.display = ''; $('prog_close').onclick = () => $('progModal').classList.remove('on'); setTimeout(() => $('progModal').classList.remove('on'), 6000); },
-      fail: e => { add('✖ ' + (e && e.message || e), '#ff8a80'); $('prog_close').style.display = ''; $('prog_close').onclick = () => $('progModal').classList.remove('on'); },
+      fail: e => { add('✖ ' + (e && e.message || e), '#ff8a80'); $('prog_close').style.display = ''; $('prog_close').onclick = () => $('progModal').classList.remove('on');
+        if (e && e.repick) { const b = document.createElement('button'); b.className = 'btn accent'; b.textContent = '📁 폴더 다시 고르기'; b.onclick = async () => { try { const h = await Nas.ensureRoot(true); nasSite = null; add('저장 폴더: ' + h.name + ' — 다시 「NAS 저장」을 누르세요', '#8ce99a'); const nm = $('nasRootName'); if (nm) nm.textContent = h.name; } catch (x) { add('취소: ' + x.message, '#ff8a80'); } }; log.appendChild(b); } },
       close: () => $('progModal').classList.remove('on'),
     };
     return p;

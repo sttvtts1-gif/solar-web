@@ -72,13 +72,15 @@ const Nas = (() => {
    */
   async function siteDir(o) {
     const r = o.__root || await ensureRoot();   // __root: 검사용
+    // 고른 폴더가 현장 폴더 자체(예 "12-2932 경남 양산시 … 그린피엔텍")면 그대로 거기에 쓴다
+    if (/^\d{2}-\d{4}\s/.test(r.name)) return { dir: r, path: r.name, created: false, matched: '지정 폴더' };
     const keySets = [o.addr, o.altAddr].filter(Boolean).map(addrKeys).filter(k => k.length);
     const noKey = o.no ? norm(o.no) : '';
     // 연도 폴더 목록: 고른 폴더가 연도 폴더 자체면 그것만
     let years = yearOf(r.name) ? [[r.name, r]] : (await dirs(r)).filter(([n]) => yearOf(n));
     years.sort((a, b) => yearOf(b[0]) - yearOf(a[0]));
     const searchYears = years.slice(0, 2);                       // 최근 2개 연도만 훑는다(NAS 가 느려서)
-    if (!years.length) throw new Error('고른 폴더 안에 "01. 제안서작성(YYYY년)" 폴더가 없습니다. N:\\02. 제안서작성 을 고르세요.');
+    if (!years.length) { const e = new Error('고른 폴더(' + r.name + ') 안에 "01. 제안서작성(YYYY년)" 폴더가 없습니다. 아래 「폴더 다시 고르기」로 N:\\02. 제안서작성 을 고르세요.'); e.repick = true; throw e; }
     for (const [yn, yh] of searchYears) {
       const months = (await dirs(yh)).filter(([n]) => /검토|\d+월/.test(n)).sort((a, b) => (parseInt((b[0].match(/\((\d+)월\)/) || [])[1] || 0, 10)) - (parseInt((a[0].match(/\((\d+)월\)/) || [])[1] || 0, 10)));
       for (const [mn, mh] of months) {
