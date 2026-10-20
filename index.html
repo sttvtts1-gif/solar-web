@@ -132,6 +132,10 @@
   /* 지도 위 결과 라벨 (카카오 CustomOverlay 내용) */
   .lbl { transform: translate(-50%, -50%); background: rgba(255,255,255,.95); border: 2px solid #1a4fd6; border-radius: 6px; padding: 4px 8px; text-align: center; color: #111; white-space: nowrap; font-family: inherit; pointer-events: none; }
   .lbl.side { transform: none; }   /* 지붕 옆에 왼쪽 정렬 (xAnchor 0) */
+  /* 로그인 창: 항목을 한 줄에 하나씩 */
+  #authModal label { display: block; margin: 8px 0 0; font-size: 13px; }
+  #authModal label input { display: block; width: 100%; box-sizing: border-box; margin-top: 4px; }
+  #authModal details { margin: 10px 0 4px; }
   .lbl.fix { transform: none; font-size: 11px; padding: 2px 6px; border-color: #5b6b7a; color: #fff; background: rgba(40,50,60,.85); }
   .lbl b { display: block; color: #e02020; font-size: 16px; }
   .lbl span { font-size: 11px; }
@@ -559,7 +563,7 @@
   // 깃허브 Pages 는 화면 파일을 10분 캐시한다. 새로 올린 뒤에도 옛 화면이 나오지 않게,
   // 열 때마다 캐시 없이 index.html 을 다시 받아 버전 표식이 다르면 한 번 새로고침한다.
   // 버전 표식(APP_VER)은 web동기화.sh 가 올릴 때마다 시각으로 바꿔 넣는다.
-  window.APP_VER = '20261016083548';
+  window.APP_VER = '20261020104650';
   (function () {
     if (location.hostname.indexOf('github.io') < 0) return;
     fetch('index.html?nocache=' + Date.now(), { cache: 'no-store' }).then(r => r.text()).then(t => {
@@ -571,29 +575,29 @@
     }).catch(() => {});
   })();
 </script>
-<script src="config.js?v=20261016083548"></script>
-<script src="vendor/pdf.min.js?v=20261016083548"></script>
-<script src="layout.js?v=20261016083548"></script>
-<script src="vworld.js?v=20261016083548"></script>
-<script src="site.js?v=20261016083548"></script>
-<script src="terrain.js?v=20261016083548"></script>
-<script src="vendor/three.min.js?v=20261016083548"></script>
+<script src="config.js?v=20261020104650"></script>
+<script src="vendor/pdf.min.js?v=20261020104650"></script>
+<script src="layout.js?v=20261020104650"></script>
+<script src="vworld.js?v=20261020104650"></script>
+<script src="site.js?v=20261020104650"></script>
+<script src="terrain.js?v=20261020104650"></script>
+<script src="vendor/three.min.js?v=20261020104650"></script>
 <script src="view3d.js"></script>
-<script src="vendor/jszip.min.js?v=20261016083548"></script>
+<script src="vendor/jszip.min.js?v=20261020104650"></script>
 <script>window.JSZipLib = window.JSZip;</script><!-- pptxgen 번들이 전역 JSZip 을 덮어써서 따로 잡아 둔다 -->
-<script src="vendor/pptxgen.bundle.js?v=20261016083548"></script>
-<script src="proposal.js?v=20261016083548"></script>
-<script src="align.js?v=20261016083548"></script>
+<script src="vendor/pptxgen.bundle.js?v=20261020104650"></script>
+<script src="proposal.js?v=20261020104650"></script>
+<script src="align.js?v=20261020104650"></script>
 <script src="cp949.js"></script>
-<script src="nas.js?v=20261016083548"></script>
-<script src="auth.js?v=20261016083548"></script>
-<script src="cad.js?v=20261016083548"></script>
-<script src="kepco.js?v=20261016083548"></script>
-<script src="bld.js?v=20261016083548"></script>
-<script src="rps.js?v=20261016083548"></script>
-<script src="report.js?v=20261016083548"></script>
-<script src="rps_ui.js?v=20261016083548"></script>
-<script src="policy.js?v=20261016083548"></script>
-<script src="app.js?v=20261016083548"></script>
+<script src="nas.js?v=20261020104650"></script>
+<script src="auth.js?v=20261020104650"></script>
+<script src="cad.js?v=20261020104650"></script>
+<script src="kepco.js?v=20261020104650"></script>
+<script src="bld.js?v=20261020104650"></script>
+<script src="rps.js?v=20261020104650"></script>
+<script src="report.js?v=20261020104650"></script>
+<script src="rps_ui.js?v=20261020104650"></script>
+<script src="policy.js?v=20261020104650"></script>
+<script src="app.js?v=20261020104650"></script>
 </body>
 </html>
