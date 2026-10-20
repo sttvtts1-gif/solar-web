@@ -85,6 +85,7 @@
     geocoder = new kakao.maps.services.Geocoder();
     places = new kakao.maps.services.Places();
 
+    kakao.maps.event.addListener(map, 'idle', () => scheduleLabels());          // 확대·이동 뒤 라벨 빈 자리 다시 찾기
     kakao.maps.event.addListener(map, 'click', e => {
       closeResults();
       const p = { lat: e.latLng.getLat(), lng: e.latLng.getLng() };
@@ -1380,8 +1381,10 @@
     drawFixtures(); roofs.forEach(recompute); renderList(); save();
     const b = $('btnElec'); if (b) b.textContent = '⚡ 전기실' + (f ? ' ' + f.w + '×' + f.h : '');
   }
+  let fixLabels = [];
   function drawFixtures() {
-    fixGfx.forEach(g => g.setMap(null)); fixGfx = [];
+    fixGfx.forEach(g => g.setMap(null)); fixGfx = []; fixLabels = [];
+    scheduleLabels();
     fixtures.forEach((f, i) => {
       const on = picked && picked.kind === 'fix' && picked.idx === i;
       const isL = f.kind === 'ladder';
@@ -1391,8 +1394,41 @@
       if (isL) ladderLines(f).forEach(seg => { const pl = new kakao.maps.Polyline({ path: seg.map(p => new kakao.maps.LatLng(p.lat, p.lng)), strokeWeight: 2, strokeColor: on ? '#00e5ff' : '#ffeb3b', strokeOpacity: 1, zIndex: 6 }); pl.setMap(map); fixGfx.push(pl); });
       kakao.maps.event.addListener(pg, 'click', () => { if (drawing || editing || Date.now() < lastPick) return; lastPick = Date.now() + 300; setPick({ roofId: null, kind: 'fix', idx: i }); });
       const el = document.createElement('div'); el.className = 'lbl fix'; el.textContent = fixLabel(f);
-      const ov = new kakao.maps.CustomOverlay({ position: new kakao.maps.LatLng(f.c.lat, f.c.lng), content: el, yAnchor: f.kind === 'elec' ? 0.5 : 1.6, zIndex: 21 });
-      ov.setMap(map); fixGfx.push(ov);
+      const ov = new kakao.maps.CustomOverlay({ position: new kakao.maps.LatLng(f.c.lat, f.c.lng), content: el, xAnchor: 0, yAnchor: 0, zIndex: 21 });
+      ov.setMap(map); fixGfx.push(ov); ov.__own = () => [fixRing(f)]; fixLabels.push(ov);
+    });
+  }
+  /**
+   * 지도 라벨(동별 kW·EA, 전기실·사다리) 겹침 피하기 (2026-10-20 사용자 지시): 화면 픽셀에서 지붕·토지·전기실·사다리 외곽(사각 범위)과
+   * 이미 놓은 라벨을 장애물로 보고, 주인 외곽 바로 바깥 오른쪽 → 왼쪽 → 아래 → 위 → 그 다음 줄… 순으로 처음 비는 자리에 둔다. 확대·이동 때마다 다시.
+   */
+  let labelTimer = null;
+  function scheduleLabels() { if (labelTimer) return; labelTimer = setTimeout(() => { labelTimer = null; try { layoutLabels(); } catch (e) {} }, 60); }
+  function layoutLabels() {
+    if (!map) return;
+    const proj = map.getProjection();
+    const px = p => proj.containerPointFromCoords(new kakao.maps.LatLng(p.lat, p.lng));
+    const bboxOf = rings => { let a = Infinity, b = Infinity, c = -Infinity, d = -Infinity; rings.forEach(rg => rg.forEach(p => { const q = px(p); a = Math.min(a, q.x); b = Math.min(b, q.y); c = Math.max(c, q.x); d = Math.max(d, q.y); })); return { x0: a, y0: b, x1: c, y1: d }; };
+    const obstacles = [];
+    roofs.forEach(r => obstacles.push(bboxOf([r.points].concat(r.extra || []))));
+    fixtures.forEach(f => obstacles.push(bboxOf([fixRing(f)])));
+    const placed = [];
+    const hit = (R, list) => list.some(o => R.x0 < o.x1 && R.x1 > o.x0 && R.y0 < o.y1 && R.y1 > o.y0);
+    const items = roofs.map(r => r.gfx && r.gfx.label).filter(Boolean).concat(fixLabels);
+    items.forEach(ov => {
+      if (!ov.__own) return;
+      const el = ov.getContent(); const w = (el && el.offsetWidth) || 110, h = (el && el.offsetHeight) || 42;
+      const B = bboxOf(ov.__own()), g = 6, cx = (B.x0 + B.x1) / 2, cy = (B.y0 + B.y1) / 2;
+      const cands = [];
+      for (let k = 0; k < 6; k++) {
+        const s = k * (h + 4), t = k * (w + 4);
+        cands.push([B.x1 + g + t, cy - h / 2], [B.x0 - g - w - t, cy - h / 2], [cx - w / 2, B.y1 + g + s], [cx - w / 2, B.y0 - g - h - s],
+                   [B.x1 + g, cy - h / 2 - s], [B.x1 + g, cy - h / 2 + s], [B.x0 - g - w, cy - h / 2 - s], [B.x0 - g - w, cy - h / 2 + s]);
+      }
+      let pick = cands[0];
+      for (const [x, y] of cands) { const R = { x0: x, y0: y, x1: x + w, y1: y + h }; if (!hit(R, obstacles) && !hit(R, placed)) { pick = [x, y]; break; } }
+      placed.push({ x0: pick[0], y0: pick[1], x1: pick[0] + w, y1: pick[1] + h });
+      ov.setPosition(proj.coordsFromContainerPoint(new kakao.maps.Point(pick[0], pick[1])));
     });
   }
   /** 제안서·3D·CAD 용 */
@@ -2195,8 +2231,10 @@
     const allPts = [r.points].concat(r.extra || []).flat();
     const eastLng = Math.max(...allPts.map(p => p.lng)) + 2 / (111320 * Math.cos(c.lat * Math.PI / 180));
     el.classList.add('side');
-    const label = new kakao.maps.CustomOverlay({ position: new kakao.maps.LatLng(c.lat, eastLng), content: el, xAnchor: 0, yAnchor: 0.5, zIndex: 20 });
+    const label = new kakao.maps.CustomOverlay({ position: new kakao.maps.LatLng(c.lat, eastLng), content: el, xAnchor: 0, yAnchor: 0, zIndex: 20 });
     label.setMap(map);
+    label.__own = () => [r.points].concat(r.extra || []);          // 이 라벨 주인(지붕)의 외곽 — 빈 자리 찾기용
+    scheduleLabels();
 
     // 모양 편집 중인 주차장: 꼭짓점마다 하늘색 손잡이(1.6m 네모). 꾹 눌러 끌면 그 꼭짓점이 움직이고, 탭 후 Del 로 뺀다
     const handles = (shapeEdit === r.id || (r.rect && r.id === selectedId)) ? r.points.map((p, i) => {

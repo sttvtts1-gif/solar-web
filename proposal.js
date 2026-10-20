@@ -62,11 +62,12 @@ const Proposal = (() => {
       g.beginPath(); ring.forEach((p, i) => i ? g.lineTo(X(p.x), Y(p.y)) : g.moveTo(X(p.x), Y(p.y))); g.closePath();
       g.fillStyle = '#8d99a6'; g.fill(); g.strokeStyle = '#111'; g.lineWidth = 1.5; g.stroke();
       }
-      const c = toXY([f.c], o)[0];
-      g.font = 'bold ' + fs + 'px ' + FONT; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillStyle = '#111';
+      // 글자는 기호를 가리지 않게 외곽 오른쪽 바깥에 (2026-10-20)
+      const ring = toXY(f.ring, o), rx = Math.max(...ring.map(p => X(p.x))), cyy = (Math.min(...ring.map(p => Y(p.y))) + Math.max(...ring.map(p => Y(p.y)))) / 2;
+      g.font = 'bold ' + fs + 'px ' + FONT; g.textAlign = 'left'; g.textBaseline = 'middle';
       const tw = g.measureText(f.label).width + 8;
-      g.fillStyle = 'rgba(255,255,255,.9)'; g.fillRect(X(c.x) - tw / 2, Y(c.y) - (f.kind === 'elec' ? 0 : fs * 1.6) - fs * 0.7, tw, fs * 1.4);
-      g.fillStyle = '#111'; g.fillText(f.label, X(c.x), Y(c.y) - (f.kind === 'elec' ? 0 : fs * 1.6));
+      g.fillStyle = 'rgba(255,255,255,.9)'; g.fillRect(rx + 4, cyy - fs * 0.7, tw, fs * 1.4);
+      g.fillStyle = '#111'; g.fillText(f.label, rx + 8, cyy);
     });
   }
   function drawPlan(data) {
