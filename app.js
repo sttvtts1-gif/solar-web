@@ -784,6 +784,19 @@
   function clearParcel() { if (parcelGfx) { parcelGfx.setMap(null); parcelGfx = null; } }
 
   /** O / X 창. 확인(O) 이면 true. */
+  /** 진행 창: 누르자마자 떠서 단계가 보이게. progress('제목') → p.step('글'), p.done('마지막 글') / p.fail(err) */
+  function progress(title) {
+    $('prog_title').textContent = title; $('prog_log').textContent = ''; $('prog_close').style.display = 'none'; $('progModal').classList.add('on');
+    const log = $('prog_log'); let n = 0;
+    const add = (t, cls) => { const d = document.createElement('div'); d.textContent = t; if (cls) d.style.color = cls; log.appendChild(d); log.scrollTop = log.scrollHeight; };
+    const p = {
+      step: t => add((++n) + '. ' + t),
+      done: t => { add('✔ ' + t, '#8ce99a'); $('prog_close').style.display = ''; $('prog_close').onclick = () => $('progModal').classList.remove('on'); setTimeout(() => $('progModal').classList.remove('on'), 6000); },
+      fail: e => { add('✖ ' + (e && e.message || e), '#ff8a80'); $('prog_close').style.display = ''; $('prog_close').onclick = () => $('progModal').classList.remove('on'); },
+      close: () => $('progModal').classList.remove('on'),
+    };
+    return p;
+  }
   /** 글 입력 창. window.prompt 는 다른 탭에 갔다 오면 크롬이 닫아 버려서(스프레드시트 보고 오면 사라짐) 페이지 안 창으로 (2026-10-20) */
   function askText(title, body, def) {
     return new Promise(resolve => {
@@ -1667,32 +1680,43 @@
     await Nas.ensureRoot();
     // N:\02. 제안서작성 아래에서 주소로 현장 폴더를 스스로 찾는다(2026-10-20 사용자 지시). 상담번호는 찾으면 보조로, 새 폴더 이름에만 쓴다
     const addr = (siteAddr || siteName || '').split('\n')[0];
-    hint('NAS 에서 현장 폴더 찾는 중… (' + addr + ')');
-    let no = '', name = '';
-    try { const m = await Promise.race([Proposal.consult(addr), new Promise(r => setTimeout(() => r(null), 8000))]); const h = ((m && m.hits) || []).find(x => x.no); if (h) { no = h.no; name = h.name || ''; } } catch (e) {}
-    const sd = await Nas.siteDir({ addr, altAddr: siteName !== addr ? siteName : '', no, name: name || (siteName && siteName !== addr ? siteName : '') });
+    const pg = window.__prog; if (pg) pg.step('NAS 에서 현장 폴더 찾는 중 — ' + addr);
+    // 상담일지(상담번호)는 새 폴더 이름에만 쓰니 뒤에서 돌리고, 못 찾았을 때만 3초까지 기다린다
+    const consultP = Promise.race([Proposal.consult(addr).catch(() => null), new Promise(r => setTimeout(() => r(null), 3000))]);
+    let sd = await Nas.siteDir({ addr, altAddr: siteName !== addr ? siteName : '', no: '', name: '', noCreate: true });
+    if (!sd) {
+      if (pg) pg.step('기존 폴더 없음 → 상담번호 확인 뒤 새 폴더 만들기');
+      const m = await consultP; const h = ((m && m.hits) || []).find(x => x.no);
+      sd = await Nas.siteDir({ addr, altAddr: siteName !== addr ? siteName : '', no: h ? h.no : '', name: (h && h.name) || (siteName && siteName !== addr ? siteName : '') });
+    }
     nasSite = sd;
     hint(sd.created ? 'NAS 에 현장 폴더를 새로 만들었습니다: ' + sd.path : 'NAS 현장 폴더(' + sd.matched + ' 일치): ' + sd.path);
     return sd;
   }
   /** 「💾 NAS 저장」: 배치도(위성·도면)·측면도·DXF·설정 JSON 을 현장 폴더에 */
   async function saveToNas() {
+    const pg = progress('💾 NAS 저장'); window.__prog = pg;
+    const btn = $('btnNas'); btn.disabled = true; btn.textContent = '💾 저장 중…';
     try {
-      if (!Nas.available()) { hint('폴더 저장은 PC 크롬·엣지에서만 됩니다. 앱에서는 메일 첨부를 쓰세요.'); return; }
+      if (!Nas.available()) throw new Error('폴더 저장은 PC 크롬·엣지에서만 됩니다. 앱에서는 메일 첨부를 쓰세요.');
+      pg.step('저장 폴더 확인 (처음이면 N:\\02. 제안서작성 을 고르세요)');
       // 폴더 고르기 창은 버튼을 누른 직후에만 열 수 있다(기다린 뒤 열면 크롬이 막는다) → 제일 먼저
-      try { const h = await Nas.ensureRoot(); const nm = $('nasRootName'); if (nm) nm.textContent = h.name; } catch (e) { hint(e.name === 'AbortError' ? '폴더 고르기를 취소했습니다. N:\\02. 제안서작성 을 고르면 됩니다.' : '폴더 접근 실패: ' + e.message); return; }
-      if (!roofs.some(r => r.result)) { hint('먼저 배치를 하세요.'); return; }
-      const data = await proposalData(false); if (!data) { hint('먼저 배치를 하세요.'); return; }
+      const h = await Nas.ensureRoot(); const nm = $('nasRootName'); if (nm) nm.textContent = h.name; pg.step('저장 폴더: ' + h.name);
+      if (!roofs.some(r => r.result)) throw new Error('먼저 배치를 하세요.');
+      pg.step('배치 자료 모으는 중');
+      const data = await proposalData(false); if (!data) throw new Error('먼저 배치를 하세요.');
       const sd = await siteFolder(); if (!sd) return;
       const base = (siteName || '현장').replace(/[\\/:*?"<>|]/g, '') + '_' + data.kw.toFixed(0) + 'kW_' + new Date().toISOString().slice(0, 10);
-      hint('그림 그리는 중…');
-      await Nas.write(sd.dir, base + '_배치도_위성.png', Nas.dataUrlBlob(await Proposal.drawPlanSheet(data, { satellite: true })));
-      await Nas.write(sd.dir, base + '_배치도_도면.png', Nas.dataUrlBlob(await Proposal.drawPlanSheet(data)));
-      await Nas.write(sd.dir, base + '_측면도.png', Nas.dataUrlBlob(Proposal.drawSectionSheet(data)));
-      await Nas.write(sd.dir, base + '_배치.dxf', new Blob([Cp949.encode(Cad.dxf(data))], { type: 'application/dxf' }));
-      await Nas.write(sd.dir, base + '_설정.json', JSON.stringify({ saved: new Date().toISOString(), site: { name: siteName, addr: siteAddr }, kw: data.kw, state: JSON.parse(localStorage.getItem(STORE) || '{}'), rps: (window.RpsUI && RpsUI.getState) ? RpsUI.getState() : null }, null, 1));
-      hint('저장 완료: ' + sd.path + (sd.created ? ' (새 폴더)' : '') + ' — 배치도 2장·측면도·DXF·설정.json. 제안서 PPT 를 만들면 같은 폴더에 들어갑니다.');
-    } catch (e) { hint('저장 실패: ' + e.message); }
+      pg.step('폴더: ' + sd.path + (sd.created ? ' (새로 만듦)' : ' (' + sd.matched + ' 일치)'));
+      pg.step('배치도(위성) 그리는 중'); await Nas.write(sd.dir, base + '_배치도_위성.png', Nas.dataUrlBlob(await Proposal.drawPlanSheet(data, { satellite: true })));
+      pg.step('배치도(도면)'); await Nas.write(sd.dir, base + '_배치도_도면.png', Nas.dataUrlBlob(await Proposal.drawPlanSheet(data)));
+      pg.step('측면도'); await Nas.write(sd.dir, base + '_측면도.png', Nas.dataUrlBlob(Proposal.drawSectionSheet(data)));
+      pg.step('CAD DXF'); await Nas.write(sd.dir, base + '_배치.dxf', new Blob([Cp949.encode(Cad.dxf(data))], { type: 'application/dxf' }));
+      pg.step('설정 JSON'); await Nas.write(sd.dir, base + '_설정.json', JSON.stringify({ saved: new Date().toISOString(), site: { name: siteName, addr: siteAddr }, kw: data.kw, state: JSON.parse(localStorage.getItem(STORE) || '{}'), rps: (window.RpsUI && RpsUI.getState) ? RpsUI.getState() : null }, null, 1));
+      pg.done('저장 완료: ' + sd.path + ' — 배치도 2장·측면도·DXF·설정.json (제안서 PPT 를 만들면 같은 폴더에)');
+      hint('저장 완료: ' + sd.path);
+    } catch (e) { pg.fail(e); hint('저장 실패: ' + e.message); }
+    finally { window.__prog = null; btn.disabled = false; btn.textContent = '💾 NAS 저장'; }
   }
   function clearParcels() {
     parcels.forEach(p => p.gfx && p.gfx.setMap(null));

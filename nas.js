@@ -77,8 +77,9 @@ const Nas = (() => {
     // 연도 폴더 목록: 고른 폴더가 연도 폴더 자체면 그것만
     let years = yearOf(r.name) ? [[r.name, r]] : (await dirs(r)).filter(([n]) => yearOf(n));
     years.sort((a, b) => yearOf(b[0]) - yearOf(a[0]));
+    const searchYears = years.slice(0, 2);                       // 최근 2개 연도만 훑는다(NAS 가 느려서)
     if (!years.length) throw new Error('고른 폴더 안에 "01. 제안서작성(YYYY년)" 폴더가 없습니다. N:\\02. 제안서작성 을 고르세요.');
-    for (const [yn, yh] of years) {
+    for (const [yn, yh] of searchYears) {
       const months = (await dirs(yh)).filter(([n]) => /검토|\d+월/.test(n)).sort((a, b) => (parseInt((b[0].match(/\((\d+)월\)/) || [])[1] || 0, 10)) - (parseInt((a[0].match(/\((\d+)월\)/) || [])[1] || 0, 10)));
       for (const [mn, mh] of months) {
         for (const [sn, sh] of await dirs(mh)) {
@@ -88,6 +89,7 @@ const Nas = (() => {
         }
       }
     }
+    if (o.noCreate) return null;
     // 못 찾음 → 올해·이달에 새로
     const now = new Date(), Y = now.getFullYear(), M = now.getMonth() + 1;
     let yh = (years.find(([n]) => yearOf(n) === Y) || [])[1], yn = '01. 제안서작성(' + Y + '년)';
