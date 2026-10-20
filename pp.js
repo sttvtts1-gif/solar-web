@@ -98,10 +98,23 @@ const PP = (() => {
     for (let i = 0; i < 12; i++) { if (m < 1) { m = 12; y--; } out.unshift({ y, m }); m--; }
     return out;
   }
+  /** 중계 호출에 경과시간 표시·시간 제한을 붙인다 */
+  function callTimed(params, label, onStep, limitMs) {
+    const t0 = Date.now(); let tick = null;
+    const p = Auth.call(params, limitMs);
+    if (onStep) { onStep(label + ' 0초'); tick = setInterval(() => onStep(label + ' ' + Math.round((Date.now() - t0) / 1000) + '초'), 1000); }
+    const timeout = new Promise((_, rej) => setTimeout(() => rej(new Error(label + ' — ' + Math.round(limitMs / 1000) + '초 안에 응답이 없습니다. 중계(Apps Script) 실행 기록을 확인하거나 잠시 뒤 다시 해 보세요.')), limitMs));
+    return Promise.race([p, timeout]).finally(() => { if (tick) clearInterval(tick); });
+  }
   async function fetchUsage(id, pw, type, onStep) {
     const ms = months12();
-    onStep && onStep('한전 파워플래너 로그인 중…');
-    const r = await Auth.call({ path: 'pp', op: 'usage', id, pw, type: type || 'I', months: ms.map(x => x.y + '-' + x.m).join(',') }, 240000);
+    // 1단계: 로그인 + 요일별 페이지 + 자료 호출 찾기(빠름). 2단계: 12개월.
+    const pr = await callTimed({ path: 'pp', op: 'usage', probe: 1, id, pw, type: type || 'I', months: ms[0].y + '-' + ms[0].m }, '한전 로그인·자료 호출 찾는 중', onStep, 120000);
+    if (!pr || !pr.ok) { const lg = (pr && pr.login) || {}; throw new Error(((pr && (pr.errMsg || pr.failed)) || '파워플래너 응답 없음') + (lg.chk || lg.failed ? ' [통합아이디 확인: ' + (lg.chk || '-') + ' · SSO ' + (lg.ssoYn || '-') + ' · APT ' + (lg.aptYn || '-') + ' · ' + (lg.failed || '') + ' · ' + (lg.title || '') + ']' : '')); }
+    const d = pr.discovery || {};
+    onStep && onStep('로그인 성공 (' + Math.round((pr.ms && pr.ms.login || 0) / 1000) + '초) · 자료 호출 ' + (d.url ? '찾음 (selectType=' + (d.chartType || '') + ')' : '못 찾음') + ' · 시험 ' + ((d.tries || []).length) + '회');
+    if (!d.url) return { fetched: new Date().toISOString(), id: String(id).replace(/.(?=.{3})/g, '*'), months: [], okN: 0, contract: pr.contract || '', discovery: d, pageNote: pr.pageNote || '' };
+    const r = await callTimed({ path: 'pp', op: 'usage', id, pw, type: type || 'I', months: ms.map(x => x.y + '-' + x.m).join(',') }, '12개월 사용량 받는 중', onStep, 240000);
     if (!r || !r.ok) { const lg = (r && r.login) || {}; throw new Error(((r && (r.errMsg || r.failed)) || '파워플래너 응답 없음') + (lg.chk || lg.failed ? ' [통합아이디 확인: ' + (lg.chk || '-') + ' · SSO ' + (lg.ssoYn || '-') + ' · APT ' + (lg.aptYn || '-') + ' · ' + (lg.failed || '') + ' · ' + (lg.title || '') + ']' : '')); }
     onStep && onStep('응답 해석 중…');
     const months = (r.months || []).map(x => { const p = parseMonth(x.raw); return { y: x.y, m: x.m, hourly: p ? p.hourly : null, note: p ? p.note : '', raw: p ? '' : String(x.raw || '').slice(0, 1500), url: x.url, code: x.code }; });
