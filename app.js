@@ -1402,7 +1402,7 @@
    * 지도 라벨(동별 kW·EA, 전기실·사다리) 겹침 피하기 (2026-10-20 사용자 지시): 화면 픽셀에서 지붕·토지·전기실·사다리 외곽(사각 범위)과
    * 이미 놓은 라벨을 장애물로 보고, 주인 외곽 바로 바깥 오른쪽 → 왼쪽 → 아래 → 위 → 그 다음 줄… 순으로 처음 비는 자리에 둔다. 확대·이동 때마다 다시.
    */
-  let labelTimer = null;
+  let labelTimer = null, leaderGfx = [];
   function scheduleLabels() { if (labelTimer) return; labelTimer = setTimeout(() => { labelTimer = null; try { layoutLabels(); } catch (e) {} }, 60); }
   function layoutLabels() {
     if (!map) return;
@@ -1413,12 +1413,31 @@
     roofs.forEach(r => obstacles.push(bboxOf([r.points].concat(r.extra || []))));
     fixtures.forEach(f => obstacles.push(bboxOf([fixRing(f)])));
     const placed = [];
+    leaderGfx.forEach(g => g.setMap(null)); leaderGfx = [];
     const hit = (R, list) => list.some(o => R.x0 < o.x1 && R.x1 > o.x0 && R.y0 < o.y1 && R.y1 > o.y0);
+    const toLL = (x, y) => proj.coordsFromContainerPoint(new kakao.maps.Point(x, y));
+    /** 지시선: 라벨 사각형에서 주인 외곽선에 가장 가까운 점까지 + 끝에 점 (2026-10-20 사용자 지시) */
+    const leader = (R, rings, color) => {
+      const lx = (R.x0 + R.x1) / 2, ly = (R.y0 + R.y1) / 2;
+      let best = null;
+      rings.forEach(rg => { const q = rg.map(px); for (let i = 0; i < q.length; i++) { const a = q[i], b = q[(i + 1) % q.length], vx = b.x - a.x, vy = b.y - a.y, L = vx * vx + vy * vy || 1;
+        const t = Math.max(0, Math.min(1, ((lx - a.x) * vx + (ly - a.y) * vy) / L)), x = a.x + t * vx, y = a.y + t * vy, d = (x - lx) ** 2 + (y - ly) ** 2;
+        if (!best || d < best.d) best = { x, y, d }; } });
+      if (!best) return;
+      // 라벨 쪽 끝: 라벨 사각형 테두리에서 그 점에 가장 가까운 곳
+      const sx = Math.max(R.x0, Math.min(R.x1, best.x)), sy = Math.max(R.y0, Math.min(R.y1, best.y));
+      if (Math.hypot(sx - best.x, sy - best.y) < 3) return;
+      const pl = new kakao.maps.Polyline({ path: [toLL(sx, sy), toLL(best.x, best.y)], strokeWeight: 1.5, strokeColor: color, strokeOpacity: 0.95, zIndex: 19 });
+      pl.setMap(map); leaderGfx.push(pl);
+      const dot = document.createElement('div'); dot.style.cssText = 'width:7px;height:7px;border-radius:50%;background:' + color + ';border:1px solid #fff';
+      const ov = new kakao.maps.CustomOverlay({ position: toLL(best.x, best.y), content: dot, xAnchor: 0.5, yAnchor: 0.5, zIndex: 19 });
+      ov.setMap(map); leaderGfx.push(ov);
+    };
     const items = roofs.map(r => r.gfx && r.gfx.label).filter(Boolean).concat(fixLabels);
     items.forEach(ov => {
       if (!ov.__own) return;
       const el = ov.getContent(); const w = (el && el.offsetWidth) || 110, h = (el && el.offsetHeight) || 42;
-      const B = bboxOf(ov.__own()), g = 6, cx = (B.x0 + B.x1) / 2, cy = (B.y0 + B.y1) / 2;
+      const B = bboxOf(ov.__own()), g = 18,   /* 지시선이 보이게 조금 띄움 */ cx = (B.x0 + B.x1) / 2, cy = (B.y0 + B.y1) / 2;
       const cands = [];
       for (let k = 0; k < 6; k++) {
         const s = k * (h + 4), t = k * (w + 4);
@@ -1427,8 +1446,10 @@
       }
       let pick = cands[0];
       for (const [x, y] of cands) { const R = { x0: x, y0: y, x1: x + w, y1: y + h }; if (!hit(R, obstacles) && !hit(R, placed)) { pick = [x, y]; break; } }
-      placed.push({ x0: pick[0], y0: pick[1], x1: pick[0] + w, y1: pick[1] + h });
-      ov.setPosition(proj.coordsFromContainerPoint(new kakao.maps.Point(pick[0], pick[1])));
+      const R = { x0: pick[0], y0: pick[1], x1: pick[0] + w, y1: pick[1] + h };
+      placed.push(R);
+      ov.setPosition(toLL(pick[0], pick[1]));
+      leader(R, ov.__own(), fixLabels.indexOf(ov) >= 0 ? '#5b6b7a' : '#1a4fd6');
     });
   }
   /** 제안서·3D·CAD 용 */
@@ -2303,6 +2324,7 @@
   }
   function clearGfx(r) {
     if (!r.gfx) return;
+    scheduleLabels();                       // 지시선·라벨 자리 다시(지운 동의 지시선 정리)
     r.gfx.outline.setMap(null);
     r.gfx.mods.forEach(m => m.setMap(null));
     r.gfx.label.setMap(null);
