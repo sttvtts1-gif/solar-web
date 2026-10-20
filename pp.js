@@ -88,7 +88,7 @@ const PP = (() => {
     const ms = months12();
     onStep && onStep('한전 파워플래너 로그인 중…');
     const r = await Auth.call({ path: 'pp', op: 'usage', id, pw, type: type || 'I', months: ms.map(x => x.y + '-' + x.m).join(',') }, 240000);
-    if (!r || !r.ok) throw new Error((r && (r.errMsg || r.failed)) || '파워플래너 응답 없음');
+    if (!r || !r.ok) { const lg = (r && r.login) || {}; throw new Error(((r && (r.errMsg || r.failed)) || '파워플래너 응답 없음') + (lg.chk || lg.failed ? ' [통합아이디 확인: ' + (lg.chk || '-') + ' · SSO ' + (lg.ssoYn || '-') + ' · APT ' + (lg.aptYn || '-') + ' · ' + (lg.failed || '') + ' · ' + (lg.title || '') + ']' : '')); }
     onStep && onStep('응답 해석 중…');
     const months = (r.months || []).map(x => { const p = parseMonth(x.raw); return { y: x.y, m: x.m, hourly: p ? p.hourly : null, note: p ? p.note : '', raw: p ? '' : String(x.raw || '').slice(0, 1500), url: x.url, code: x.code }; });
     const okN = months.filter(x => x.hourly).length;
