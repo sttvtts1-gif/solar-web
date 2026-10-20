@@ -1532,6 +1532,9 @@
   // ------------------------------------------------------------ 제안서 표지 그림 (로드뷰 캡처 / 3D) · 화면 캡처 · NAS 저장 (2026-10-16)
   /** 표지 그림 고르기 창: 왼쪽 로드뷰(업체가 보이게 방향을 맞춤) 캡처 또는 3D. 건너뛰면 null */
   function pickCover(data) {
+    // 토지(건물 지붕이 없음)면 로드뷰에 보일 상호·건물이 없으니 묻지 않고 3D 배치도를 쓴다 (2026-10-20 사용자 지시)
+    const hasBuilding = roofs.some(r => r.result && r.type !== 'ground' && r.type !== 'parking');
+    if (!hasBuilding) { try { const d3 = open3dData(); if (d3) { hint('토지 현장이라 표지에 3D 배치도를 넣습니다.'); return Promise.resolve(View3D.snapshot(d3, 1600, 1000)); } } catch (e) {} return Promise.resolve(null); }
     return new Promise(res => {
       const m = $('coverModal'), host = $('rvHost'); m.classList.add('on'); host.innerHTML = '';
       const c = data.origin; let rv = null;
@@ -1542,7 +1545,7 @@
       try {
         const rc = new kakao.maps.RoadviewClient(), pos = new kakao.maps.LatLng(c.lat, c.lng);
         rc.getNearestPanoId(pos, 200, panoId => {
-          if (!panoId) { host.innerHTML = '<div style="padding:20px;color:#fff">200m 안에 로드뷰가 없습니다. 3D 를 쓰세요.</div>'; return; }
+          if (!panoId) { hint('200m 안에 로드뷰가 없어 표지에 3D 배치도를 넣습니다.'); try { const d3 = open3dData(); done(d3 ? View3D.snapshot(d3, 1600, 1000) : null); } catch (e) { done(null); } return; }
           rv = new kakao.maps.Roadview(host); rv.setPanoId(panoId, pos);
           kakao.maps.event.addListener(rv, 'init', () => {
             // 로드뷰 자리에서 건물 쪽을 보게 (pan: 북 0°, 시계방향)
