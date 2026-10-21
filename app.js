@@ -124,7 +124,7 @@
     });
 
     // 문제 확인용 읽기 전용 손잡이 (콘솔에서 __solar.buildings 등)
-    window.__solar = { get map() { return map; }, get buildings() { return buildings; }, get roofs() { return roofs; }, get fixtures() { return fixtures; }, fixtureData: () => fixtureData(), snapshot3d: (w, h) => { const d = open3dData(); return d ? View3D.snapshot(d, w || 800, h || 500) : null; }, pickCover: () => pickCover({ origin: roofs.length ? Layout.centroid(roofs[0].points) : { lat: 35.9, lng: 128.5 } }) };
+    window.__solar = { get map() { return map; }, get buildings() { return buildings; }, get roofs() { return roofs; }, get fixtures() { return fixtures; }, hint: (t) => hint(t), fixtureData: () => fixtureData(), snapshot3d: (w, h) => { const d = open3dData(); return d ? View3D.snapshot(d, w || 800, h || 500) : null; }, pickCover: () => pickCover({ origin: roofs.length ? Layout.centroid(roofs[0].points) : { lat: 35.9, lng: 128.5 } }) };
     bindUi();
     if (typeof Auth !== 'undefined') Auth.init();                 // 로그인 게이트(중계 재배포 전엔 통과)
     renderTypes();

@@ -169,7 +169,7 @@ const RpsUI = (() => {
       st.ppRate = r.total; st.ppRateInfo = 'SMP ' + r.smp.avg + '원 (육지 가중평균, ' + r.smp.date + ') + REC ' + Math.round(r.rec.avg).toLocaleString() + '원/REC (' + r.rec.date + ' 평균가, 종가 ' + Math.round(r.rec.close || 0).toLocaleString() + ') ÷ 1,000 = ' + r.total + '원/kWh · 가중치 1.0';
       st.ppRateDate = new Date().toISOString().slice(0, 10);
       save(); renderSelf();
-    } catch (e) { $('s_ppaInfo').textContent = '시세 조회 실패: ' + e.message + ' — 직접 입력하세요'; if (manual) hint('SMP·REC 시세 조회 실패: ' + e.message); }
+    } catch (e) { const msg = /아이디|비밀번호/.test(e.message) ? '중계가 아직 시세 기능이 없는 옛 버전입니다 — server/auth_pp.gs 를 다시 붙여넣고 새 버전으로 배포하세요' : e.message; $('s_ppaInfo').textContent = '시세 조회 실패: ' + msg + ' — 직접 입력해도 됩니다'; if (manual && window.__solar && __solar.hint) __solar.hint('SMP·REC 시세 조회 실패: ' + msg); }
     finally { marketBusy = false; }
   }
   /** 파워플래너 실사용량이 있으면 PP.compute 로 월별 자가소비·잉여를 구해 computeSelf 에 넘긴다 */
