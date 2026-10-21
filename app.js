@@ -309,6 +309,8 @@
     // '' 로 비워야 CSS(넓은 화면 2열 grid)가 먹는다. 'block' 을 박으면 인라인이 이긴다.
     $('modeRps').style.display = t === 'rps' ? '' : 'none';
     $('modeSelf').style.display = t === 'self' ? '' : 'none';
+    // 설비용량·공사비·발전조건·금융 입력 블록은 수익분석·자가소비 두 탭이 같은 것을 쓴다(같은 요소를 옮김, 2026-10-22 사용자 지시)
+    if (t === 'self' || t === 'rps') { const host = $(t === 'self' ? 'selfInputsHost' : 'rpsInputsHost'), blk = $('rpsInputs'); if (host && blk && blk.parentElement !== host) host.appendChild(blk); }
     $('modePolicy').style.display = t === 'policy' ? '' : 'none';
     $('modeView').style.display = t === 'layout' && !drawing ? 'block' : 'none';
     $('modeDraw').style.display = t === 'layout' && drawing ? 'block' : 'none';

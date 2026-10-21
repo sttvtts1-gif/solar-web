@@ -288,12 +288,16 @@ const RPS = (() => {
       const unit = 9.0 + rate + 5.0;
       return { month: m, climateFee: 9.0, energyCharge: rate, fuelAdj: 5.0, totalUnitRate: unit, gen: Math.round(gen), saving1Y: Math.round(gen * unit), saving20Y: Math.round(gen * unit * 20) };
     });
+    // 파워플래너 실사용량으로 계산한 월별(pp.js PP.compute)이 있으면 그걸로 바꾼다: 발전량·재생E사용량·잉여·전기요금 절감·잉여수익 (2026-10-22)
+    const ov = i.selfOverride && i.selfOverride.monthly && i.selfOverride.monthly.length ? i.selfOverride : null;
+    if (ov) ov.monthly.forEach(o => { const m = monthly[o.m - 1]; if (!m) return; Object.assign(m, { gen: Math.round(o.gen), use: Math.round(o.use), self: Math.round(o.self), surplus: Math.round(o.surplus), elecSaving: Math.round(o.self * o.selfRate), surplusSaving: Math.round(o.surplus * o.surplusRate), saving1Y: Math.round(o.saving), saving20Y: Math.round(o.saving * 20), y: o.y }); });
     const total1Y = monthly.reduce((a, b) => a + b.saving1Y, 0);
     const totalGen = monthly.reduce((a, b) => a + b.gen, 0);
+    const effPrice = ov && totalGen ? total1Y / totalGen : savingRate;   // 30년 시리즈·BEP 는 발전 kWh 당 실효 단가로
 
     const totalInvestment = i.constCost + i.kepcoCost;
     const equity = totalInvestment - (i.loanActive ? i.loanPrincipal : 0);
-    const yearly = buildYearlySeries({ capacity, baseGenTime: i.baseGenTime, moduleAngle: i.moduleAngle, price: savingRate, loanActive: i.loanActive, loanPrincipal: i.loanPrincipal, loanInterest: i.loanInterest, loanGrace: i.loanGrace, loanPeriod: i.loanPeriod });
+    const yearly = buildYearlySeries({ capacity, baseGenTime: ov && totalGen ? totalGen / 365 / 0.99 / Math.max(capacity, 1e-9) : i.baseGenTime, moduleAngle: i.moduleAngle, price: effPrice, loanActive: i.loanActive, loanPrincipal: i.loanPrincipal, loanInterest: i.loanInterest, loanGrace: i.loanGrace, loanPeriod: i.loanPeriod });
     const payback = paybackFrom(yearly, equity);
     const avg20Y = yearly.slice(0, 20).reduce((a, b) => a + b.revenue * 1000, 0) / 20;
 
@@ -301,7 +305,8 @@ const RPS = (() => {
       input: i, capacity, rateCategory: cat, voltageType: volt, selectionType: sel, rates, savingRate,
       labels: { category: RATE_CATEGORIES.find(c => c.key === cat).label, voltage: grades[volt].label, selection: SELECT_LABEL[sel] },
       voltageKeys: Object.keys(grades), selectionKeys: selKeys,
-      monthly, total1Y, totalGen, avgMonthly: total1Y / 12, avg20Y, co2t: totalGen * 0.4663 / 1000,
+      monthly, total1Y, totalGen, avgMonthly: total1Y / 12, avg20Y, co2t: totalGen * 0.4663 / 1000, override: !!ov, ppMode: ov ? ov.mode : '',
+      totalUse: ov ? monthly.reduce((a, b) => a + (b.use || 0), 0) : 0, totalSelf: ov ? monthly.reduce((a, b) => a + (b.self || 0), 0) : 0, totalSurplus: ov ? monthly.reduce((a, b) => a + (b.surplus || 0), 0) : 0,
       totalInvestment, equity, yearly, payback,
     };
   }

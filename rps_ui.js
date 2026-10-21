@@ -39,6 +39,8 @@ const RpsUI = (() => {
     });
     BOOL.forEach(k => $('r_' + k).addEventListener('change', () => onChange(k, $('r_' + k).checked)));
     SEL.forEach(k => $('s_' + k).addEventListener('change', () => { st[k] = $('s_' + k).value; renderSelf(); save(); }));
+    $('s_mode').addEventListener('change', () => { st.ppMode = $('s_mode').value; renderSelf(); save(); });
+    $('s_ppaRate').addEventListener('change', () => { st.ppRate = parseFloat($('s_ppaRate').value) || 0; renderSelf(); save(); });
     $('btnPullCap').onclick = () => { st.capFollows = true; if (window.__layoutTotalKw != null) setCapacity(window.__layoutTotalKw, true); };
     $('btnRpsReset').onclick = () => { const cap = st.capacity; st = Object.assign({}, RPS.DEFAULTS, RPS.SELF_DEFAULTS, { costPerKw: 1200000, capFollows: st.capFollows, capacity: cap }); deriveCost(); render(); save(); };
     $('btnRpsShare').onclick = () => share(false);
@@ -134,6 +136,14 @@ const RpsUI = (() => {
     const box = $('ppResult'); if (!box) return;
     const u = st.pp;
     if (!u || !u.okN) { box.style.display = 'none'; return; }
+    if (true) {   // 표는 월별 절감 시뮬레이션에 합쳤다(2026-10-22). 여기는 자료 출처·요일별 평균만.
+      const WD = PP.WD; const avg = w => { let s = 0, n = 0; u.months.forEach(m => { if (m.hourly) { s += m.hourly[w].reduce((a, b) => a + (Number(b) || 0), 0); n++; } }); return n ? s / n : 0; };
+      box.style.display = '';
+      box.innerHTML = '<h4>🔌 파워플래너 자료 <small style="color:var(--muted)">' + u.okN + '개월 · ' + (u.contract || '요금제 미확인') + ' · 받은 날 ' + u.fetched.slice(0, 10) + ' · 아이디 ' + (u.id || '') + '</small></h4>'
+        + '<div style="font-size:12px">요일별 하루 평균 사용량(kWh): ' + WD.map((d, w) => d + ' <b>' + Math.round(avg(w)).toLocaleString() + '</b>').join(' · ') + '</div>'
+        + (u.months.some(m => !m.hourly) ? '<div style="font-size:12px;color:#fbbf24">해석 못 한 달: ' + u.months.filter(m => !m.hourly).map(m => m.y + '.' + m.m).join(', ') + '</div>' : '');
+      return;
+    }
     const r = PP.compute(u, st.capacity, selfRes.monthly, st.ppMode || '상계거래', st.ppRate || 0);
     const k = v => Math.round(v).toLocaleString();
     box.style.display = '';
@@ -147,8 +157,20 @@ const RpsUI = (() => {
       + '<div style="font-size:12px;color:var(--muted);margin-top:4px">발전량 = 설비용량 × 월별 시간대 발전량(kWh/kW, 사내 엑셀 「자가소비 연간분석표」 표) · 자가소비 = 시간대별 min(사용, 발전) · 절감 = 자가소비×(전력량+기후환경 9+연료비 5) + 잉여×' + ((st.ppMode || '상계거래') === '단순병렬' ? '0' : (st.ppMode === '자가PPA' ? 'SMP+REC ' + (st.ppRate || 0) + '원' : '전력량요금')) + '</div>'
       + (u.months.some(m => !m.hourly) ? '<div style="font-size:12px;color:#fbbf24">해석 못 한 달: ' + u.months.filter(m => !m.hourly).map(m => m.y + '.' + m.m).join(', ') + '</div>' : '');
   }
+  /** 파워플래너 실사용량이 있으면 PP.compute 로 월별 자가소비·잉여를 구해 computeSelf 에 넘긴다 */
+  function ppOverride(base) {
+    const u = st.pp; if (!u || !u.okN || typeof PP === 'undefined') return null;
+    const mode = st.ppMode || '단순병렬';
+    const r = PP.compute(u, st.capacity, base.monthly, mode, st.ppRate || 0);
+    return { monthly: r.monthly, mode, re100: r.re100, surplusPct: r.surplusPct };
+  }
   function renderSelf() {
-    selfRes = RPS.computeSelf(st);
+    st.ppMode = st.ppMode || '단순병렬';
+    $('s_mode').value = st.ppMode; $('s_ppaRate').value = st.ppRate || 0; $('s_ppaWrap').style.display = st.ppMode === '자가PPA' ? '' : 'none';
+    const base = RPS.computeSelf(Object.assign({}, st, { selfOverride: null }));
+    const ov = ppOverride(base);
+    selfRes = ov ? RPS.computeSelf(Object.assign({}, st, { selfOverride: ov })) : base;
+    selfRes.ovInfo = ov;
     const r = selfRes;
     // 계약종류를 바꾸면 종별·선택요금 목록이 달라지므로 유효값으로 되돌린 결과를 다시 반영한다.
     st.rateCategory = r.rateCategory; st.voltageType = r.voltageType; st.selectionType = r.selectionType;
@@ -156,7 +178,7 @@ const RpsUI = (() => {
     fillSel('s_voltageType', r.voltageKeys.map(k => [k, RPS.RATE_TABLE[r.rateCategory][k].label]), st.voltageType);
     fillSel('s_selectionType', r.selectionKeys.map(k => [k, RPS.SELECT_LABEL[k]]), st.selectionType);
     $('s_rates').innerHTML = '여름 <b>' + r.rates.summer + '</b> · 봄가을 <b>' + r.rates.springFall + '</b> · 겨울 <b>' + r.rates.winter + '</b> → 평균 <b style="color:var(--accent)">' + r.savingRate + '</b>';
-    $('s_planBadge').textContent = r.labels.category + ' ' + r.labels.voltage + ' ' + r.labels.selection;
+    $('s_planBadge').textContent = r.labels.category + ' ' + r.labels.voltage + ' ' + r.labels.selection + ' · ' + (st.ppMode || '단순병렬') + (r.override ? ' · 파워플래너 실사용량' : ' · 전량 자가소비 가정(사용량 자료 없음)');
 
     $('s_cards').innerHTML = [
       ['월평균 절감액', baek(r.avgMonthly), '#1e293b'],
@@ -171,6 +193,14 @@ const RpsUI = (() => {
       + r.monthly.map(m => '<tr><td>' + m.month + '월</td><td class="opt">9.0</td><td>' + m.energyCharge.toFixed(1) + '</td><td class="opt">5.0</td><td>' + m.totalUnitRate.toFixed(1) + '</td><td>' + fmt(m.gen) + '</td><td>' + fmt(m.saving1Y) + '</td><td>' + fmt(m.saving20Y) + '</td></tr>').join('')
       + '<tr class="hl"><td>합계/평균</td><td class="opt">9.0</td><td>' + (sum('energyCharge') / 12).toFixed(1) + '</td><td class="opt">5.0</td><td>' + (sum('totalUnitRate') / 12).toFixed(1) + '</td><td>' + fmt(sum('gen')) + '</td><td>' + fmt(sum('saving1Y')) + '</td><td>' + fmt(sum('saving20Y')) + '</td></tr>';
 
+    if (r.override) {
+      const k = v => Math.round(v || 0).toLocaleString();
+      const S = key => r.monthly.reduce((a, b) => a + (b[key] || 0), 0);
+      $('s_table').innerHTML = '<tr><th>월</th><th>전기사용량<br>(kWh)</th><th>발전량<br>(kWh)</th><th>재생E 사용량<br>(kWh)</th><th>잉여 발전량<br>(kWh)</th><th class="opt">단가<br>(①+②+③)</th><th>전기요금<br>절감액(원)</th><th>잉여 ' + (st.ppMode === '단순병렬' ? '(미정산)' : st.ppMode === '자가PPA' ? '판매수익(원)' : '절감액(원)') + '</th><th>합계<br>절감액(원)</th></tr>'
+        + r.monthly.map(m => '<tr><td>' + (m.y ? m.y + '.' : '') + m.month + '월</td><td>' + k(m.use) + '</td><td>' + k(m.gen) + '</td><td>' + k(m.self) + '</td><td>' + k(m.surplus) + '</td><td class="opt">' + m.totalUnitRate.toFixed(1) + '</td><td>' + k(m.elecSaving) + '</td><td>' + k(m.surplusSaving) + '</td><td>' + k(m.saving1Y) + '</td></tr>').join('')
+        + '<tr class="hl"><td>합계</td><td>' + k(S('use')) + '</td><td>' + k(S('gen')) + '</td><td>' + k(S('self')) + '</td><td>' + k(S('surplus')) + '</td><td class="opt"></td><td>' + k(S('elecSaving')) + '</td><td>' + k(S('surplusSaving')) + '</td><td>' + k(r.total1Y) + '</td></tr>'
+        + '<tr><td colspan="9" style="font-size:11px;color:var(--muted);text-align:left">#최근 1년 전기사용량 대비 잉여량 ' + (r.ovInfo.surplusPct * 100).toFixed(1) + '% · RE100 달성률(재생E 사용량/전기사용량) ' + (r.ovInfo.re100 * 100).toFixed(1) + '% · 예상절감액 = 재생E 사용량 × (전력량요금 + 기후환경 9 + 연료비조정 5)' + (st.ppMode === '상계거래' ? ' + 잉여 × 전력량요금(상계)' : st.ppMode === '자가PPA' ? ' + 잉여 × SMP+REC ' + (st.ppRate || 0) + '원' : ' (단순병렬: 잉여는 수익 없음)') + '</td></tr>';
+    }
     drawSelfChart();
     try { renderPP(); } catch (e) { console.warn('renderPP', e); }
   }
