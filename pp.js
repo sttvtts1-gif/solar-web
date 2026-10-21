@@ -152,5 +152,37 @@ const PP = (() => {
     return { monthly, total, re100: total.use ? total.self / total.use : 0, surplusPct: total.gen ? total.surplus / total.gen : 0 };
   }
 
-  return { PROFILE, WD, parseMonth, fetchUsage, compute, weekdayCounts, months12 };
+  // ------------------------------------------------------------ 오늘 SMP + REC (전력거래소 공개 페이지)
+  const SMP_URL = 'https://www.kpx.or.kr/smpInland.es?mid=a10404080100&device=pc';   // 육지 계통한계가격: 최근 7일 시간별 + 최대/최소/가중평균
+  const REC_URL = 'https://www.kpx.or.kr/menu.es?mid=a30401000000&device=pc';        // 오늘의 REC: 거래일·거래량·평균가·최고·최저·종가 (원/REC)
+  const tablesOf = html => { const out = []; const tre = /<table[\s\S]*?<\/table>/gi; let m; while ((m = tre.exec(html))) { const rows = []; const rre = /<tr[\s\S]*?<\/tr>/gi; let r; while ((r = rre.exec(m[0]))) { const cells = []; const cre = /<t[hd][^>]*>([\s\S]*?)<\/t[hd]>/gi; let c; while ((c = cre.exec(r[0]))) cells.push(c[1].replace(/<[^>]+>/g, '').replace(/&nbsp;/g, ' ').replace(/\s+/g, ' ').trim()); if (cells.length) rows.push(cells); } if (rows.length) out.push(rows); } return out; };
+  function parseSmp(html) {
+    for (const rows of tablesOf(html)) {
+      const head = rows[0] || [], avg = rows.find(r => /가중평균|평균/.test(r[0] || ''));
+      if (!avg || head.length < 2) continue;
+      for (let c = head.length - 1; c >= 1; c--) { const v = parseFloat(String(avg[c] || '').replace(/,/g, '')); if (v > 0) { const dm = /(\d{1,2})\.(\d{1,2})/.exec(head[c] || ''); const now = new Date(); let y = now.getFullYear(); if (dm && +dm[1] > now.getMonth() + 1) y--; return { date: dm ? y + '-' + ('0' + dm[1]).slice(-2) + '-' + ('0' + dm[2]).slice(-2) : head[c], avg: v, label: head[c] }; } }
+    }
+    return null;
+  }
+  function parseRec(html) {
+    const o = {}; tablesOf(html).forEach(t => t.forEach(r => { if (r.length >= 2) o[r[0]] = r[1]; }));
+    if (!o['평균가'] && !o['종가']) return null;
+    const n = s => parseFloat(String(s || '').replace(/,/g, '')) || null; const dm = /(\d{4})\.(\d{1,2})\.(\d{1,2})/.exec(o['거래일'] || '');
+    return { date: dm ? dm[1] + '-' + ('0' + dm[2]).slice(-2) + '-' + ('0' + dm[3]).slice(-2) : (o['거래일'] || ''), avg: n(o['평균가']), close: n(o['종가']), volume: n(o['거래량']) };
+  }
+  /** @returns { ok, smp:{date,avg}, rec:{date,avg,close}, total, via } 실패면 throw (message 에 원인) */
+  async function market() {
+    // 1) APK: 폰에서 직접 (전력거래소는 구글 서버 IP 를 봇으로 막는다 — 2026-10-22 확인)
+    if (window.NativeHttp && window.Native) {
+      const h1 = await window.NativeHttp.get(SMP_URL, ''), h2 = await window.NativeHttp.get(REC_URL, '');
+      const smp = parseSmp(String(h1 || '')), rec = parseRec(String(h2 || ''));
+      if (smp && rec) return { ok: true, smp, rec, total: Math.round((smp.avg + rec.avg / 1000) * 100) / 100, via: '앱(직접)' };
+    }
+    // 2) 중계
+    const r = await Auth.call({ path: 'pp', op: 'market' }, 40000);
+    if (r && r.ok) return Object.assign(r, { via: '중계' });
+    const blocked = r && /Detect time|\[SMP 표 없음\]/.test(r.errMsg || '');
+    throw new Error(blocked ? '전력거래소가 구글 서버(중계) 접속을 막아 웹에서는 자동 조회가 안 됩니다. 앱(APK)에서는 됩니다. 아래 링크에서 보고 직접 넣으세요' : ((r && r.errMsg) || '응답 없음'));
+  }
+  return { PROFILE, WD, parseMonth, fetchUsage, compute, weekdayCounts, months12, market, parseSmp, parseRec, SMP_URL, REC_URL };
 })();

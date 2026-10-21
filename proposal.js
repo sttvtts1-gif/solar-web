@@ -299,6 +299,7 @@ const Proposal = (() => {
     s2.addTable(hrows, tableOpts(0.3, 5.2 - 0.14 * hrows.length - 0.05, 9.4, [0.5, 1.4, 1.4, 1.6, 1.6, 1.4, 1.5]));
 
     // ---- p47 조성현,임준길 : 1등급 3.6/3.8/4.0h 30년
+    if (!d.profitSel || d.profitSel.rps) {   // 발전사업 손익 ①②③ (안 고르면 뺀다, 2026-10-22)
     const s3 = pptx.addSlide();
     title(s3, pptx, pg.p47 || 47, '손익계산 ① 1등급 장기계약 — 발전시간별 30년 연간매출', kw.toFixed(1) + ' kW');
     const h3 = [hcell('년차'), hcell('효율'), hcell('연간매출 3.6h'), hcell('연간매출 3.8h'), hcell('연간매출 4.0h'), hcell('연간비용')];
@@ -370,6 +371,8 @@ const Proposal = (() => {
     linesBlock(s5, pptx, 4.0, d.lines, d.memo);
     s5.addText('※ 월발전량 ' + won(genKwh(kw, 3.6, 1) / 12) + ' kWh · 월평균 비용 ' + won(mk) + ' 원 · 적용가중치 1.5 · 손익계산서 「최창민,진으뜸」 탭 방식', { x: 5.1, y: 3.15, w: 4.6, h: 0.7, fontSize: 7.5, color: C.grey, fontFace: '맑은 고딕', valign: 'top' });
 
+    }
+    (d.selfPages || []).forEach(pg => { const s = pptx.addSlide(); s.addImage({ data: pg.png, x: 0.2, y: 0.2, w: 9.6, h: 6.78 }); });
     return { pptx, fileName };
   }
 
@@ -607,6 +610,12 @@ const Proposal = (() => {
     x = setByLabel(x, '표 7', { '전기안전관리비': won(T.safe), '보험료': won(T.ins), '계통 구분': T.grid, '한전연계비 vat별도': won(T.kepcoFee), '설계조정부담금(50kW이상)': '' });   // 설계조정부담금은 견적에서 산출(단말통신은 47·48쪽 라벨표에)
     x = setNote(x, note);
     zip.file('ppt/slides/slide49.xml', x);
+    // 자가소비 쪽(계약방식별 그림 한 장씩): 37쪽(그림 한 장짜리) 복제 → 49 뒤에 차례로. 발전사업을 안 고르면 47~49 를 뺀다 (2026-10-22)
+    if (imgs && imgs.selfPages && imgs.selfPages.length) {
+      let after = 49;
+      for (const pgs of imgs.selfPages) { after = await addSlideCopy(zip, 37, 'image141.png', dataUrlBytes(pgs.png), '배치도', '자가소비 절감 분석 — ' + pgs.mode, after); }
+    }
+    if (d.profitSel && !d.profitSel.rps) await removeSlides(zip, [47, 48, 49]);
     // JSZip 이 만든 폴더 항목(ppt/, ppt/media/ …)이 있으면 파워포인트가 "복구" 를 띄운다 → 전부 뺀다
     // (zip.remove 는 폴더 아래 파일까지 지워 버린다 → 항목만 빼낸다)
     Object.keys(zip.files).filter(k => zip.files[k].dir).forEach(k => { delete zip.files[k]; });
@@ -617,7 +626,61 @@ const Proposal = (() => {
    * 슬라이드 srcNo 를 복제해 바로 뒤에 넣는다(그림 하나짜리 쪽 전용). 새 미디어 파일, 슬라이드 XML·rels, [Content_Types], presentation.xml(.rels) 갱신.
    * 노트 슬라이드 관계는 복제하지 않는다(두 슬라이드가 한 노트를 가리키면 파워포인트가 복구를 띄운다).
    */
-  async function addSlideCopy(zip, srcNo, imgName, imgBytes, titleFrom, titleTo) {
+  /**
+   * 자가소비 절감 분석 한 쪽(계약방식별) — 자가소비 탭 결과(RpsUI.selfFor)를 표로. 1600×1131, 도면 표제란 틀(sheetFrame) 재사용.
+   */
+  function drawSelfSheet(r, d) {
+    const W = 1600, H = 1131, cv = document.createElement('canvas'); cv.width = W; cv.height = H; const g = cv.getContext('2d');
+    sheetFrame(g, W, H, d, '자가소비 절감 분석 (' + r.mode + ')');
+    const k = v => Math.round(v || 0).toLocaleString(), L = 60, T = 62;
+    g.fillStyle = '#111'; g.font = 'bold 34px ' + FONT; g.textAlign = 'left'; g.textBaseline = 'top';
+    g.fillText('태양광 자가소비 절감 분석 — ' + r.mode + (r.override ? ' (한전 파워플래너 실사용량 ' + (r.pp ? r.pp.okN : 12) + '개월 기준)' : ' (전량 자가소비 가정 — 사용량 자료 없음)'), L, T);
+    g.font = '20px ' + FONT; g.fillStyle = '#333';
+    g.fillText('설비용량 ' + r.capacity.toFixed(3) + ' kW · 요금제 ' + r.labels.category + ' ' + r.labels.voltage + ' ' + r.labels.selection + ' (중간부하 평균 ' + r.savingRate + '원/kWh)' + (r.pp && r.pp.contract ? ' · ' + r.pp.contract : '') + (r.mode === '자가PPA' ? ' · 잉여 판매단가 SMP+1REC ' + (r.ppRate || 0) + '원/kWh' : ''), L, T + 48);
+    // 요약 카드
+    const cards = [['연 절감액', k(r.total1Y) + ' 원'], ['월평균 절감', k(r.avgMonthly) + ' 원'], ['20년 누적', k(r.total1Y * 20) + ' 원'], ['총 투자비', k(r.totalInvestment) + ' 원'], ['BEP(자기자본 회수)', payLabelOf(r.payback)], ['온실가스 감축', r.co2t.toFixed(1) + ' tCO₂/년']];
+    if (r.override) cards.push(['RE100 달성률', (r.ovInfo.re100 * 100).toFixed(1) + ' %'], ['잉여율', (r.ovInfo.surplusPct * 100).toFixed(1) + ' %']);
+    const cw = (W - 2 * L - (cards.length - 1) * 12) / cards.length, cy = T + 96;
+    cards.forEach(([a, b], i) => { const x = L + i * (cw + 12); g.fillStyle = '#f1f5f9'; g.fillRect(x, cy, cw, 86); g.strokeStyle = '#cbd5e1'; g.lineWidth = 1; g.strokeRect(x, cy, cw, 86); g.fillStyle = '#475569'; g.font = '17px ' + FONT; g.textAlign = 'center'; g.fillText(a, x + cw / 2, cy + 12); g.fillStyle = '#0f172a'; g.font = 'bold 24px ' + FONT; g.fillText(b, x + cw / 2, cy + 44); });
+    // 월별 표
+    const head = r.override ? ['월', '전기사용량(kWh)', '발전량(kWh)', '재생E 사용량(kWh)', '잉여 발전량(kWh)', '단가(원/kWh)', '전기요금 절감액(원)', r.mode === '단순병렬' ? '잉여(미정산)' : r.mode === '자가PPA' ? '잉여 판매수익(원)' : '잉여 절감액(원)', '합계 절감액(원)']
+                            : ['월', '기후환경', '전력량요금', '연료비조정', '단가 합계', '발전량(kWh)', '1년 절감(원)', '20년 절감(원)'];
+    const rows = r.monthly.map(m => r.override ? [(m.y ? m.y + '.' : '') + m.month + '월', k(m.use), k(m.gen), k(m.self), k(m.surplus), m.totalUnitRate.toFixed(1), k(m.elecSaving), k(m.surplusSaving), k(m.saving1Y)]
+                                                : [m.month + '월', '9.0', m.energyCharge.toFixed(1), '5.0', m.totalUnitRate.toFixed(1), k(m.gen), k(m.saving1Y), k(m.saving20Y)]);
+    const S = key => r.monthly.reduce((a, b) => a + (b[key] || 0), 0);
+    rows.push(r.override ? ['합계', k(S('use')), k(S('gen')), k(S('self')), k(S('surplus')), '', k(S('elecSaving')), k(S('surplusSaving')), k(r.total1Y)] : ['합계', '', '', '', '', k(r.totalGen), k(r.total1Y), k(r.total1Y * 20)]);
+    const colors = r.override ? ['#fff', '#dbeafe', '#dcfce7', '#bbf7d0', '#ffedd5', '#fff', '#fef9c3', '#fef9c3', '#fde68a'] : ['#fff', '#fff', '#fff', '#fff', '#fff', '#dcfce7', '#fef9c3', '#fde68a'];
+    const tx = L, ty = cy + 110, tw = W - 2 * L, rh = Math.min(44, (H - 140 - ty) / (rows.length + 1)), cws = head.map((_, i) => i === 0 ? tw * 0.08 : (tw * 0.92) / (head.length - 1));
+    let y = ty;
+    const drawRow = (cells, bold, bg) => { let x = tx; cells.forEach((c, i) => { g.fillStyle = bg ? bg[i] || '#fff' : '#e2e8f0'; g.fillRect(x, y, cws[i], rh); g.strokeStyle = '#94a3b8'; g.lineWidth = 1; g.strokeRect(x, y, cws[i], rh); g.fillStyle = '#111'; g.font = (bold ? 'bold ' : '') + Math.round(rh * 0.42) + 'px ' + FONT; g.textAlign = i === 0 ? 'left' : 'right'; g.textBaseline = 'middle'; g.fillText(c, i === 0 ? x + 10 : x + cws[i] - 10, y + rh / 2); x += cws[i]; }); y += rh; };
+    drawRow(head, true, null);
+    rows.forEach((row, i) => drawRow(row, i === rows.length - 1, colors.map(c => i === rows.length - 1 ? '#fef3c7' : c)));
+    g.fillStyle = '#475569'; g.font = '16px ' + FONT; g.textAlign = 'left'; g.textBaseline = 'top';
+    g.fillText(r.override ? '#예상절감액 = 재생E 사용량 × (전력량요금 + 기후환경 9 + 연료비조정 5)' + (r.mode === '상계거래' ? ' + 잉여 × 전력량요금(상계)' : r.mode === '자가PPA' ? ' + 잉여 × SMP+1REC' : ' · 단순병렬은 잉여 수익 없음') + ' · 발전량 = 설비용량 × 월별 시간대 발전량(kWh/kW)' : '#예상절감액 = 발전량 × (전력량요금 + 기후환경 9 + 연료비조정 5) · 발전시간 ' + r.input.baseGenTime + 'h/일', L, y + 10);
+    return cv.toDataURL('image/png');
+  }
+  function payLabelOf(p) { return !p || p.year === '-' ? '30년 내 미회수' : p.year + '년 ' + p.month + '개월'; }
+  /** 슬라이드 n 들을 뺀다(sldIdLst·presentation.rels·파일·[Content_Types]·그 노트). 발전사업 손익을 안 넣을 때 47~49 */
+  async function removeSlides(zip, nums) {
+    let pres = await zip.file('ppt/presentation.xml').async('string');
+    let prels = await zip.file('ppt/_rels/presentation.xml.rels').async('string');
+    let ct = await zip.file('[Content_Types].xml').async('string');
+    for (const n of nums) {
+      const rel = (prels.match(/<Relationship [^>]*\/>/g) || []).find(r => r.indexOf('Target="slides/slide' + n + '.xml"') >= 0);
+      if (!rel) continue;
+      const rid = (rel.match(/Id="(rId\d+)"/) || [])[1];
+      prels = prels.replace(rel, '');
+      pres = pres.replace(new RegExp('<p:sldId [^>]*r:id="' + rid + '"[^>]*/>'), '');
+      const relsPath = 'ppt/slides/_rels/slide' + n + '.xml.rels';
+      const srels = zip.file(relsPath) ? await zip.file(relsPath).async('string') : '';
+      const nm = /Target="\.\.\/notesSlides\/(notesSlide\d+\.xml)"/.exec(srels);
+      if (nm) { ['ppt/notesSlides/' + nm[1], 'ppt/notesSlides/_rels/' + nm[1] + '.rels'].forEach(f => { if (zip.file(f)) delete zip.files[f]; }); ct = ct.replace(new RegExp('<Override PartName="/ppt/notesSlides/' + nm[1] + '"[^>]*/>'), ''); }
+      ['ppt/slides/slide' + n + '.xml', relsPath].forEach(f => { if (zip.file(f)) delete zip.files[f]; });
+      ct = ct.replace(new RegExp('<Override PartName="/ppt/slides/slide' + n + '\\.xml"[^>]*/>'), '');
+    }
+    zip.file('ppt/presentation.xml', pres); zip.file('ppt/_rels/presentation.xml.rels', prels); zip.file('[Content_Types].xml', ct);
+  }
+  async function addSlideCopy(zip, srcNo, imgName, imgBytes, titleFrom, titleTo, afterNo) {
     const files = Object.keys(zip.files);
     const newNo = Math.max(...files.map(f => (f.match(/^ppt\/slides\/slide(\d+)\.xml$/) || [0, 0])[1] | 0)) + 1;
     const mNo = Math.max(...files.map(f => (f.match(/^ppt\/media\/image(\d+)\./) || [0, 0])[1] | 0)) + 1;
@@ -641,8 +704,11 @@ const Proposal = (() => {
     let pres = await zip.file('ppt/presentation.xml').async('string');
     const ids = pres.match(/<p:sldId [^>]*\/>/g) || [];
     const maxId = Math.max(...ids.map(s => +((s.match(/ id="(\d+)"/) || [0, 0])[1])));
-    const src = ids.find(s => s.indexOf('r:id="' + srcRid + '"') >= 0);
+    let anchorRid = srcRid;
+    if (afterNo) { const aRel = relEls.find(r => r.indexOf('Target="slides/slide' + afterNo + '.xml"') >= 0); if (aRel) anchorRid = (aRel.match(/Id="(rId\d+)"/) || [])[1]; }
+    const src = ids.find(s => s.indexOf('r:id="' + anchorRid + '"') >= 0);
     if (src) pres = pres.replace(src, src + '<p:sldId id="' + (maxId + 1) + '" r:id="' + rid + '"/>');
+    else pres = pres.replace('</p:sldIdLst>', '<p:sldId id="' + (maxId + 1) + '" r:id="' + rid + '"/></p:sldIdLst>');
     zip.file('ppt/presentation.xml', pres);
     return newNo;
   }
@@ -869,6 +935,6 @@ const Proposal = (() => {
     return cv.toDataURL('image/png');
   }
 
-  return { build, save, consult, drawPlan, drawSection, drawPlanSheet, drawSectionSheet, fillTemplate, computeTables, kepcoLine, kepcoFeeOf, terminalOf, PRICE, genKwh, yearCost, COST_PER_KW };
+  return { build, save, consult, drawPlan, drawSection, drawPlanSheet, drawSectionSheet, drawSelfSheet, fillTemplate, computeTables, kepcoLine, kepcoFeeOf, terminalOf, PRICE, genKwh, yearCost, COST_PER_KW };
 })();
 if (typeof module !== 'undefined' && module.exports) module.exports = Proposal;

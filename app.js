@@ -802,6 +802,18 @@
       $('txt_input').onkeydown = e => { if (e.key === 'Enter') done($('txt_input').value); if (e.key === 'Escape') done(null); };
     });
   }
+  /** 제안서 손익 구성 선택: { rps:true/false, self:['단순병렬','상계거래','자가PPA'] } / 취소면 null (2026-10-22 사용자 지시) */
+  function askProfitSel() {
+    return new Promise(resolve => {
+      const m = $('profitModal'); m.classList.add('on');
+      const st = (typeof RpsUI !== 'undefined' && RpsUI.getState) ? RpsUI.getState() : {};
+      $('pf_ppaRate').textContent = st.ppRate ? '(' + st.ppRate + '원/kWh)' : '(단가 0 — 자가소비 탭에서 📈 오늘 시세 또는 직접 입력)';
+      $('pf_note').textContent = st.pp && st.pp.okN ? '파워플래너 실사용량 ' + st.pp.okN + '개월 자료로 계산합니다.' : '파워플래너 자료가 없어 자가소비는 전량 자가소비 가정(「없을때」 방식)으로 계산합니다.';
+      const done = v => { m.classList.remove('on'); resolve(v); };
+      $('pf_ok').onclick = () => { const self = [['pf_simple', '단순병렬'], ['pf_net', '상계거래'], ['pf_ppa', '자가PPA']].filter(([id]) => $(id).checked).map(([, n]) => n); const rps = $('pf_rps').checked; if (!rps && !self.length) { hint('하나는 골라야 합니다.'); return; } done({ rps, self }); };
+      $('pf_cancel').onclick = () => done(null);
+    });
+  }
   function askOX(title, body, oLabel, xLabel) {
     return new Promise(resolve => {
       $('ox_title').textContent = title; $('ox_body').innerHTML = body;
@@ -1691,6 +1703,7 @@
       try {
         hint('원본 제안서: ' + templateFile.name + ' (' + Math.round(templateFile.size / 1048576) + 'MB) — 아래 질문에 답하면 읽기 시작합니다');
         data.underground = await askOX('한전 계통 — 지중 지역입니까?', '현장 앞 전주·전선이 없고 지중(땅속) 공급 지역이면 「지중」, 전주가 있는 가공(공중) 지역이면 「공중」. 한전연계비 계산에 씁니다.<br><small style="color:var(--muted)">' + (data.kw < 500 ? '500kW 미만 → 저압' : '500kW 이상 → 고압') + ' · 공중 ' + Math.round(Proposal.kepcoFeeOf(data.kw, data.kw >= 500, false)).toLocaleString() + '원 / 지중 ' + Math.round(Proposal.kepcoFeeOf(data.kw, data.kw >= 500, true)).toLocaleString() + '원 (VAT 별도)</small>', '지중', '공중');
+        data.profitSel = await askProfitSel(); if (!data.profitSel) { hint('제안서 만들기를 취소했습니다.'); return; }
         hint('배치도(위성·도면)·측면도 그리고 표 채우는 중…');
         // 표지 업체명: 현장 이름이 주소와 같거나 주소처럼 보이면 비워 두고 묻는다 (2026-10-20 사용자 지시)
         const looksAddr = s => !s || s === siteAddr || /d+(-d+)?s*$|[시군구읍면동리로길]s+S*d/.test(s);
@@ -1703,6 +1716,7 @@
         const buf = await templateFile.arrayBuffer(); await withMemo();
         hint('배치도·측면도 그리고 표 채우는 중…');
         const imgs = { planMap: await Proposal.drawPlanSheet(data, { satellite: true }), plan: await Proposal.drawPlanSheet(data), section: Proposal.drawSectionSheet(data), cover };
+        imgs.selfPages = (data.profitSel.self || []).map(mode => ({ mode, png: Proposal.drawSelfSheet(RpsUI.selfFor(mode), data) }));   // 자가소비 쪽(계약방식별)
         const blob = await Proposal.fillTemplate(buf, data, imgs);
         const name = templateFile.name.replace(/\.pptx$/i, '') + '_' + (siteName || '현장').replace(/[\\/:*?"<>|]/g, '') + '_' + data.kw.toFixed(0) + 'kW.pptx';
         showDownload(blob, name);                                                   // 자동 내려받기 + 화면 버튼(자동이 막혀도 직접 누르게)
@@ -1713,6 +1727,8 @@
       return;
     }
     try {
+      data.profitSel = await askProfitSel(); if (!data.profitSel) { hint('제안서 만들기를 취소했습니다.'); return; }
+      data.selfPages = (data.profitSel.self || []).map(mode => ({ mode, png: Proposal.drawSelfSheet(RpsUI.selfFor(mode), data) }));
       await withMemo();
       const { pptx, fileName } = await Proposal.build(data);
       const how = await Proposal.save(pptx, fileName);

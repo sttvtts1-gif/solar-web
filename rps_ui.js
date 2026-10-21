@@ -164,12 +164,15 @@ const RpsUI = (() => {
     if (marketBusy || typeof Auth === 'undefined') return; marketBusy = true;
     $('s_ppaInfo').textContent = '전력거래소 시세 조회 중…';
     try {
-      const r = await Auth.call({ path: 'pp', op: 'market' }, 40000);
-      if (!r || !r.ok) throw new Error((r && r.errMsg) || '응답 없음');
-      st.ppRate = r.total; st.ppRateInfo = 'SMP ' + r.smp.avg + '원 (육지 가중평균, ' + r.smp.date + ') + REC ' + Math.round(r.rec.avg).toLocaleString() + '원/REC (' + r.rec.date + ' 평균가, 종가 ' + Math.round(r.rec.close || 0).toLocaleString() + ') ÷ 1,000 = ' + r.total + '원/kWh · 가중치 1.0';
+      const r = await PP.market();
+      st.ppRate = r.total; st.ppRateInfo = 'SMP ' + r.smp.avg + '원 (육지 가중평균, ' + r.smp.date + ') + REC ' + Math.round(r.rec.avg).toLocaleString() + '원/REC (' + r.rec.date + ' 평균가, 종가 ' + Math.round(r.rec.close || 0).toLocaleString() + ') ÷ 1,000 = ' + r.total + '원/kWh · 가중치 1.0 · ' + (r.via || '');
       st.ppRateDate = new Date().toISOString().slice(0, 10);
       save(); renderSelf();
-    } catch (e) { const msg = /아이디|비밀번호/.test(e.message) ? '중계가 아직 시세 기능이 없는 옛 버전입니다 — server/auth_pp.gs 를 다시 붙여넣고 새 버전으로 배포하세요' : e.message; $('s_ppaInfo').textContent = '시세 조회 실패: ' + msg + ' — 직접 입력해도 됩니다'; if (manual && window.__solar && __solar.hint) __solar.hint('SMP·REC 시세 조회 실패: ' + msg); }
+    } catch (e) {
+      const msg = /아이디|비밀번호/.test(e.message) ? '중계가 아직 시세 기능이 없는 옛 버전입니다 — server/auth_pp.gs 를 다시 붙여넣고 새 버전으로 배포하세요' : e.message;
+      $('s_ppaInfo').innerHTML = '시세 조회 실패: ' + msg.replace(/</g, '&lt;') + ' · <a href="' + PP.SMP_URL + '" target="_blank" rel="noopener" style="color:#93c5fd">육지 SMP(가중평균)</a> · <a href="' + PP.REC_URL + '" target="_blank" rel="noopener" style="color:#93c5fd">오늘의 REC(평균가)</a> → SMP + REC÷1,000 을 위 칸에 입력';
+      if (manual && window.__solar && __solar.hint) __solar.hint('SMP·REC 시세 조회 실패 — 링크에서 보고 직접 입력하세요');
+    }
     finally { marketBusy = false; }
   }
   /** 파워플래너 실사용량이 있으면 PP.compute 로 월별 자가소비·잉여를 구해 computeSelf 에 넘긴다 */
@@ -178,6 +181,12 @@ const RpsUI = (() => {
     const mode = st.ppMode || '단순병렬';
     const r = PP.compute(u, st.capacity, base.monthly, mode, st.ppRate || 0);
     return { monthly: r.monthly, mode, re100: r.re100, surplusPct: r.surplusPct };
+  }
+  /** 제안서용: 계약방식 mode 로 계산한 자가소비 결과(화면 상태는 그대로) */
+  function selfFor(mode) {
+    const saved = st.ppMode; st.ppMode = mode;
+    try { const base = RPS.computeSelf(Object.assign({}, st, { selfOverride: null })); const ov = ppOverride(base); const r = ov ? RPS.computeSelf(Object.assign({}, st, { selfOverride: ov })) : base; r.ovInfo = ov; r.mode = mode; r.ppRate = st.ppRate || 0; r.pp = st.pp; return r; }
+    finally { st.ppMode = saved; }
   }
   function renderSelf() {
     st.ppMode = st.ppMode || '단순병렬';
@@ -337,5 +346,5 @@ const RpsUI = (() => {
     try { const s = JSON.parse(localStorage.getItem(STORE) || 'null'); if (s) st = Object.assign(st, s); } catch (e) {}
   }
 
-  return { init, setCapacity, setSite, render, renderSelf, setPP, getState: () => st };
+  return { init, setCapacity, setSite, render, renderSelf, setPP, selfFor, getState: () => st };
 })();

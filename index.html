@@ -592,6 +592,19 @@
     <div class="row" style="justify-content:flex-end;gap:8px;margin-top:10px"><button class="btn ghost" id="txt_cancel">취소</button><button class="btn accent" id="txt_ok">확인</button></div>
   </div>
 </div>
+<div class="modal" id="profitModal">
+  <div class="box" style="max-width:460px;border-radius:16px;margin:auto">
+    <h3 style="margin:0 0 6px">제안서 손익 구성</h3>
+    <div style="font-size:12px;color:var(--muted);margin-bottom:8px">넣을 손익 쪽을 고르세요(여러 개 가능). 자가소비는 자가소비 탭의 요금제·파워플래너 자료·SMP+REC 단가를 씁니다.</div>
+    <label class="chk" style="margin:4px 0"><input type="checkbox" id="pf_rps" checked><span><b>발전사업</b> — 장기계약·현물·등급별 손익 ①②③ (원본 47~49쪽)</span></label>
+    <div style="margin:8px 0 2px;font-size:13px">자가소비 (계약방식별로 한 쪽씩)</div>
+    <label class="chk" style="margin:4px 0 4px 14px"><input type="checkbox" id="pf_simple"><span>단순병렬 — 잉여 미정산</span></label>
+    <label class="chk" style="margin:4px 0 4px 14px"><input type="checkbox" id="pf_net"><span>상계거래 — 잉여 × 전력량요금</span></label>
+    <label class="chk" style="margin:4px 0 4px 14px"><input type="checkbox" id="pf_ppa"><span>자가PPA — 잉여 × SMP+1REC <small id="pf_ppaRate" style="color:var(--muted)"></small></span></label>
+    <div id="pf_note" style="font-size:12px;color:#fbbf24;margin-top:6px"></div>
+    <div class="row" style="margin-top:12px"><button class="btn accent" id="pf_ok" style="flex:1">계속</button><button class="btn ghost" id="pf_cancel" style="flex:1">취소</button></div>
+  </div>
+</div>
 <div class="modal" id="oxModal">
   <div class="box" style="max-width:420px;border-radius:16px;margin:auto">
     <h3 id="ox_title">확인</h3>
@@ -636,7 +649,7 @@
   // 깃허브 Pages 는 화면 파일을 10분 캐시한다. 새로 올린 뒤에도 옛 화면이 나오지 않게,
   // 열 때마다 캐시 없이 index.html 을 다시 받아 버전 표식이 다르면 한 번 새로고침한다.
   // 버전 표식(APP_VER)은 web동기화.sh 가 올릴 때마다 시각으로 바꿔 넣는다.
-  window.APP_VER = '20261022065322';
+  window.APP_VER = '20261022070458';
   (function () {
     if (location.hostname.indexOf('github.io') < 0) return;
     fetch('index.html?nocache=' + Date.now(), { cache: 'no-store' }).then(r => r.text()).then(t => {
@@ -648,30 +661,30 @@
     }).catch(() => {});
   })();
 </script>
-<script src="config.js?v=20261022065322"></script>
-<script src="vendor/pdf.min.js?v=20261022065322"></script>
-<script src="layout.js?v=20261022065322"></script>
-<script src="vworld.js?v=20261022065322"></script>
-<script src="site.js?v=20261022065322"></script>
-<script src="terrain.js?v=20261022065322"></script>
-<script src="vendor/three.min.js?v=20261022065322"></script>
+<script src="config.js?v=20261022070458"></script>
+<script src="vendor/pdf.min.js?v=20261022070458"></script>
+<script src="layout.js?v=20261022070458"></script>
+<script src="vworld.js?v=20261022070458"></script>
+<script src="site.js?v=20261022070458"></script>
+<script src="terrain.js?v=20261022070458"></script>
+<script src="vendor/three.min.js?v=20261022070458"></script>
 <script src="view3d.js"></script>
-<script src="vendor/jszip.min.js?v=20261022065322"></script>
+<script src="vendor/jszip.min.js?v=20261022070458"></script>
 <script>window.JSZipLib = window.JSZip;</script><!-- pptxgen 번들이 전역 JSZip 을 덮어써서 따로 잡아 둔다 -->
-<script src="vendor/pptxgen.bundle.js?v=20261022065322"></script>
-<script src="proposal.js?v=20261022065322"></script>
-<script src="align.js?v=20261022065322"></script>
+<script src="vendor/pptxgen.bundle.js?v=20261022070458"></script>
+<script src="proposal.js?v=20261022070458"></script>
+<script src="align.js?v=20261022070458"></script>
 <script src="cp949.js"></script>
-<script src="nas.js?v=20261022065322"></script>
-<script src="auth.js?v=20261022065322"></script>
-<script src="cad.js?v=20261022065322"></script>
-<script src="kepco.js?v=20261022065322"></script>
-<script src="bld.js?v=20261022065322"></script>
-<script src="rps.js?v=20261022065322"></script>
-<script src="report.js?v=20261022065322"></script>
-<script src="pp.js?v=20261022065322"></script>
-<script src="rps_ui.js?v=20261022065322"></script>
-<script src="policy.js?v=20261022065322"></script>
-<script src="app.js?v=20261022065322"></script>
+<script src="nas.js?v=20261022070458"></script>
+<script src="auth.js?v=20261022070458"></script>
+<script src="cad.js?v=20261022070458"></script>
+<script src="kepco.js?v=20261022070458"></script>
+<script src="bld.js?v=20261022070458"></script>
+<script src="rps.js?v=20261022070458"></script>
+<script src="report.js?v=20261022070458"></script>
+<script src="pp.js?v=20261022070458"></script>
+<script src="rps_ui.js?v=20261022070458"></script>
+<script src="policy.js?v=20261022070458"></script>
+<script src="app.js?v=20261022070458"></script>
 </body>
 </html>
