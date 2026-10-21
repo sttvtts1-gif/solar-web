@@ -40,7 +40,8 @@ const RpsUI = (() => {
     BOOL.forEach(k => $('r_' + k).addEventListener('change', () => onChange(k, $('r_' + k).checked)));
     SEL.forEach(k => $('s_' + k).addEventListener('change', () => { st[k] = $('s_' + k).value; renderSelf(); save(); }));
     $('s_mode').addEventListener('change', () => { st.ppMode = $('s_mode').value; renderSelf(); save(); });
-    $('s_ppaRate').addEventListener('change', () => { st.ppRate = parseFloat($('s_ppaRate').value) || 0; renderSelf(); save(); });
+    $('s_ppaRate').addEventListener('change', () => { st.ppRate = parseFloat($('s_ppaRate').value) || 0; st.ppRateInfo = '직접 입력'; renderSelf(); save(); });
+    $('s_ppaFetch').addEventListener('click', () => fetchMarket(true));
     $('btnPullCap').onclick = () => { st.capFollows = true; if (window.__layoutTotalKw != null) setCapacity(window.__layoutTotalKw, true); };
     $('btnRpsReset').onclick = () => { const cap = st.capacity; st = Object.assign({}, RPS.DEFAULTS, RPS.SELF_DEFAULTS, { costPerKw: 1200000, capFollows: st.capFollows, capacity: cap }); deriveCost(); render(); save(); };
     $('btnRpsShare').onclick = () => share(false);
@@ -157,6 +158,20 @@ const RpsUI = (() => {
       + '<div style="font-size:12px;color:var(--muted);margin-top:4px">발전량 = 설비용량 × 월별 시간대 발전량(kWh/kW, 사내 엑셀 「자가소비 연간분석표」 표) · 자가소비 = 시간대별 min(사용, 발전) · 절감 = 자가소비×(전력량+기후환경 9+연료비 5) + 잉여×' + ((st.ppMode || '상계거래') === '단순병렬' ? '0' : (st.ppMode === '자가PPA' ? 'SMP+REC ' + (st.ppRate || 0) + '원' : '전력량요금')) + '</div>'
       + (u.months.some(m => !m.hourly) ? '<div style="font-size:12px;color:#fbbf24">해석 못 한 달: ' + u.months.filter(m => !m.hourly).map(m => m.y + '.' + m.m).join(', ') + '</div>' : '');
   }
+  /** 📈 오늘 SMP+1REC: 중계(path=pp op=market) 가 전력거래소 공개 페이지에서 육지 SMP 가중평균과 REC 평균가를 읽는다 */
+  let marketBusy = false;
+  async function fetchMarket(manual) {
+    if (marketBusy || typeof Auth === 'undefined') return; marketBusy = true;
+    $('s_ppaInfo').textContent = '전력거래소 시세 조회 중…';
+    try {
+      const r = await Auth.call({ path: 'pp', op: 'market' }, 40000);
+      if (!r || !r.ok) throw new Error((r && r.errMsg) || '응답 없음');
+      st.ppRate = r.total; st.ppRateInfo = 'SMP ' + r.smp.avg + '원 (육지 가중평균, ' + r.smp.date + ') + REC ' + Math.round(r.rec.avg).toLocaleString() + '원/REC (' + r.rec.date + ' 평균가, 종가 ' + Math.round(r.rec.close || 0).toLocaleString() + ') ÷ 1,000 = ' + r.total + '원/kWh · 가중치 1.0';
+      st.ppRateDate = new Date().toISOString().slice(0, 10);
+      save(); renderSelf();
+    } catch (e) { $('s_ppaInfo').textContent = '시세 조회 실패: ' + e.message + ' — 직접 입력하세요'; if (manual) hint('SMP·REC 시세 조회 실패: ' + e.message); }
+    finally { marketBusy = false; }
+  }
   /** 파워플래너 실사용량이 있으면 PP.compute 로 월별 자가소비·잉여를 구해 computeSelf 에 넘긴다 */
   function ppOverride(base) {
     const u = st.pp; if (!u || !u.okN || typeof PP === 'undefined') return null;
@@ -167,6 +182,9 @@ const RpsUI = (() => {
   function renderSelf() {
     st.ppMode = st.ppMode || '단순병렬';
     $('s_mode').value = st.ppMode; $('s_ppaRate').value = st.ppRate || 0; $('s_ppaWrap').style.display = st.ppMode === '자가PPA' ? '' : 'none';
+    $('s_ppaInfo').textContent = st.ppRateInfo ? st.ppRateInfo + (st.ppRateDate ? ' (조회 ' + st.ppRateDate + ')' : '') : '';
+    // 자가PPA 를 고른 날 시세가 없으면 자동 조회(하루 한 번)
+    if (st.ppMode === '자가PPA' && st.ppRateDate !== new Date().toISOString().slice(0, 10) && !marketBusy) setTimeout(() => fetchMarket(false), 0);
     const base = RPS.computeSelf(Object.assign({}, st, { selfOverride: null }));
     const ov = ppOverride(base);
     selfRes = ov ? RPS.computeSelf(Object.assign({}, st, { selfOverride: ov })) : base;
@@ -196,9 +214,9 @@ const RpsUI = (() => {
     if (r.override) {
       const k = v => Math.round(v || 0).toLocaleString();
       const S = key => r.monthly.reduce((a, b) => a + (b[key] || 0), 0);
-      $('s_table').innerHTML = '<tr><th>월</th><th>전기사용량<br>(kWh)</th><th>발전량<br>(kWh)</th><th>재생E 사용량<br>(kWh)</th><th>잉여 발전량<br>(kWh)</th><th class="opt">단가<br>(①+②+③)</th><th>전기요금<br>절감액(원)</th><th>잉여 ' + (st.ppMode === '단순병렬' ? '(미정산)' : st.ppMode === '자가PPA' ? '판매수익(원)' : '절감액(원)') + '</th><th>합계<br>절감액(원)</th></tr>'
-        + r.monthly.map(m => '<tr><td>' + (m.y ? m.y + '.' : '') + m.month + '월</td><td>' + k(m.use) + '</td><td>' + k(m.gen) + '</td><td>' + k(m.self) + '</td><td>' + k(m.surplus) + '</td><td class="opt">' + m.totalUnitRate.toFixed(1) + '</td><td>' + k(m.elecSaving) + '</td><td>' + k(m.surplusSaving) + '</td><td>' + k(m.saving1Y) + '</td></tr>').join('')
-        + '<tr class="hl"><td>합계</td><td>' + k(S('use')) + '</td><td>' + k(S('gen')) + '</td><td>' + k(S('self')) + '</td><td>' + k(S('surplus')) + '</td><td class="opt"></td><td>' + k(S('elecSaving')) + '</td><td>' + k(S('surplusSaving')) + '</td><td>' + k(r.total1Y) + '</td></tr>'
+      $('s_table').innerHTML = '<tr><th>월</th><th class="cu">전기사용량<br>(kWh)</th><th class="cg">발전량<br>(kWh)</th><th class="cs">재생E 사용량<br>(kWh)</th><th class="cx">잉여 발전량<br>(kWh)</th><th class="opt">단가<br>(①+②+③)</th><th class="cw">전기요금<br>절감액(원)</th><th class="cw">잉여 ' + (st.ppMode === '단순병렬' ? '(미정산)' : st.ppMode === '자가PPA' ? '판매수익(원)' : '절감액(원)') + '</th><th class="ct">합계<br>절감액(원)</th></tr>'
+        + r.monthly.map(m => '<tr><td>' + (m.y ? m.y + '.' : '') + m.month + '월</td><td class="cu">' + k(m.use) + '</td><td class="cg">' + k(m.gen) + '</td><td class="cs">' + k(m.self) + '</td><td class="cx">' + k(m.surplus) + '</td><td class="opt">' + m.totalUnitRate.toFixed(1) + '</td><td class="cw">' + k(m.elecSaving) + '</td><td class="cw">' + k(m.surplusSaving) + '</td><td class="ct">' + k(m.saving1Y) + '</td></tr>').join('')
+        + '<tr class="hl"><td>합계</td><td class="cu">' + k(S('use')) + '</td><td class="cg">' + k(S('gen')) + '</td><td class="cs">' + k(S('self')) + '</td><td class="cx">' + k(S('surplus')) + '</td><td class="opt"></td><td class="cw">' + k(S('elecSaving')) + '</td><td class="cw">' + k(S('surplusSaving')) + '</td><td class="ct">' + k(r.total1Y) + '</td></tr>'
         + '<tr><td colspan="9" style="font-size:11px;color:var(--muted);text-align:left">#최근 1년 전기사용량 대비 잉여량 ' + (r.ovInfo.surplusPct * 100).toFixed(1) + '% · RE100 달성률(재생E 사용량/전기사용량) ' + (r.ovInfo.re100 * 100).toFixed(1) + '% · 예상절감액 = 재생E 사용량 × (전력량요금 + 기후환경 9 + 연료비조정 5)' + (st.ppMode === '상계거래' ? ' + 잉여 × 전력량요금(상계)' : st.ppMode === '자가PPA' ? ' + 잉여 × SMP+REC ' + (st.ppRate || 0) + '원' : ' (단순병렬: 잉여는 수익 없음)') + '</td></tr>';
     }
     drawSelfChart();
