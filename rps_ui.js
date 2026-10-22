@@ -165,12 +165,12 @@ const RpsUI = (() => {
     $('s_ppaInfo').textContent = '전력거래소 시세 조회 중…';
     try {
       const r = await PP.market();
-      st.ppRate = r.total; st.ppRateInfo = 'SMP ' + r.smp.avg + '원 (육지 가중평균, ' + r.smp.date + ') + REC ' + Math.round(r.rec.avg).toLocaleString() + '원/REC (' + r.rec.date + ' 평균가, 종가 ' + Math.round(r.rec.close || 0).toLocaleString() + ') ÷ 1,000 = ' + r.total + '원/kWh · 가중치 1.0 · ' + (r.via || '');
+      st.ppRate = r.total; st.ppRateInfo = 'SMP ' + r.smp.avg + '원 (육지 가중평균, ' + r.smp.date + ') + REC ' + Math.round(r.rec.avg).toLocaleString() + '원/REC (' + r.rec.date + ' ' + (r.rec.source || '평균가') + ', 종가 ' + Math.round(r.rec.close || 0).toLocaleString() + ') ÷ 1,000 = ' + r.total + '원/kWh · 가중치 1.0 · ' + (r.via || '');
       st.ppRateDate = new Date().toISOString().slice(0, 10);
       save(); renderSelf();
     } catch (e) {
       const msg = /아이디|비밀번호/.test(e.message) ? '중계가 아직 시세 기능이 없는 옛 버전입니다 — server/auth_pp.gs 를 다시 붙여넣고 새 버전으로 배포하세요' : e.message;
-      $('s_ppaInfo').innerHTML = '시세 조회 실패: ' + msg.replace(/</g, '&lt;') + ' · <a href="' + PP.SMP_URL + '" target="_blank" rel="noopener" style="color:#93c5fd">육지 SMP(가중평균)</a> · <a href="' + PP.REC_URL + '" target="_blank" rel="noopener" style="color:#93c5fd">오늘의 REC(평균가)</a> → SMP + REC÷1,000 을 위 칸에 입력';
+      $('s_ppaInfo').innerHTML = '시세 조회 실패: ' + msg.replace(/</g, '&lt;') + ' · <a href="' + PP.SMP_URL + '" target="_blank" rel="noopener" style="color:#93c5fd">육지 SMP(가중평균)</a> · <a href="' + PP.REC_NEWS_LIST + '" target="_blank" rel="noopener" style="color:#93c5fd">REC 거래속보(원스톱)</a> → SMP + REC÷1,000 을 위 칸에 입력';
       if (manual && window.__solar && __solar.hint) __solar.hint('SMP·REC 시세 조회 실패 — 링크에서 보고 직접 입력하세요');
     }
     finally { marketBusy = false; }

@@ -184,20 +184,69 @@ const PP = (() => {
     const n = s => parseFloat(String(s || '').replace(/,/g, '')) || null; const dm = /(\d{4})\.(\d{1,2})\.(\d{1,2})/.exec(o['거래일'] || '');
     return { date: dm ? dm[1] + '-' + ('0' + dm[2]).slice(-2) + '-' + ('0' + dm[3]).slice(-2) : (o['거래일'] || ''), avg: n(o['평균가']), close: n(o['종가']), volume: n(o['거래량']) };
   }
-  /** @returns { ok, smp:{date,avg}, rec:{date,avg,close}, total, via } 실패면 throw (message 에 원인) */
+  // ------------------------------------------------------------ 신재생 원스톱 「REC 현물시장 거래속보」(사용자 지정 출처, 2026-10-22)
+  // 목록(onerec) → 최근 거래일 → 보고서 틀(rec.kmos.kr, 'uid' 발급) → ClipReport 서버에 POST(쿠키 불필요, CORS *) → viewData(base64 JSON) 안의 글자 배열에서 숫자
+  const REC_NEWS_LIST = 'https://onerec.kmos.kr/portal/rec/reportNewsList.do?key=2335';
+  const REC_NEWS_VIEW = 'https://rec.kmos.kr/rtm/report/reportNewsView.do?input_bz_dd=';
+  const REC_REPORT = 'https://rec.kmos.kr/ClipReport5/report_server.jsp';
+  /** viewData(base64) → 글 조각들. ClipReport 는 글을 한 글자씩(한글은 %XX) 배열로 보낸다 */
+  function recRuns(b64) {
+    const bin = atob(b64), bytes = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    const txt = new TextDecoder('utf-8').decode(bytes), runs = [];
+    const re = /\[("(?:[^"\\]|\\.)*"(?:,"(?:[^"\\]|\\.)*")*)\]/g; let m;
+    while ((m = re.exec(txt))) {
+      let parts; try { parts = JSON.parse('[' + m[1] + ']'); } catch (e) { continue; }
+      if (!parts.every(p => p.length <= 1 || /^%[0-9A-F]{2}/.test(p))) continue;
+      const s = parts.map(p => { try { return decodeURIComponent(p); } catch (e) { return p; } }).join('').replace(/\+/g, ' ').trim();
+      if (s) runs.push(s);
+    }
+    return runs;
+  }
+  /** 거래속보 글 조각 → { date, avg(육지 평균가), avgJeju, close(종가), high, low } */
+  function parseRecNews(runs) {
+    const n = s => parseFloat(String(s || '').replace(/,/g, '')) || null;
+    const after = (rx, k) => { const i = runs.findIndex(r => rx.test(r)); return i >= 0 ? runs[i + (k || 1)] : null; };
+    const d = /(\d{2})년 (\d{1,2})월 (\d{1,2})일/.exec(after(/^1\. 거래일/) || '');
+    const avg = n(after(/^평\s*균\s*가$/)), close = n(after(/^종\s*가$/));
+    if (!avg) return null;
+    const hl = /([\d,]+)\s*\/\s*([\d,]+)/.exec(after(/^최저\/최고가$/) || '');
+    return { date: d ? '20' + d[1] + '-' + ('0' + d[2]).slice(-2) + '-' + ('0' + d[3]).slice(-2) : '', avg, avgJeju: n(after(/^평\s*균\s*가$/, 2)), close, low: hl ? n(hl[1]) : null, high: hl ? n(hl[2]) : null, source: '원스톱 거래속보 육지 평균가' };
+  }
+  /** getHtml(url) 로 목록·틀을 읽고(APK: NativeHttp, 중계: UrlFetch) 보고서는 fetch POST 로 받는다 */
+  async function recNews(getHtml, bzDdHint) {
+    let bzDd = bzDdHint || '';
+    if (!bzDd) { const list = String(await getHtml(REC_NEWS_LIST) || ''); const m = /showNews\('(\d{8})'\)/.exec(list); if (!m) throw new Error('거래속보 목록을 읽지 못함'); bzDd = m[1]; }
+    const shell = String(await getHtml(REC_NEWS_VIEW + bzDd) || ''); const u = /'uid':'([0-9a-f]+)'/.exec(shell);
+    if (!u) throw new Error('거래속보 보고서 틀(uid)을 읽지 못함');
+    const post = o => fetch(REC_REPORT, { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: 'ClipType=' + o.t + '&ClipData=' + encodeURIComponent(JSON.stringify(o.d)) });
+    await post({ t: 'pageCheck', d: { reportkey: u[1], s_time: 't998' } });   // 뷰어가 먼저 보내는 확인 요청 — 없으면 내용이 비어 온다
+    const res = await post({ t: 'DocumentPageView', d: { reportkey: u[1], pageMethod: 0, isMakeDocument: true } });
+    if (!res.ok) throw new Error('거래속보 서버 ' + res.status);
+    const j = await res.json(); const vd = j && j.resValue && j.resValue.viewData; if (!vd) throw new Error('거래속보 내용 없음');
+    const r = parseRecNews(recRuns(vd)); if (!r) throw new Error('거래속보에서 평균가를 못 찾음'); return r;
+  }
+  const kpxRecLabel = rec => Object.assign(rec, { source: '전력거래소 오늘의 REC 평균가(육지+제주 통합)' });
+  const pack = (smp, rec, via) => ({ ok: true, smp, rec, total: Math.round((smp.avg + rec.avg / 1000) * 100) / 100, via });
+
+  /** @returns { ok, smp:{date,avg}, rec:{date,avg,close,source}, total, via } 실패면 throw (message 에 원인) */
   async function market() {
     // 1) APK: 폰에서 직접 (전력거래소는 구글 서버 IP 를 봇으로 막는다 — 2026-10-22 확인)
     if (window.NativeHttp && window.Native) {
       const h1 = await window.NativeHttp.get(SMP_URL, ''), h2 = await window.NativeHttp.get(REC_URL, '');
-      const smp = parseSmp(String(h1 || '')), rec = parseRec(String(h2 || ''));
-      if (smp && rec) return { ok: true, smp, rec, total: Math.round((smp.avg + rec.avg / 1000) * 100) / 100, via: '앱(직접)' };
+      const smp = parseSmp(String(h1 || '')), recKpx = parseRec(String(h2 || ''));
+      let rec = null; try { rec = await recNews(u => window.NativeHttp.get(u, ''), recKpx && recKpx.date ? recKpx.date.replace(/-/g, '') : ''); } catch (e) { console.warn('recNews apk', e); }
+      if (!rec && recKpx) rec = kpxRecLabel(recKpx);
+      if (smp && rec) return pack(smp, rec, '앱(직접)');
     }
     // 2) 웹: r.jina.ai(페이지를 글로 바꿔 주는 공개 서비스, CORS 허용)로 브라우저에서 직접 — 전력거래소는 구글 중계 IP 를 막지만 이 경로는 열려 있다(2026-10-22 확인, 분당 20회 제한)
     try {
       const get = async u => { const res = await fetch('https://r.jina.ai/' + u, { headers: { Accept: 'text/plain' } }); if (!res.ok) throw new Error('jina ' + res.status); return res.text(); };
       const [m1, m2] = await Promise.all([get(SMP_URL), get(REC_URL)]);
-      const smp = parseSmp(m1), rec = parseRec(m2);
-      if (smp && rec) return { ok: true, smp, rec, total: Math.round((smp.avg + rec.avg / 1000) * 100) / 100, via: '웹(r.jina.ai)' };
+      const smp = parseSmp(m1), recKpx = parseRec(m2);
+      // 거래속보(원스톱)는 CORS 가 없어 웹에서는 중계가 목록·틀을 읽어 준다(op=recnews). 중계가 옛 버전이거나 막히면 전력거래소 통합 평균가로
+      let rec = null; try { const r = await Auth.call({ path: 'pp', op: 'recnews', bzDd: recKpx && recKpx.date ? recKpx.date.replace(/-/g, '') : '' }, 30000); if (r && r.ok && r.avg) rec = { date: r.date, avg: r.avg, close: r.close, avgJeju: r.avgJeju, source: '원스톱 거래속보 육지 평균가(중계)' }; else console.warn('recnews relay', r); } catch (e) { console.warn('recnews relay', e); }
+      if (!rec && recKpx) rec = kpxRecLabel(recKpx);
+      if (smp && rec) return pack(smp, rec, '웹(r.jina.ai)');
     } catch (e) { console.warn('market jina', e); }
     // 3) 중계
     const r = await Auth.call({ path: 'pp', op: 'market' }, 40000);
@@ -205,5 +254,5 @@ const PP = (() => {
     const blocked = r && /Detect time|\[SMP 표 없음\]/.test(r.errMsg || '');
     throw new Error(blocked ? '전력거래소가 구글 서버(중계) 접속을 막아 웹에서는 자동 조회가 안 됩니다. 앱(APK)에서는 됩니다. 아래 링크에서 보고 직접 넣으세요' : ((r && r.errMsg) || '응답 없음'));
   }
-  return { PROFILE, WD, parseMonth, fetchUsage, compute, weekdayCounts, months12, market, parseSmp, parseRec, SMP_URL, REC_URL };
+  return { PROFILE, WD, parseMonth, fetchUsage, compute, weekdayCounts, months12, market, parseSmp, parseRec, recRuns, parseRecNews, recNews, SMP_URL, REC_URL, REC_NEWS_LIST };
 })();
