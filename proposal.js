@@ -586,6 +586,7 @@ const Proposal = (() => {
     const kw = d.kw, T = computeTables(kw, d.costPerKw, { underground: !!d.underground });
     const note = [kepcoLine(d.lines)].concat((d.memo || []).slice(0, 1).map(m => '상담일지: ' + m.slice(0, 70)));
     const get = async n => zip.file('ppt/slides/slide' + n + '.xml').async('string');
+    if (d.profitSel && !d.profitSel.rps) { /* 발전사업 안 고름 */ await fillSelfPages(zip, d); Object.keys(zip.files).filter(k => zip.files[k].dir).forEach(k => { delete zip.files[k]; }); return zip.generateAsync({ type: typeof window !== 'undefined' ? 'blob' : 'nodebuffer', compression: 'STORE' }); }
     // 47
     let x = await get(47);
     x = setTable(x, '표 5', [null].concat(T.t47, [['합계', '', won(T.S.a), won(T.S.b), won(T.S.c), won(T.S.k30)]]));
@@ -614,8 +615,7 @@ const Proposal = (() => {
     x = setNote(x, note);
     zip.file('ppt/slides/slide49.xml', x);
     // 자가소비 쪽(계약방식별 그림 한 장씩): 37쪽(그림 한 장짜리) 복제 → 49 뒤에 차례로. 발전사업을 안 고르면 47~49 를 뺀다 (2026-10-22)
-    await fillSelfPages(zip, d);                                                  // 자가소비 42(전량)·43(상계/단순)·44(자가PPA), 안 고른 쪽은 뺀다
-    if (d.profitSel && !d.profitSel.rps) await removeSlides(zip, [47, 48, 49]);
+    await fillSelfPages(zip, d);                                                  // 자가소비 42(전량)·43(상계/단순)·44(자가PPA). 안 고른 쪽은 원본 그대로(삭제 안 함)
     // JSZip 이 만든 폴더 항목(ppt/, ppt/media/ …)이 있으면 파워포인트가 "복구" 를 띄운다 → 전부 뺀다
     // (zip.remove 는 폴더 아래 파일까지 지워 버린다 → 항목만 빼낸다)
     Object.keys(zip.files).filter(k => zip.files[k].dir).forEach(k => { delete zip.files[k]; });
@@ -674,7 +674,7 @@ const Proposal = (() => {
    */
   async function fillSelfPages(zip, d) {
     const sel = d.profitSel || { rps: true, self: [] }, modes = sel.self || [], res = d.selfRes || [];
-    if (!modes.length || !res.length) { await removeSlides(zip, [42, 43, 44, 45, 46]); return; }
+    if (!modes.length || !res.length) return;                                       // 안 고르면 그 쪽들은 원본 그대로 둔다 (2026-10-22 사용자 지시: 삭제 안 함)
     const get = async n => { const f = zip.file('ppt/slides/slide' + n + '.xml'); return f ? f.async('string') : null; };
     const put = (n, x) => zip.file('ppt/slides/slide' + n + '.xml', x);
     const k = v => Math.round(v || 0).toLocaleString();
@@ -700,9 +700,7 @@ const Proposal = (() => {
       x = x.replace('<a:t>   %</a:t>', '<a:t> ' + (r.ovInfo.surplusPct * 100).toFixed(1) + '%</a:t>');   // "#최근 1년간 … 잉여량    %"
       return x;
     };
-    const rm = [];
-    if (!hasUse) rm.push(43, 44, 45, 46);
-    else {
+    if (hasUse) {
       const net = byMode('상계거래'), simple = byMode('단순병렬'), ppa = byMode('자가PPA');
       if (net || simple) {
         const first = net || simple;
@@ -716,10 +714,9 @@ const Proposal = (() => {
           z = setRuns(z, 'TextBox 2', { '단순병렬': '', '상계': '단순병렬', ',': '', ' 단순': '' });
           put(n2, z);
         }
-      } else rm.push(43);
-      if (ppa) { let y = await get(44); y = fillUse(y, ppa, ppa.mode, true); put(44, y); } else rm.push(44);
+      }
+      if (ppa) { let y = await get(44); y = fillUse(y, ppa, ppa.mode, true); put(44, y); }
     }
-    if (rm.length) await removeSlides(zip, rm);
   }
   function payLabelOf(p) { return !p || p.year === '-' ? '30년 내 미회수' : p.year + '년 ' + p.month + '개월'; }
   /** 슬라이드 n 들을 뺀다(sldIdLst·presentation.rels·파일·[Content_Types]·그 노트). 발전사업 손익을 안 넣을 때 47~49 */

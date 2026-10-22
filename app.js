@@ -217,15 +217,6 @@
     $('btnElecPos').onclick = () => { let f = fixtures.find(x => x.kind === 'elec'); const mc = map.getCenter(); if (!f) { addFixture('elec'); f = fixtures.find(x => x.kind === 'elec'); } f.c = { lat: mc.getLat(), lng: mc.getLng() }; afterFixtureChange(); hint('전기실을 화면 가운데에 놓았습니다. 꾹 눌러 끌어 자리를 잡으세요. 탭 후 Del 로 삭제.'); };
     $('btnBridge').onclick = addBridges;
     // 자동배치 뒤 줄 방향 전체 돌리기 (2026-10-22): 고른 지붕이 있으면 그것만, 없으면 전부. 현재 각도(자동이면 결과 각도)에서 ±5°
-    const rotRows = dv => {
-      const r = null, targets = roofs.filter(x => x.result);   // 전체(사용자 지시: 모듈 각도 전체 돌리기)
-      if (!targets.length) { hint('먼저 배치를 하세요.'); return; }
-      targets.forEach(x => { const cur = x.rowAngle != null && x.rowAngle !== '' ? +x.rowAngle : ((x.result && x.result.rowAngle) || 0); x.rowAngle = Math.round(((cur + dv + 540) % 360) - 180); recompute(x); });
-      renderList(); save();
-      hint((r ? r.name : '지붕 ' + targets.length + '개') + ' 줄 각도 ' + targets[0].rowAngle + '° (수동) — 「줄 자동」으로 되돌림');
-    };
-    $('btnRotL').onclick = () => rotRows(5); $('btnRotR').onclick = () => rotRows(-5);
-    $('btnRotAuto').onclick = () => { const targets = roofs; targets.forEach(x => { delete x.rowAngle; recompute(x); }); renderList(); save(); hint('줄 방향 자동으로'); };
     $('btnLadder').onclick = () => { addFixture('ladder'); const l = fixtures.filter(x => x.kind === 'ladder').pop(); if (l) openElec(l); };
     $('btnNas').onclick = saveToNas;
     // 위반건축물: 대장 PDF 읽기 / 수동 체크
@@ -338,6 +329,7 @@
     $('modeDraw').style.display = t === 'layout' && drawing ? 'block' : 'none';
     // 배치는 지도를 봐야 하니 기본 높이, 나머지 탭은 표·차트가 많아 화면 전체로 연다.
     setPanel(t === 'layout' ? 'normal' : 'full');
+    try { drawRotCtl(); } catch (e) {}
   }
 
   /**
@@ -1498,6 +1490,28 @@
     drawFixtures(); roofs.forEach(recompute); renderList(); save();
     const b = $('btnElec'); if (b) b.textContent = '⚡ 전기실' + (f ? ' ' + f.w + '×' + f.h : '');
   }
+  /** 모듈 줄 각도 전체 돌리기 (1° 단위, 2026-10-22). 조절 버튼은 지도 위 고른 건물의 동쪽 끝선에 붙는다 */
+  function rotRows(dv) {
+    const targets = roofs.filter(x => x.result);
+    if (!targets.length) { hint('먼저 배치를 하세요.'); return; }
+    targets.forEach(x => { const cur = x.rowAngle != null && x.rowAngle !== '' ? +x.rowAngle : ((x.result && x.result.rowAngle) || 0); x.rowAngle = Math.round(((cur + dv + 540) % 360) - 180); recompute(x); });
+    renderList(); save();
+    hint('모듈 줄 각도 ' + targets[0].rowAngle + '° (전체, 수동) — 「자동」을 누르면 건물맞춤/정남으로 돌아갑니다');
+  }
+  function rotAuto() { roofs.forEach(x => { delete x.rowAngle; recompute(x); }); renderList(); save(); hint('모듈 줄 방향을 자동(건물맞춤/정남)으로 되돌렸습니다'); }
+  let rotCtl = null;
+  function drawRotCtl() {
+    if (rotCtl) { rotCtl.setMap(null); rotCtl = null; }
+    if (!map || drawing || currentTab !== 'layout') return;
+    const r = roofs.find(x => x.id === selectedId && x.result) || roofs.find(x => x.result); if (!r) return;
+    const p = r.points.reduce((a, b) => (b.lng > a.lng ? b : a));                  // 건물 배치 동쪽 끝선
+    const ang = r.rowAngle != null && r.rowAngle !== '' ? +r.rowAngle : r.result.rowAngle;
+    const el = document.createElement('div'); el.className = 'rotctl';
+    el.innerHTML = '<button data-d="1" title="반시계 1°">↺</button><b>' + ang + '°</b><button data-d="-1" title="시계 1°">↻</button><button class="auto" data-d="0" title="자동(건물맞춤/정남)으로">자동</button>';
+    el.querySelectorAll('button').forEach(b => { b.onclick = e => { e.stopPropagation(); const d = +b.dataset.d; if (d) rotRows(d); else rotAuto(); }; b.onmousedown = e => e.stopPropagation(); b.ontouchstart = e => e.stopPropagation(); });
+    rotCtl = new kakao.maps.CustomOverlay({ position: new kakao.maps.LatLng(p.lat, p.lng), content: el, xAnchor: 0, yAnchor: 0.5, zIndex: 30 });
+    rotCtl.setMap(map);
+  }
   let fixLabels = [];
   function drawFixtures() {
     fixGfx.forEach(g => g.setMap(null)); fixGfx = []; fixLabels = [];
@@ -2493,6 +2507,7 @@
 
   // ------------------------------------------------------------ 목록 · 요약
   function renderList() {
+    try { drawRotCtl(); } catch (e) {}
     const total = roofs.reduce((a, r) => a + (r.result ? r.result.kw : 0), 0);
     const cnt = roofs.reduce((a, r) => a + (r.result ? r.result.count : 0), 0);
     $('summary').innerHTML = roofs.length

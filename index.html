@@ -148,6 +148,10 @@
   #authModal details { margin: 10px 0 4px; }
   /* 로드뷰 캡처 순간: 화살표(_al/_ar/_at)·도로명(_il)·미니맵(_mm_)·확대축소·나침반(_box_util)·로고 숨김 */
   #rvHost.capturing [id^="_il_"], #rvHost.capturing [id^="_al"], #rvHost.capturing [id^="_mm_"], #rvHost.capturing [id^="_box_util"], #rvHost.capturing [id^="_bundle_wrap"], #rvHost.capturing [id^="_kakao_copyright"], #rvHost.capturing [id^="_extra_copyright"] { visibility: hidden !important; }
+  .rotctl { display: flex; align-items: center; gap: 2px; background: rgba(10,14,22,.85); border: 1px solid #ffd54a; border-radius: 16px; padding: 2px 4px; margin-left: 8px; white-space: nowrap; font-size: 12px; color: #fff; }
+  .rotctl button { background: #ffd54a; color: #111; border: 0; border-radius: 12px; width: 26px; height: 22px; font-size: 14px; line-height: 1; cursor: pointer; padding: 0; }
+  .rotctl button.auto { width: auto; padding: 0 6px; font-size: 11px; background: #334; color: #ffd54a; }
+  .rotctl b { min-width: 34px; text-align: center; }
   .lbl.fix { transform: none; font-size: 11px; padding: 2px 6px; border-color: #5b6b7a; color: #fff; background: rgba(40,50,60,.85); }
   .lbl b { display: block; color: #e02020; font-size: 16px; }
   .lbl span { font-size: 11px; }
@@ -317,9 +321,6 @@
       <button class="btn ghost" id="btnElec" title="전기실: 없으면 용량 기준 크기로 놓고, 있으면 앞×뒤 크기 입력">⚡ 전기실</button>
       <button class="btn ghost" id="btnElecPos" title="전기실을 화면 가운데로 옮겨 손으로 자리 잡기">전기실 위치</button>
       <button class="btn ghost" id="btnLadder" title="사다리를 고른 지붕 남쪽 처마에 놓는다(꾹 눌러 이동)">🪜 사다리</button>
-      <button class="btn ghost" id="btnRotL" title="모듈 줄 방향을 반시계로 5°">↺ 5°</button>
-      <button class="btn ghost" id="btnRotR" title="모듈 줄 방향을 시계로 5°">↻ 5°</button>
-      <button class="btn ghost" id="btnRotAuto" title="줄 방향을 다시 자동(건물맞춤/정남)으로">줄 자동</button>
       <button class="btn ghost" id="btnBridge" title="동과 동 사이가 2m 이하인 곳에 구름사다리(건너는 사다리)를 놓는다">🌉 구름사다리</button>
       <button class="btn ghost" id="btnNas" title="배치도·측면도·DXF·설정을 NAS 현장 폴더(상담번호)에 저장 — PC 크롬·엣지">💾 NAS 저장</button>
       <button class="btn ghost" id="btnLoad" title="NAS 에 저장한 …_설정.json 을 골라 그때의 배치·설정을 다시 연다">📂 불러오기</button>
@@ -654,7 +655,7 @@
   // 깃허브 Pages 는 화면 파일을 10분 캐시한다. 새로 올린 뒤에도 옛 화면이 나오지 않게,
   // 열 때마다 캐시 없이 index.html 을 다시 받아 버전 표식이 다르면 한 번 새로고침한다.
   // 버전 표식(APP_VER)은 web동기화.sh 가 올릴 때마다 시각으로 바꿔 넣는다.
-  window.APP_VER = '20261022160957';
+  window.APP_VER = '20261022161238';
   (function () {
     if (location.hostname.indexOf('github.io') < 0) return;
     fetch('index.html?nocache=' + Date.now(), { cache: 'no-store' }).then(r => r.text()).then(t => {
@@ -666,30 +667,30 @@
     }).catch(() => {});
   })();
 </script>
-<script src="config.js?v=20261022160957"></script>
-<script src="vendor/pdf.min.js?v=20261022160957"></script>
-<script src="layout.js?v=20261022160957"></script>
-<script src="vworld.js?v=20261022160957"></script>
-<script src="site.js?v=20261022160957"></script>
-<script src="terrain.js?v=20261022160957"></script>
-<script src="vendor/three.min.js?v=20261022160957"></script>
+<script src="config.js?v=20261022161238"></script>
+<script src="vendor/pdf.min.js?v=20261022161238"></script>
+<script src="layout.js?v=20261022161238"></script>
+<script src="vworld.js?v=20261022161238"></script>
+<script src="site.js?v=20261022161238"></script>
+<script src="terrain.js?v=20261022161238"></script>
+<script src="vendor/three.min.js?v=20261022161238"></script>
 <script src="view3d.js"></script>
-<script src="vendor/jszip.min.js?v=20261022160957"></script>
+<script src="vendor/jszip.min.js?v=20261022161238"></script>
 <script>window.JSZipLib = window.JSZip;</script><!-- pptxgen 번들이 전역 JSZip 을 덮어써서 따로 잡아 둔다 -->
-<script src="vendor/pptxgen.bundle.js?v=20261022160957"></script>
-<script src="proposal.js?v=20261022160957"></script>
-<script src="align.js?v=20261022160957"></script>
+<script src="vendor/pptxgen.bundle.js?v=20261022161238"></script>
+<script src="proposal.js?v=20261022161238"></script>
+<script src="align.js?v=20261022161238"></script>
 <script src="cp949.js"></script>
-<script src="nas.js?v=20261022160957"></script>
-<script src="auth.js?v=20261022160957"></script>
-<script src="cad.js?v=20261022160957"></script>
-<script src="kepco.js?v=20261022160957"></script>
-<script src="bld.js?v=20261022160957"></script>
-<script src="rps.js?v=20261022160957"></script>
-<script src="report.js?v=20261022160957"></script>
-<script src="pp.js?v=20261022160957"></script>
-<script src="rps_ui.js?v=20261022160957"></script>
-<script src="policy.js?v=20261022160957"></script>
-<script src="app.js?v=20261022160957"></script>
+<script src="nas.js?v=20261022161238"></script>
+<script src="auth.js?v=20261022161238"></script>
+<script src="cad.js?v=20261022161238"></script>
+<script src="kepco.js?v=20261022161238"></script>
+<script src="bld.js?v=20261022161238"></script>
+<script src="rps.js?v=20261022161238"></script>
+<script src="report.js?v=20261022161238"></script>
+<script src="pp.js?v=20261022161238"></script>
+<script src="rps_ui.js?v=20261022161238"></script>
+<script src="policy.js?v=20261022161238"></script>
+<script src="app.js?v=20261022161238"></script>
 </body>
 </html>
