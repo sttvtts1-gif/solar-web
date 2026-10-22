@@ -20,27 +20,27 @@ const Layout = (() => {
   //   A동 도면(14×30m, 인삼밭 2단): tilt 15°, 22° → 피치 8.08m, 4어레이 × 12장 = 96장으로 도면과 같다.
   const PRESETS = {
     // 동서지붕(남북이 긴 건물): 정남으로 세워 인삼밭처럼 2단 거치 + 음영 이격
-    ginseng: { label: '동서지붕 · 인삼밭 2단', orient: 'portrait', tiers: 2, tierGap: 0.10, tilt: 15, shadeAngle: 22, autoGap: true, arrayGap: 3.0, colBlock: 20, blockGap: 0.6 },
+    ginseng: { label: '동서지붕 · 인삼밭 2단', orient: 'portrait', tiers: 2, tierGap: 0.01, tilt: 10, shadeAngle: 22, autoGap: true, arrayGap: 3.0, colBlock: 20, blockGap: 0.6 },
     // 남북지붕(동서로 긴 건물) 또는 경사 지붕 면 전체를 덮는 원단(밀착) 배치. 지붕면에 붙으니 이격 없음.
     // 남북지붕 원단: 용마루에서 끊어 면마다 남향 블록 하나, 블록 사이는 후면입사각 22° (사용자 도면 2026-10-02).
     //   처마·골 이격 500, 용마루 이격 300, 경사 10°. 북측 블록은 남쪽 면과 같은 면으로 들어 올려 이어 붙인다(lift 는 안 씀).
     //   건물 지붕은 좌우 20열마다 60cm 통로(colBlock/blockGap).
-    flush:   { label: '남북지붕 · 원단',       orient: 'portrait', tiers: 1, tierGap: 0.05, tilt: 10, shadeAngle: 22, autoGap: true, arrayGap: 0.05,
-               ridge: true, spans: 1, eaveSetback: 0.5, ridgeSetback: 0.3, lift: 0, colBlock: 20, blockGap: 0.6, frontLift: 0.5, maxLiftH: 4 },   // frontLift = 앞다리(지붕면에서 띄움), maxLiftH = 북면 블록 지붕 위 최대 높이(m)
+    flush:   { label: '남북지붕 · 원단',       orient: 'portrait', tiers: 1, tierGap: 0.01, tilt: 10, shadeAngle: 22, autoGap: true, arrayGap: 0.01,
+               ridge: true, spans: 1, eaveSetback: 0.5, ridgeSetback: 0, lift: 0, colBlock: 20, blockGap: 0.6, frontLift: 0.5 },   // 용마루 이격 없음, 뒷단 높이는 구조물(알루미늄 3.5 / 포스맥·용융 4.5) 이 정한다 (2026-10-22)   // frontLift = 앞다리(지붕면에서 띄움), maxLiftH = 북면 블록 지붕 위 최대 높이(m)
     // 평슬라브: 정남 경사거치, 줄마다 후면입사각 이격
-    slab:    { label: '평슬라브 · 경사거치',   orient: 'portrait', tiers: 0, tierGap: 0.05, tilt: 15, shadeAngle: 22, autoGap: true, arrayGap: 2.5, colBlock: 20, blockGap: 0.6 },
+    slab:    { label: '평슬라브 · 경사거치',   orient: 'portrait', tiers: 0, tierGap: 0.01, tilt: 10, shadeAngle: 22, autoGap: true, arrayGap: 2.5, colBlock: 20, blockGap: 0.6 },
     // 토지(노지): 필지 외곽선 안에 정남 2단 거치. 앞뒤는 후면입사각 22° 이격, 좌우는 30열마다 2m 통로(점검·장비 진입). 경계 이격 3m(펜스).
     //   필지는 건물처럼 축이 뚜렷하지 않아 줄 방향은 기본 정남. 경사각은 2단 기준 15°(설정에서 바꿀 수 있음).
-    ground:  { label: '토지 · 노지',          orient: 'portrait', tiers: 0, tierGap: 0.10, tilt: 15, shadeAngle: 22, autoGap: true, arrayGap: 3.0,
+    ground:  { label: '토지 · 노지',          orient: 'portrait', tiers: 0, tierGap: 0.01, tilt: 10, shadeAngle: 22, autoGap: true, arrayGap: 3.0,
                colBlock: 30, blockGap: 2.0, margin: 3.0, align: 'south' },   // 지적경계 3m 이격 = 펜스 돌릴 공간(사용자 지정)
     // 주차장 캐노피: 주차장 면적 위에 1~4단(지붕 목록에서 고름) 경사 10°. 방위각으로 돌린다.
     //   줄은 기본으로 주차장(건물) 축에 맞추고(align auto), 목록에서 방위각을 주면 그때 정남 기준 방위각으로 돈다.
-    parking: { label: '주차장 · 캐노피',       orient: 'portrait', tiers: 2, tierGap: 0.05, tilt: 10, shadeAngle: 22, autoGap: true, arrayGap: 2.0,
+    parking: { label: '주차장 · 캐노피',       orient: 'portrait', tiers: 2, tierGap: 0.01, tilt: 10, shadeAngle: 22, autoGap: true, arrayGap: 2.0,
                margin: 0.5, align: 'auto' },
   };
 
   const DEFAULTS = {
-    ridge: false, spans: 1, eaveSetback: 0.5, ridgeSetback: 0.3, lift: 0,   // 원단(용마루 분할) 전용, 다른 형태는 안 씀
+    ridge: false, spans: 1, eaveSetback: 0.5, ridgeSetback: 0, lift: 0,   // 원단(용마루 분할) 전용, 다른 형태는 안 씀
     maxLiftH: 3.5,        // 원단 북면 블록이 지붕면 위로 올라갈 수 있는 최대 높이(m). 넘으면 끊고 22° 이격 뒤 새 블록 (2026-10-22: 4 → 3.5)
     maxRearH: 3.5,        // 경사거치 어레이 뒷단 최대 높이(m, 앞다리 포함). tiers 0(자동)이면 이 안에서 단수를 최대로, 숫자면 넘을 때만 줄인다 (2026-10-22 사용자 지시)
     frontLift: 0.5,       // 앞다리 높이(m). 원단은 지붕면에서 띄우는 높이, 거치는 앞단 높이
@@ -57,7 +57,7 @@ const Layout = (() => {
     moduleWp: 645,        // W
     modL: 2.465,          // m, 긴 변
     modS: 1.134,          // m, 짧은 변
-    colGap: 0.02,         // 줄 안에서 모듈 사이 틈
+    colGap: 0.01,         // 줄 안에서 모듈 사이 틈 (2026-10-22: 1cm)
     margin: 0,            // 지붕 가장자리 이격. 도면 실측(A동 14m 폭에 12장)과 맞추려면 0 이어야 한다.
     align: 'auto',        // auto: 건물이 60° 안에서 돌아가 있으면 건물에 맞춤 / south: 정남 고정
     alignLimit: 60,       // °
@@ -336,7 +336,7 @@ const Layout = (() => {
     const rearOf = t => (Number(opt.frontLift) || 0) + (t * dSlope + (t - 1) * opt.tierGap) * Math.sin(tilt);
     const maxRear = opt.parking ? 0 : (Number(opt.maxRearH) || 0);
     let tiers = Math.max(0, opt.tiers | 0), tierCapped = false;
-    if (!tiers) { tiers = 1; if (maxRear > 0 && tilt > 0) { while (tiers < 6 && rearOf(tiers + 1) <= maxRear + 1e-9) tiers++; } else tiers = 2; }
+    if (!tiers) { tiers = 1; if (maxRear > 0 && tilt > 0) { while (tiers < 8 && rearOf(tiers + 1) <= maxRear + 1e-9) tiers++; } else tiers = 2; }
     else if (maxRear > 0 && tilt > 0 && rearOf(tiers) > maxRear + 1e-9) { while (tiers > 1 && rearOf(tiers) > maxRear + 1e-9) tiers--; tierCapped = true; }
     const rearH = Math.round(rearOf(tiers) * 100) / 100;
     const cosT = Math.cos(tilt);

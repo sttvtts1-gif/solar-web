@@ -30,6 +30,9 @@
   let parcels = [];        // 「토지 가져오기」로 깐 필지 { pnu, jibun, ring, gfx } — 누르면 토지 배치
   // 음영 고려. 켜면 주변의 더 높은 건물(층수 × 층고) 그림자에 걸리는 모듈을 뺀다.
   let shade = { on: false, floorH: 3.5 };
+  // 구조물(2026-10-22 사용자 지시): 알루미늄은 뒷단 최대 3.5m, 포스맥·용융은 4.5m. 모든 형태의 경사거치 단수 자동·원단 뒷단 끊기에 같이 쓴다
+  const STRUCTS = { alu: { label: '알루미늄', maxH: 3.5 }, posmac: { label: '포스맥 & 용융', maxH: 4.5 } };
+  let structure = 'alu';
   let parcelGfx = null;    // 검색한 지번의 필지 외곽선
   let lastParcel = null;   // 검색한 필지 { ring, pnu, jibun } — 「토지 배치」 버튼이 쓴다
 
@@ -40,8 +43,8 @@
   let preview = null;
 
   // 형태별 상세 설정 키. 모듈 규격은 형태와 무관하게 공통(moduleCfg)이라 여기 없다.
-  const OPT_KEYS = ['maxRearH', 'frontLift', 'rowAngle', 'orient', 'tiers', 'tilt', 'shadeAngle', 'autoGap', 'arrayGap', 'tierGap', 'colGap', 'margin', 'align', 'alignLimit', 'eaveSetback', 'ridgeSetback', 'lift', 'colBlock', 'blockGap', 'azimuth', 'maxLiftH'];
-  const NUM_KEYS = ['maxRearH', 'frontLift', 'rowAngle', 'maxLiftH', 'tiers', 'tilt', 'shadeAngle', 'arrayGap', 'tierGap', 'colGap', 'margin', 'alignLimit', 'eaveSetback', 'ridgeSetback', 'lift', 'colBlock', 'blockGap', 'azimuth'];
+  const OPT_KEYS = ['frontLift', 'rowAngle', 'orient', 'tiers', 'tilt', 'shadeAngle', 'autoGap', 'arrayGap', 'tierGap', 'colGap', 'margin', 'align', 'alignLimit', 'eaveSetback', 'ridgeSetback', 'lift', 'colBlock', 'blockGap', 'azimuth'];
+  const NUM_KEYS = ['frontLift', 'rowAngle', 'tiers', 'tilt', 'shadeAngle', 'arrayGap', 'tierGap', 'colGap', 'margin', 'alignLimit', 'eaveSetback', 'ridgeSetback', 'lift', 'colBlock', 'blockGap', 'azimuth'];
   // 모듈 편집: 지도에서 드래그한 사각형 목록. 순서대로 적용(del=지움, add=되살림).
   // 위도·경도 상자라서 배치 설정을 바꿔 모듈 격자가 움직여도 "그 자리" 에 그대로 먹는다.
   let edits = [];
@@ -402,7 +405,19 @@
     if (currentTab === 'self') RpsUI.renderSelf();
   }
 
+  function renderStructs() {
+    const box = $('structs'); if (!box) return;
+    box.innerHTML = '';
+    Object.keys(STRUCTS).forEach(k => {
+      const d = document.createElement('div');
+      d.className = 'type' + (k === structure ? ' on' : '');
+      d.innerHTML = '<b>🏗 ' + STRUCTS[k].label + '</b>뒷단 최대 ' + STRUCTS[k].maxH + 'm';
+      d.onclick = () => { if (structure === k) return; structure = k; renderStructs(); roofs.forEach(recompute); renderList(); save(); hint('구조물 ' + STRUCTS[k].label + ' — 뒷단 높이 ' + STRUCTS[k].maxH + 'm 안에서 다시 배치'); };
+      box.appendChild(d);
+    });
+  }
   function renderTypes() {
+    renderStructs();
     const box = $('types');
     box.innerHTML = '';
     Object.keys(Layout.PRESETS).forEach(t => {
@@ -1692,7 +1707,7 @@
         pitch: res.pitch, gap: res.arrayGap, margin: Number(opt.margin) || 0,
         kind, spans, roofSlope, eaveH, ridgeH, topH, arrayH, arrayDepth, depthM: kind === 'gable-ns' ? res.widthM : res.depthM, widthM: kind === 'gable-ns' ? res.depthM : res.widthM, ridges,
         frontLift: Number(opt.frontLift) || 0,
-        blocks, maxLiftH: Number(opt.maxLiftH) || 4,   // 원단: 블록마다 {from,to,zf,zb,lifted} (처마 기준 m, 남쪽 끝 0)
+        blocks, maxLiftH: Number(opt.maxLiftH) || 3.5,   // 원단: 블록마다 {from,to,zf,zb,lifted} (처마 기준 m, 남쪽 끝 0)
         ridgePos,                                       // 동마다 용마루 자리(남쪽/서쪽 끝 0 기준 m) — 옮긴 것 반영
         dims: roofDims(r),                              // 처마·옆·용마루 이격 치수선 [{a,b,text(mm)}] (지자체 제출용)
         slopeNote: r.terrain ? '지면 경사 ' + r.terrain.slopeDeg + '° ' + r.terrain.name : '',
@@ -2300,11 +2315,18 @@
     opt.flipAxis = !!r.flip;                                                     // 형태 버튼 재탭으로 뒤집은 방향(남서향↔남동향)
     if (r.rowAngle != null && r.rowAngle !== '') opt.rowAngle = r.rowAngle;     // ↺↻ 버튼으로 돌린 줄 각도(수동)
     opt.parking = r.type === 'parking';
+    opt.maxRearH = opt.maxLiftH = (STRUCTS[structure] || STRUCTS.alu).maxH;        // 구조물이 뒷단 높이를 정한다
     if (r.type === 'ground' && r.terrain) { opt.groundGradN = r.terrain.gradN; opt.groundGradE = r.terrain.gradE; }   // 지면 경사로 이격 보정
     if (r.margin != null) opt.margin = r.margin;
     if (r.tiers) opt.tiers = r.tiers;
     if (r.extra && r.extra.length) opt.extraRings = r.extra;
-    r.result = Layout.compute(r.points, opt, { on: shade.on, obstacles: obstaclesFor(r), blockers: blockersFor(r) });
+    const shadeArg = { on: shade.on, obstacles: obstaclesFor(r), blockers: blockersFor(r) };
+    if (!(opt.tiers | 0) && r.type !== 'flush') {
+      // 단수 자동 = 구조물 뒷단 높이 안에서 가능한 단수를 모두 놓아 보고 장수가 가장 많은 것(같으면 적은 단수) — 최대배치 기준 (2026-10-22)
+      let best = null;
+      for (let t = 1; t <= 8; t++) { const rr = Layout.compute(r.points, Object.assign({}, opt, { tiers: t }), shadeArg); if (rr.tierCapped) break; if (!best || rr.count > best.count) best = rr; }
+      r.result = best || Layout.compute(r.points, opt, shadeArg);
+    } else r.result = Layout.compute(r.points, opt, shadeArg);
     const res = r.result;
     // 입지 검토에서 설치불가로 나온 토지는 모듈을 깔지 않는다 (「그래도 배치」를 누르면 r.force)
     if (r.review && r.review.verdict === 'ban' && !r.force) { res.banned = true; res.modules = []; res.count = 0; res.kw = 0; res.rows = 0; }
@@ -2724,7 +2746,7 @@
   }
   function snapshot() {
     return ({
-        curType, settings, siteName, siteAddr, shade, moduleCfg, edits,
+        curType, settings, siteName, siteAddr, shade, moduleCfg, edits, structure,
         roofs: roofs.map(r => ({ id: r.id, name: r.name, type: r.type, points: r.points, src: r.src, floors: r.floors, floorsManual: r.floorsManual, spans: r.spans, vent: r.vent,
           parcels: r.parcels, extra: r.extra, review: r.review && !r.review.pending ? r.review : undefined, force: r.force,
           azimuth: r.azimuth, margin: r.margin, tiers: r.tiers, terrain: r.terrain, moved: r.moved, flip: r.flip, rowAngle: r.rowAngle, ventN: r.ventN, ventPos: r.ventPos, ridgeOff: r.ridgeOff, ridgeExt: r.ridgeExt, ridgeOn: r.ridgeOn, attach: r.attach, ventExtra: r.ventExtra, ventH: r.ventH, rect: r.rect })),
@@ -2738,6 +2760,7 @@
       const st = JSON.parse(localStorage.getItem(STORE) || 'null');
       if (!st) return;
       curType = Layout.PRESETS[st.curType] ? st.curType : 'slab';
+      structure = STRUCTS[st.structure] ? st.structure : 'alu';
       settings = Object.assign({ ginseng: {}, flush: {}, slab: {} }, st.settings || {});
       siteName = st.siteName || ''; siteAddr = st.siteAddr || siteAddr || '';
       shade = Object.assign({ on: false, floorH: 3.5 }, st.shade || {});
@@ -2745,7 +2768,7 @@
       edits = Array.isArray(st.edits) ? st.edits : [];
       fixtures = (Array.isArray(st.fixtures) ? st.fixtures : []).filter(f => f && f.c && FIX[f.kind]);
       // 예전 저장본엔 형태별 설정에 모듈 치수가 들어 있다. 이제 공통값이라 걷어낸다.
-      Object.values(settings).forEach(s => { delete s.moduleWp; delete s.modL; delete s.modS; });
+      Object.values(settings).forEach(s => { delete s.moduleWp; delete s.modL; delete s.modS; delete s.maxRearH; delete s.maxLiftH; });
       buildings = (st.buildings || []).map(b => ({ ...b, gfx: null }));
       roofs = (st.roofs || []).filter(r => r.points && r.points.length >= 3).map(r => ({ ...r, gfx: null }));
       if (roofs.length) selectedId = roofs[roofs.length - 1].id;   // 형태 버튼이 바로 먹도록 마지막 지붕을 선택해 둔다
