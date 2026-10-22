@@ -424,7 +424,8 @@
           // 이미 켜진 형태를 한 번 더 누르면 줄 방향을 뒤집는다: 남서향 배치 ↔ 남동향 배치 (건물맞춤이면 다른 축, 토지·주차장은 방위각 부호 반전)
           const targets = r ? [r] : roofs.filter(x => x.type === t);
           if (!targets.length) return;
-          targets.forEach(x => { x.flip = !x.flip; recompute(x); });
+          // 줄 각도를 ↺↻ 로 돌려 둔(수동) 지붕은 flip 이 무시되므로 각도 부호를 뒤집는다(남서향↔남동향) (2026-10-22)
+          targets.forEach(x => { if (x.rowAngle != null && x.rowAngle !== '') x.rowAngle = -x.rowAngle; else x.flip = !x.flip; recompute(x); });
           renderList(); save();
           const res = targets[0].result || {};
           hint((r ? r.name : '지붕 ' + targets.length + '개') + ' 방향 뒤집음 → ' + (res.aligned ? '건물맞춤 ' + res.rowAngle + '°' : (res.azimuth ? '방위 ' + res.azimuth + '°' : '정남')) + ' (다시 누르면 원래대로)');
