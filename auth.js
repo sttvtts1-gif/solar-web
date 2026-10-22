@@ -28,8 +28,10 @@ const Auth = (() => {
       document.head.appendChild(s);
     });
     if (window.Native && window.NativeHttp) return window.NativeHttp.get(url + '?' + Object.keys(p).map(k => k + '=' + encodeURIComponent(p[k])).join('&'), '').catch(jsonp);
-    return fetch(url, { method: 'POST', body: JSON.stringify(p), headers: { 'Content-Type': 'text/plain;charset=utf-8' } })
-      .then(r => r.json()).catch(jsonp);
+    const ac = typeof AbortController !== 'undefined' ? new AbortController() : null;   // 응답이 멈추면 jsonp 로 한 번 더 (2026-10-22)
+    const at = ac ? setTimeout(() => ac.abort(), timeoutMs || 25000) : null;
+    return fetch(url, { method: 'POST', body: JSON.stringify(p), headers: { 'Content-Type': 'text/plain;charset=utf-8' }, signal: ac ? ac.signal : undefined })
+      .then(r => r.json()).finally(() => { if (at) clearTimeout(at); }).catch(jsonp);
   }
 
   function show(msg, pending) {

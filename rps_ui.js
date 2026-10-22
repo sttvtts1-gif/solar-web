@@ -161,19 +161,23 @@ const RpsUI = (() => {
   /** 📈 오늘 SMP+1REC: 중계(path=pp op=market) 가 전력거래소 공개 페이지에서 육지 SMP 가중평균과 REC 평균가를 읽는다 */
   let marketBusy = false;
   async function fetchMarket(manual) {
-    if (marketBusy || typeof Auth === 'undefined') return; marketBusy = true;
-    $('s_ppaInfo').textContent = '전력거래소 시세 조회 중…';
+    if (marketBusy) { $('s_ppaInfo').textContent = '이미 시세를 조회하는 중입니다 — 잠시만요 (최대 1분)'; return; }
+    if (typeof Auth === 'undefined' || typeof PP === 'undefined') { $('s_ppaInfo').textContent = '시세 모듈이 없습니다 — Ctrl+F5 로 새로 고치세요'; return; }
+    marketBusy = true;
+    const btn = $('s_ppaFetch'); btn.disabled = true; btn.textContent = '⏳ 조회 중…';
+    $('s_ppaInfo').textContent = '시세 조회 중… (SMP → REC 거래속보 순서, 최대 1분)';
     try {
       const r = await PP.market();
       st.ppRate = r.total; st.ppRateInfo = 'SMP ' + r.smp.avg + '원 (육지 가중평균, ' + r.smp.date + ') + REC ' + Math.round(r.rec.avg).toLocaleString() + '원/REC (' + r.rec.date + ' ' + (r.rec.source || '평균가') + ', 종가 ' + Math.round(r.rec.close || 0).toLocaleString() + ') ÷ 1,000 = ' + r.total + '원/kWh · 가중치 1.0 · ' + (r.via || '');
       st.ppRateDate = new Date().toISOString().slice(0, 10);
       save(); renderSelf();
+      $('s_ppaInfo').textContent = st.ppRateInfo + ' (조회 ' + st.ppRateDate + ')';   // renderSelf 는 조회 중엔 문구를 안 건드리므로 여기서
     } catch (e) {
       const msg = /아이디|비밀번호/.test(e.message) ? '중계가 아직 시세 기능이 없는 옛 버전입니다 — server/auth_pp.gs 를 다시 붙여넣고 새 버전으로 배포하세요' : e.message;
       $('s_ppaInfo').innerHTML = '시세 조회 실패: ' + msg.replace(/</g, '&lt;') + ' · <a href="' + PP.SMP_URL + '" target="_blank" rel="noopener" style="color:#93c5fd">육지 SMP(가중평균)</a> · <a href="' + PP.REC_NEWS_LIST + '" target="_blank" rel="noopener" style="color:#93c5fd">REC 거래속보(원스톱)</a> → SMP + REC÷1,000 을 위 칸에 입력';
       if (manual && window.__solar && __solar.hint) __solar.hint('SMP·REC 시세 조회 실패 — 링크에서 보고 직접 입력하세요');
     }
-    finally { marketBusy = false; }
+    finally { marketBusy = false; btn.disabled = false; btn.textContent = '📈 오늘 시세'; }
   }
   /** 파워플래너 실사용량이 있으면 PP.compute 로 월별 자가소비·잉여를 구해 computeSelf 에 넘긴다 */
   function ppOverride(base) {
@@ -191,7 +195,7 @@ const RpsUI = (() => {
   function renderSelf() {
     st.ppMode = st.ppMode || '단순병렬';
     $('s_mode').value = st.ppMode; $('s_ppaRate').value = st.ppRate || 0; $('s_ppaWrap').style.display = st.ppMode === '자가PPA' ? '' : 'none';
-    $('s_ppaInfo').textContent = st.ppRateInfo ? st.ppRateInfo + (st.ppRateDate ? ' (조회 ' + st.ppRateDate + ')' : '') : '';
+    if (!marketBusy) $('s_ppaInfo').textContent = st.ppRateInfo ? st.ppRateInfo + (st.ppRateDate ? ' (조회 ' + st.ppRateDate + ')' : '') : '';   // 조회 중 문구는 덮지 않는다
     // 자가PPA 를 고른 날 시세가 없으면 자동 조회(하루 한 번)
     if (st.ppMode === '자가PPA' && st.ppRateDate !== new Date().toISOString().slice(0, 10) && !marketBusy) setTimeout(() => fetchMarket(false), 0);
     const base = RPS.computeSelf(Object.assign({}, st, { selfOverride: null }));
