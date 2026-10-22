@@ -1730,7 +1730,7 @@
     });
     const memoRes = withMemo && typeof withMemo.then === 'function' ? await withMemo.catch(() => null) : withMemo ? await Proposal.consult(siteAddr || siteName).catch(() => null) : null;
     const memo = memoRes && memoRes.hits ? memoRes.hits.map(h => (h.tab ? '[' + h.tab + '] ' : '') + h.text).slice(0, 4) : [];
-    const rpsSt = (window.RpsUI && RpsUI.getState) ? RpsUI.getState() : {};
+    const rpsSt = (typeof RpsUI !== 'undefined' && RpsUI.getState) ? RpsUI.getState() : {}   /* RpsUI 는 const 라 window 에 없다 (2026-10-22 수정) */;
     const data = {
       site: { name: siteName, addr: siteAddr, short: (siteAddr || '').split(' ').slice(-2).join(' ') }, kw: rs.reduce((a, r) => a + r.kw, 0),
       module: { w: moduleCfg.moduleWp, L: moduleCfg.modLmm, S: moduleCfg.modSmm, maker: '현대' },
@@ -1970,7 +1970,7 @@
       pg.step('배치도(도면)'); await Nas.write(sd.dir, base + '_배치도_도면.png', Nas.dataUrlBlob(await Proposal.drawPlanSheet(data)));
       pg.step('측면도'); await Nas.write(sd.dir, base + '_측면도.png', Nas.dataUrlBlob(Proposal.drawSectionSheet(data)));
       pg.step('CAD DXF'); await Nas.write(sd.dir, base + '_배치.dxf', new Blob([Cp949.encode(Cad.dxf(data))], { type: 'application/dxf' }));
-      pg.step('설정 JSON'); await Nas.write(sd.dir, base + '_설정.json', JSON.stringify({ saved: new Date().toISOString(), site: { name: siteName, addr: siteAddr }, kw: data.kw, state: JSON.parse(localStorage.getItem(STORE) || '{}'), rps: (window.RpsUI && RpsUI.getState) ? RpsUI.getState() : null }, null, 1));
+      pg.step('설정 JSON'); await Nas.write(sd.dir, base + '_설정.json', JSON.stringify({ saved: new Date().toISOString(), site: { name: siteName, addr: siteAddr }, kw: data.kw, state: JSON.parse(localStorage.getItem(STORE) || '{}'), rps: (typeof RpsUI !== 'undefined' && RpsUI.getState) ? RpsUI.getState() : null }, null, 1));
       pg.done('저장 완료: ' + sd.path + ' — 배치도 2장·측면도·DXF·설정.json (제안서 PPT 를 만들면 같은 폴더에)');
       hint('저장 완료: ' + sd.path);
     } catch (e) { pg.fail(e); hint('저장 실패: ' + e.message); }
