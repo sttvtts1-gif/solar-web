@@ -32,6 +32,7 @@ const RPS = (() => {
     capacity: 100,          // kW
     constCost: 150000000,   // 1등급 공사비(원)
     kepcoCost: 15000000,    // 한전분담금(원)
+    designFee: 0,           // 설계조정부담금(50kW 이상, 원) — 제안서 손익 표(47~49)에만 들어감. 기준 금액은 사용자가 넣는다 (2026-10-22)
     baseGenTime: 3.6,       // 시간/일
     moduleAngle: 10,        // °
     loanActive: false,

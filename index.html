@@ -327,6 +327,7 @@
       <input type="file" id="loadFile" accept=".json,application/json" style="display:none">
       <button class="btn ghost" id="btnProposal" title="원본 제안서를 골라 배치도·측면도·손익을 채운 완성본으로">📑 제안서 PPT</button>
       <input type="file" id="tplFile" accept=".pptx" style="display:none">
+      <button class="btn ghost" id="btnPP2" title="한전 파워플래너에 로그인해 최근 1년 사용량을 가져온다(자가소비 탭·제안서에 쓰임)">🔌 파워플래너</button>
       <button class="btn ghost" id="btnShare">공유</button>
       <button class="btn ghost" id="btnClear">전체 삭제</button>
     </div>
@@ -398,6 +399,7 @@
       <label>kW당 공사비 (원/kW)<input id="r_costPerKw" type="text" inputmode="numeric" class="money"></label>
       <label>1등급 공사비 (원)<input id="r_constCost" type="text" inputmode="numeric" class="money"></label>
       <label>한전분담금 (원)<input id="r_kepcoCost" type="text" inputmode="numeric" class="money"></label>
+      <label class="rpsOnly">설계조정부담금 50kW 이상 (원) — 제안서 손익 표에 들어감<input id="r_designFee" type="text" inputmode="numeric" class="money"></label>
       <label class="rpsOnly">1등급 단가 (원/kWh)<input id="r_customPrice" type="number" step="1"></label>
       <label class="rpsOnly">1→2등급 단가차 (원/Wp)<input id="r_diff12" type="number" step="5"></label>
       <label class="rpsOnly">1→무등급 단가차 (원/Wp)<input id="r_diff1n" type="number" step="5"></label>
@@ -463,7 +465,7 @@
     <div class="scrollx"><table class="cmp" id="s_table"></table></div>
     <div id="ppResult" class="sec" style="margin-top:10px;display:none"></div>
     <div class="row" style="margin-top:10px">
-      <button class="btn ghost" id="btnPP" title="한전 파워플래너에 로그인해 사용량을 가져온다(비밀번호 저장 안 함, 공식 API 아님)">🔌 파워플래너 가져오기</button>
+      <button class="btn ghost" id="btnPP" style="display:none" title="한전 파워플래너에 로그인해 사용량을 가져온다(비밀번호 저장 안 함, 공식 API 아님)">🔌 파워플래너 가져오기</button>
       <button class="btn accent" id="btnSelfMail">📧 메일로 보내기</button>
       <button class="btn ghost" id="btnSelfShare">텍스트 공유</button>
       <span style="font-size:11px;color:var(--muted)">업체명·받는 이메일은 수익분석 탭 아래 칸을 씁니다</span>
@@ -655,7 +657,7 @@
   // 깃허브 Pages 는 화면 파일을 10분 캐시한다. 새로 올린 뒤에도 옛 화면이 나오지 않게,
   // 열 때마다 캐시 없이 index.html 을 다시 받아 버전 표식이 다르면 한 번 새로고침한다.
   // 버전 표식(APP_VER)은 web동기화.sh 가 올릴 때마다 시각으로 바꿔 넣는다.
-  window.APP_VER = '20261022161238';
+  window.APP_VER = '20261022161822';
   (function () {
     if (location.hostname.indexOf('github.io') < 0) return;
     fetch('index.html?nocache=' + Date.now(), { cache: 'no-store' }).then(r => r.text()).then(t => {
@@ -667,30 +669,30 @@
     }).catch(() => {});
   })();
 </script>
-<script src="config.js?v=20261022161238"></script>
-<script src="vendor/pdf.min.js?v=20261022161238"></script>
-<script src="layout.js?v=20261022161238"></script>
-<script src="vworld.js?v=20261022161238"></script>
-<script src="site.js?v=20261022161238"></script>
-<script src="terrain.js?v=20261022161238"></script>
-<script src="vendor/three.min.js?v=20261022161238"></script>
+<script src="config.js?v=20261022161822"></script>
+<script src="vendor/pdf.min.js?v=20261022161822"></script>
+<script src="layout.js?v=20261022161822"></script>
+<script src="vworld.js?v=20261022161822"></script>
+<script src="site.js?v=20261022161822"></script>
+<script src="terrain.js?v=20261022161822"></script>
+<script src="vendor/three.min.js?v=20261022161822"></script>
 <script src="view3d.js"></script>
-<script src="vendor/jszip.min.js?v=20261022161238"></script>
+<script src="vendor/jszip.min.js?v=20261022161822"></script>
 <script>window.JSZipLib = window.JSZip;</script><!-- pptxgen 번들이 전역 JSZip 을 덮어써서 따로 잡아 둔다 -->
-<script src="vendor/pptxgen.bundle.js?v=20261022161238"></script>
-<script src="proposal.js?v=20261022161238"></script>
-<script src="align.js?v=20261022161238"></script>
+<script src="vendor/pptxgen.bundle.js?v=20261022161822"></script>
+<script src="proposal.js?v=20261022161822"></script>
+<script src="align.js?v=20261022161822"></script>
 <script src="cp949.js"></script>
-<script src="nas.js?v=20261022161238"></script>
-<script src="auth.js?v=20261022161238"></script>
-<script src="cad.js?v=20261022161238"></script>
-<script src="kepco.js?v=20261022161238"></script>
-<script src="bld.js?v=20261022161238"></script>
-<script src="rps.js?v=20261022161238"></script>
-<script src="report.js?v=20261022161238"></script>
-<script src="pp.js?v=20261022161238"></script>
-<script src="rps_ui.js?v=20261022161238"></script>
-<script src="policy.js?v=20261022161238"></script>
-<script src="app.js?v=20261022161238"></script>
+<script src="nas.js?v=20261022161822"></script>
+<script src="auth.js?v=20261022161822"></script>
+<script src="cad.js?v=20261022161822"></script>
+<script src="kepco.js?v=20261022161822"></script>
+<script src="bld.js?v=20261022161822"></script>
+<script src="rps.js?v=20261022161822"></script>
+<script src="report.js?v=20261022161822"></script>
+<script src="pp.js?v=20261022161822"></script>
+<script src="rps_ui.js?v=20261022161822"></script>
+<script src="policy.js?v=20261022161822"></script>
+<script src="app.js?v=20261022161822"></script>
 </body>
 </html>

@@ -237,6 +237,7 @@
     $('violManual').addEventListener('change', e => { siteViolation = Object.assign(siteViolation || {}, { manual: e.target.checked }); checkViolation(); });
     // 파워플래너: 아이디·비밀번호 → 중계가 로그인 → 메뉴(링크)·표를 보여 준다. 비밀번호는 저장하지 않는다
     $('btnPP').onclick = () => openPPModal();
+    $('btnPP2').onclick = () => openPPModal();                                  // 배치 탭에서도(제안서를 여기서 만드니, 2026-10-22)
     $('btnNasPick').onclick = async () => { try { const h = await Nas.ensureRoot(true); nasSite = null; $('nasRootName').textContent = h.name; hint('저장 폴더: ' + h.name + ' — 이 안의 연도·월 폴더에서 주소로 현장 폴더를 찾습니다(없으면 이달에 새로 만듭니다).'); } catch (e) { hint('폴더 지정 취소/실패: ' + e.message); } };
     if (window.Nas && Nas.available()) Nas.loadRoot().then(h => { if (h && $('nasRootName')) $('nasRootName').textContent = h.name; });
     // 📂 불러오기: NAS 에 저장한 …_설정.json → 그때의 배치·설정·수익분석 상태를 되살린다
@@ -1735,7 +1736,7 @@
       module: { w: moduleCfg.moduleWp, L: moduleCfg.modLmm, S: moduleCfg.modSmm, maker: '현대' },
       roofs: rs, origin, buildings: buildings.filter(b => !srcs.has(b.id) && distM(origin, Layout.centroid(b.ring)) <= 150).map(b => ({ ring: b.ring })),
       fixtures: fixtureData(),
-      lines: lastKepco, memo, costPerKw: rpsSt.costPerKw || Proposal.COST_PER_KW,
+      lines: lastKepco, memo, costPerKw: rpsSt.costPerKw || Proposal.COST_PER_KW, designFee: Number(rpsSt.designFee) || 0,
     };
     return data;
   }

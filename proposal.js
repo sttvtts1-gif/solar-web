@@ -550,6 +550,30 @@ const Proposal = (() => {
     });
     return cleanRealmP;
   }
+  /**
+   * 원본 쪽 찾기 (2026-10-22): 사용자 원본은 판마다 쪽이 끼어 번호가 밀린다(10-22 판 42/43/44 ↔ 사용자 판 44/45/46). 번호 대신 쪽 글(run 을 이어 붙인 것)로 찾는다.
+   *   plan 배치도(그림 1장, '배치도', 샘플 아님) · section 측면도(그림, 샘플 아님) · s42 '태양광 자가소비 전기요금 수익효과' · s43 '자가소비_상계, 단순' · s44 '자가용PPA)'
+   *   p47 '1등급 연간매출(장기계약 3.6h)' · p48 '누적매출'+표 1·표 4 · p49 '무등급 누적수익'. 못 찾으면 10-06 판 번호(37/38/47/48/49, 42/43/44).
+   */
+  async function locatePages(zip) {
+    const nums = Object.keys(zip.files).map(f => (f.match(/^ppt\/slides\/slide(\d+)\.xml$/) || [0, 0])[1] | 0).filter(Boolean).sort((a, b) => a - b);
+    const info = {};
+    for (const n of nums) { const x = await zip.file('ppt/slides/slide' + n + '.xml').async('string'); info[n] = { t: (x.match(/<a:t>[^<]*<\/a:t>/g) || []).map(s => s.slice(5, -6)).join(''), pic: (x.match(/<p:pic>/g) || []).length, tb: (x.match(/name="표 \d+"/g) || []).map(s => s.slice(6, -1)) }; }
+    const find = (pred, fb) => { const hit = nums.find(n => { try { return pred(info[n], n); } catch (e) { return false; } }); return hit || fb; };
+    const has = (i, s) => i.t.indexOf(s) >= 0;
+    const P = {
+      plan: find(i => i.pic === 1 && has(i, '배치도') && !has(i, '측면도') && !has(i, '(샘플)'), 37),
+      section: find(i => i.pic === 1 && has(i, '측면도') && !has(i, '(샘플)') && !has(i, '배치도'), 38),
+      s42: find(i => has(i, '태양광 자가소비 전기요금 수익효과'), 42),
+      s43: find(i => has(i, '자가소비_상계, 단순'), 43),
+      s44: find(i => has(i, '자가용PPA)') && has(i, '예상 수익금액'), 44),
+      p47: find(i => has(i, '1등급 연간매출(장기계약 3.6h)'), 47),
+      p48: find(i => has(i, '누적매출') && i.tb.indexOf('표 1') >= 0 && i.tb.indexOf('표 4') >= 0 && !has(i, '1등급 연간매출(장기계약'), 48),
+      p49: find(i => has(i, '무등급 누적수익'), 49),
+    };
+    try { console.log('제안서 쪽 찾기', JSON.stringify(P)); } catch (e) {}
+    return P;
+  }
   async function fillTemplate(zipBuf, d, imgs) {
     const W = await cleanRealm().catch(() => null);
     const JZ = (W && W.JSZip) || (typeof window !== 'undefined' && (window.JSZipLib || window.JSZip)) || (typeof JSZip !== 'undefined' ? JSZip : require('jszip'));
@@ -576,10 +600,11 @@ const Proposal = (() => {
     // 37쪽: 위성사진 배치도(앱 화면 꼴). 그 뒤에 CAD 도면 배치도를 한 장 더 넣는다(37-2). 38쪽: 측면도.
     // 배치도·측면도 그림 이름은 원본 판마다 다르다(10-06 판 141/142, 10-22 판 142/143) → 37·38쪽 rels 에서 읽는다 (2026-10-22)
     const imgOf = async n => { const f = zip.file('ppt/slides/_rels/slide' + n + '.xml.rels'); if (!f) return null; const rl = await f.async('string'); return (rl.match(/media\/(image\d+\.(?:png|jpe?g))/i) || [])[1] || null; };
-    const img37 = (await imgOf(37)) || 'image141.png', img38 = (await imgOf(38)) || 'image142.png';
+    const P = await locatePages(zip); d.pageMap = P;
+    const img37 = (await imgOf(P.plan)) || 'image141.png', img38 = (await imgOf(P.section)) || 'image142.png';
     if (imgs && imgs.planMap) zip.file('ppt/media/' + img37, dataUrlBytes(imgs.planMap));
     if (imgs && imgs.plan) {
-      if (imgs.planMap) await addSlideCopy(zip, 37, img37, dataUrlBytes(imgs.plan), '배치도', '배치도(도면)');
+      if (imgs.planMap) await addSlideCopy(zip, P.plan, img37, dataUrlBytes(imgs.plan), '배치도', '배치도(도면)');
       else zip.file('ppt/media/' + img37, dataUrlBytes(imgs.plan));
     }
     if (imgs && imgs.section) zip.file('ppt/media/' + img38, dataUrlBytes(imgs.section));
@@ -588,32 +613,32 @@ const Proposal = (() => {
     const get = async n => zip.file('ppt/slides/slide' + n + '.xml').async('string');
     if (d.profitSel && !d.profitSel.rps) { /* 발전사업 안 고름 */ await fillSelfPages(zip, d); Object.keys(zip.files).filter(k => zip.files[k].dir).forEach(k => { delete zip.files[k]; }); return zip.generateAsync({ type: typeof window !== 'undefined' ? 'blob' : 'nodebuffer', compression: 'STORE' }); }
     // 47
-    let x = await get(47);
+    let x = await get(P.p47);
     x = setTable(x, '표 5', [null].concat(T.t47, [['합계', '', won(T.S.a), won(T.S.b), won(T.S.c), won(T.S.k30)]]));
     x = setByLabel(x, '표 3', { '설비용량(STC)(kW)': kw.toFixed(3), '발전시간(시간)': '3.6', '1등급 공사비': won(T.invest) + ' 원', '1등급 최종 공사비': '',
       '1등급 장기계약(월) 3.6h': won(T.m36) + ' 원', '1등급 장기계약(월) 3.8h': won(T.m38) + ' 원', '1등급 장기계약(월) 4h': won(T.m40) + ' 원',
       '전기안전관리비(년)': won(T.safe) + ' 원', '보험료(년)': won(T.ins) + ' 원', '계통 구분': T.grid, '한전연계비 vat별도': won(T.kepcoFee) + ' 원',
-      '한전 단말통신공사(20kW 이상)': T.terminal ? won(T.terminal) + ' 원' : '',
+      '한전 단말통신공사(20kW 이상)': T.terminal ? won(T.terminal) + ' 원' : '', '설계조정부담금(50kW이상)': d.designFee > 0 ? won(d.designFee) + ' 원' : '',
       '장기계약 (1등급)': PRICE.g1.toFixed(3), '장기계약 (2등급)': PRICE.g2.toFixed(4), '장기계약 (무등급)': PRICE.gN.toFixed(4) });
     x = setNote(x, note);
-    zip.file('ppt/slides/slide47.xml', x);
+    zip.file('ppt/slides/slide' + P.p47 + '.xml', x);
     // 48
-    x = await get(48);
+    x = await get(P.p48);
     x = setTable(x, '표 1', [null, ['0', '100.00%', '', won(-T.invest), '', won(-T.invest), '0']].concat(T.t48, [['합계', '', won(T.cum2), won(T.cum2 - T.invest), won(T.cumSp), won(T.cumSp - T.invest), won(T.S.k30)]]));
     x = setByLabel(x, '표 4', { '설비용량(STC)(kW)': kw.toFixed(3), '발전시간(시간)': '3.6', '2등급 공사비': won(T.invest) + ' 원', '무등급 공사비': won(T.invest) + ' 원',
       '월수익 장기계약': won(T.m2 - T.mk) + ' 원', '월수익 현물': won(T.mSp - T.mk) + ' 원', '장기계약': PRICE.g2.toFixed(3), '현물': PRICE.spot.toFixed(3),
       '전기안전관리비(년)': won(T.safe) + ' 원', '보험료(년)': won(T.ins) + ' 원', '계통 구분': T.grid, '한전연계비 vat별도': won(T.kepcoFee) + ' 원',
-      '한전 단말통신공사(50kW 이상)': T.terminal ? won(T.terminal) + ' 원' : '' });
+      '한전 단말통신공사(50kW 이상)': T.terminal ? won(T.terminal) + ' 원' : '', '설계조정부담금(50kW이상)': d.designFee > 0 ? won(d.designFee) + ' 원' : '' });
     x = setNote(x, note);
-    zip.file('ppt/slides/slide48.xml', x);
+    zip.file('ppt/slides/slide' + P.p48 + '.xml', x);
     // 49
-    x = await get(49);
+    x = await get(P.p49);
     x = setTable(x, '표 1', [null].concat(T.t49, [['합계', '', won(T.S.a1), won(T.c1), won(T.S.a2), won(T.c2), won(T.S.aN), T.cN < 0 ? '(' + won(-T.cN) + ')' : won(T.cN), won(T.S.k20)]]));
     x = setTable(x, '표 3', [null, null, [kw.toFixed(3), null, won(T.m1), won(T.m1 - T.mk)], [null, null, won(T.m2), won(T.m2 - T.mk)], [won(T.monthlyGen), null, won(T.mN), won(T.mN - T.mk)]]);
     x = setTable(x, '표 4', [null, null, [null, PRICE.g1.toFixed(3), PRICE.smp.toFixed(3), PRICE.rec1.toFixed(3)], [null, PRICE.g2.toFixed(3), PRICE.smp.toFixed(3), PRICE.rec2.toFixed(3)], [null, PRICE.gN.toFixed(3), PRICE.smp.toFixed(3), PRICE.recN.toFixed(3)]]);
-    x = setByLabel(x, '표 7', { '전기안전관리비': won(T.safe), '보험료': won(T.ins), '계통 구분': T.grid, '한전연계비 vat별도': won(T.kepcoFee), '설계조정부담금(50kW이상)': '' });   // 설계조정부담금은 견적에서 산출(단말통신은 47·48쪽 라벨표에)
+    x = setByLabel(x, '표 7', { '전기안전관리비': won(T.safe), '보험료': won(T.ins), '계통 구분': T.grid, '한전연계비 vat별도': won(T.kepcoFee), '설계조정부담금(50kW이상)': d.designFee > 0 ? won(d.designFee) : '' });   // 설계조정부담금은 견적에서 산출(단말통신은 47·48쪽 라벨표에)
     x = setNote(x, note);
-    zip.file('ppt/slides/slide49.xml', x);
+    zip.file('ppt/slides/slide' + P.p49 + '.xml', x);
     // 자가소비 쪽(계약방식별 그림 한 장씩): 37쪽(그림 한 장짜리) 복제 → 49 뒤에 차례로. 발전사업을 안 고르면 47~49 를 뺀다 (2026-10-22)
     await fillSelfPages(zip, d);                                                  // 자가소비 42(전량)·43(상계/단순)·44(자가PPA). 안 고른 쪽은 원본 그대로(삭제 안 함)
     // JSZip 이 만든 폴더 항목(ppt/, ppt/media/ …)이 있으면 파워포인트가 "복구" 를 띄운다 → 전부 뺀다
@@ -682,12 +707,13 @@ const Proposal = (() => {
     const byMode = m => res.find(r => r.mode === m);
     // ---- 42: 전량 자가소비 (요금표 × 발전량)
     const b = d.selfBase || res[0];
-    let x = await get(42);
+    const P = d.pageMap || await locatePages(zip);
+    let x = await get(P.s42);
     if (x && b) {
       const lab = [b.labels.category, b.labels.voltage, b.labels.selection];
       x = setTable(x, '표 13', [null, null].concat(b.monthly.map((m, i) => [i === 0 ? lab[0] : i === 4 ? lab[1] : i === 8 ? lab[2] : '', m.month + '월', '9.0', m.energyCharge.toFixed(1), '5', m.totalUnitRate.toFixed(1), k(m.gen), k(m.saving1Y)])));
       x = setTable(x, '표 18', [[null, k(b.avgMonthly) + ' 원'], [null, k(b.total1Y) + ' 원'], [null, k(b.total1Y * 20) + ' 원'], [null, co2(b).toFixed(2) + ' tCO2-eq/MWh/년']]);
-      put(42, x);
+      put(P.s42, x);
     }
     // ---- 43·44: 파워플래너 실사용량 기준
     const hasUse = res.some(r => r.override);
@@ -704,18 +730,18 @@ const Proposal = (() => {
       const net = byMode('상계거래'), simple = byMode('단순병렬'), ppa = byMode('자가PPA');
       if (net || simple) {
         const first = net || simple;
-        let y = await get(43);
+        let y = await get(P.s43);
         y = fillUse(y, first, first.mode, false);
         y = setRuns(y, 'TextBox 2', net ? { ',': '', ' 단순': '' } : { '상계': '단순병렬', ',': '', ' 단순': '' });
-        put(43, y);
+        put(P.s43, y);
         if (net && simple) {                                                       // 둘 다: 43 복제 → 단순병렬
-          const n2 = await addSlideCopy(zip, 43, null, null, null, null, 43);
+          const n2 = await addSlideCopy(zip, P.s43, null, null, null, null, P.s43);
           let z = fillUse(await get(n2), simple, simple.mode, false);
           z = setRuns(z, 'TextBox 2', { '단순병렬': '', '상계': '단순병렬', ',': '', ' 단순': '' });
           put(n2, z);
         }
       }
-      if (ppa) { let y = await get(44); y = fillUse(y, ppa, ppa.mode, true); put(44, y); }
+      if (ppa) { let y = await get(P.s44); y = fillUse(y, ppa, ppa.mode, true); put(P.s44, y); }
     }
   }
   function payLabelOf(p) { return !p || p.year === '-' ? '30년 내 미회수' : p.year + '년 ' + p.month + '개월'; }

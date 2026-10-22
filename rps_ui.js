@@ -18,10 +18,10 @@ const RpsUI = (() => {
   let siteName = '';
   let res = null, selfRes = null;
 
-  const NUM = ['capacity', 'costPerKw', 'constCost', 'kepcoCost', 'customPrice', 'diff12', 'diff1n', 'moduleAngle', 'baseGenTime', 'loanInterest', 'loanPrincipal', 'loanGrace', 'loanPeriod'];
+  const NUM = ['capacity', 'costPerKw', 'constCost', 'kepcoCost', 'designFee', 'customPrice', 'diff12', 'diff1n', 'moduleAngle', 'baseGenTime', 'loanInterest', 'loanPrincipal', 'loanGrace', 'loanPeriod'];
   const BOOL = ['ceilingBasis', 'loanActive'];
   // 원 단위 금액 칸. type=number 는 쉼표를 못 보여줘서 text 로 두고 여기서 찍는다.
-  const MONEY = ['costPerKw', 'constCost', 'kepcoCost', 'loanPrincipal'];
+  const MONEY = ['costPerKw', 'constCost', 'kepcoCost', 'designFee', 'loanPrincipal'];
   const commas = s => { const d = String(s).replace(/[^0-9]/g, ''); return d ? Number(d).toLocaleString('ko-KR') : ''; };
   const SEL = ['rateCategory', 'voltageType', 'selectionType'];
 
