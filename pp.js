@@ -156,8 +156,22 @@ const PP = (() => {
   const SMP_URL = 'https://www.kpx.or.kr/smpInland.es?mid=a10404080100&device=pc';   // 육지 계통한계가격: 최근 7일 시간별 + 최대/최소/가중평균
   const REC_URL = 'https://www.kpx.or.kr/menu.es?mid=a30401000000&device=pc';        // 오늘의 REC: 거래일·거래량·평균가·최고·최저·종가 (원/REC)
   const tablesOf = html => { const out = []; const tre = /<table[\s\S]*?<\/table>/gi; let m; while ((m = tre.exec(html))) { const rows = []; const rre = /<tr[\s\S]*?<\/tr>/gi; let r; while ((r = rre.exec(m[0]))) { const cells = []; const cre = /<t[hd][^>]*>([\s\S]*?)<\/t[hd]>/gi; let c; while ((c = cre.exec(r[0]))) cells.push(c[1].replace(/<[^>]+>/g, '').replace(/&nbsp;/g, ' ').replace(/\s+/g, ' ').trim()); if (cells.length) rows.push(cells); } if (rows.length) out.push(rows); } return out; };
+  /** r.jina.ai 가 주는 마크다운 표('| a | b |' 줄들)를 tablesOf 와 같은 rows 묶음으로 */
+  const tablesOfMd = md => {
+    const out = []; let cur = null;
+    String(md || '').split(/\r?\n/).forEach(line => {
+      const l = line.trim(), i = l.indexOf('|');
+      if (i < 0 || !l.endsWith('|')) { if (cur && cur.length) out.push(cur); cur = null; return; }
+      const cells = l.slice(i + 1, -1).split('|').map(c => c.replace(/\*\*/g, '').replace(/\s+/g, ' ').trim());
+      if (cells.every(c => /^:?-+:?$/.test(c))) return;
+      if (!cur) cur = []; cur.push(cells);
+    });
+    if (cur && cur.length) out.push(cur);
+    return out;
+  };
+  const anyTables = t => /<table/i.test(t) ? tablesOf(t) : tablesOfMd(t);
   function parseSmp(html) {
-    for (const rows of tablesOf(html)) {
+    for (const rows of anyTables(html)) {
       const head = rows[0] || [], avg = rows.find(r => /가중평균|평균/.test(r[0] || ''));
       if (!avg || head.length < 2) continue;
       for (let c = head.length - 1; c >= 1; c--) { const v = parseFloat(String(avg[c] || '').replace(/,/g, '')); if (v > 0) { const dm = /(\d{1,2})\.(\d{1,2})/.exec(head[c] || ''); const now = new Date(); let y = now.getFullYear(); if (dm && +dm[1] > now.getMonth() + 1) y--; return { date: dm ? y + '-' + ('0' + dm[1]).slice(-2) + '-' + ('0' + dm[2]).slice(-2) : head[c], avg: v, label: head[c] }; } }
@@ -165,7 +179,7 @@ const PP = (() => {
     return null;
   }
   function parseRec(html) {
-    const o = {}; tablesOf(html).forEach(t => t.forEach(r => { if (r.length >= 2) o[r[0]] = r[1]; }));
+    const o = {}; anyTables(html).forEach(t => t.forEach(r => { if (r.length >= 2) o[r[0]] = r[1]; }));
     if (!o['평균가'] && !o['종가']) return null;
     const n = s => parseFloat(String(s || '').replace(/,/g, '')) || null; const dm = /(\d{4})\.(\d{1,2})\.(\d{1,2})/.exec(o['거래일'] || '');
     return { date: dm ? dm[1] + '-' + ('0' + dm[2]).slice(-2) + '-' + ('0' + dm[3]).slice(-2) : (o['거래일'] || ''), avg: n(o['평균가']), close: n(o['종가']), volume: n(o['거래량']) };
@@ -178,7 +192,14 @@ const PP = (() => {
       const smp = parseSmp(String(h1 || '')), rec = parseRec(String(h2 || ''));
       if (smp && rec) return { ok: true, smp, rec, total: Math.round((smp.avg + rec.avg / 1000) * 100) / 100, via: '앱(직접)' };
     }
-    // 2) 중계
+    // 2) 웹: r.jina.ai(페이지를 글로 바꿔 주는 공개 서비스, CORS 허용)로 브라우저에서 직접 — 전력거래소는 구글 중계 IP 를 막지만 이 경로는 열려 있다(2026-10-22 확인, 분당 20회 제한)
+    try {
+      const get = async u => { const res = await fetch('https://r.jina.ai/' + u, { headers: { Accept: 'text/plain' } }); if (!res.ok) throw new Error('jina ' + res.status); return res.text(); };
+      const [m1, m2] = await Promise.all([get(SMP_URL), get(REC_URL)]);
+      const smp = parseSmp(m1), rec = parseRec(m2);
+      if (smp && rec) return { ok: true, smp, rec, total: Math.round((smp.avg + rec.avg / 1000) * 100) / 100, via: '웹(r.jina.ai)' };
+    } catch (e) { console.warn('market jina', e); }
+    // 3) 중계
     const r = await Auth.call({ path: 'pp', op: 'market' }, 40000);
     if (r && r.ok) return Object.assign(r, { via: '중계' });
     const blocked = r && /Detect time|\[SMP 표 없음\]/.test(r.errMsg || '');
