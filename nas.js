@@ -80,7 +80,7 @@ const Nas = (() => {
   async function siteDir(o) {
     const r = o.__root || await ensureRoot();   // __root: 검사용
     // 고른 폴더가 현장 폴더 자체(예 "12-2932 경남 양산시 … 그린피엔텍")면 그대로 거기에 쓴다
-    const keySets = [o.addr, o.altAddr].filter(Boolean).map(addrKeys).filter(k => k.length);
+    const keySets = [o.addr, o.altAddr, o.roadAddr].filter(Boolean).map(addrKeys).filter(k => k.length);   // 지번 · 업체명 · 도로명 (2026-10-22)
     if (/^\d{2}-\d{4}\s/.test(r.name)) {
       // 고른 폴더가 현장 폴더 자체(예 "12-2932 경남 양산시 … 그린피엔텍")면 주소가 맞을 때만 거기에 쓴다. 다른 현장이면 막고 N:\02. 제안서작성 을 다시 고르게
       // (2026-10-22: 모든 현장이 그린피엔텍에 저장되던 원인)

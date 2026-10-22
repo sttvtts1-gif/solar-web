@@ -63,6 +63,7 @@
   let panelMode = 'normal';   // collapsed | normal | full
   let immersive = false;
   let siteBld = [];           // 이 필지의 건축물대장 표제부 목록 — 3D 조감도 색(지붕재·구조)에 쓴다
+  let siteRoad = '';          // 도로명 주소(카카오 역지오코딩) — NAS 현장 폴더 검색에 지번과 함께 쓴다 (2026-10-22)
   let siteAddr = '';          // 지번 주소(카카오 역지오코딩) — 제안서·상담일지 검색
   let lastKepco = null;       // 마지막 한전 선로 조회 결과 { level, basis, rows } — 제안서에 넣는다
   let siteFloors = null;      // 건축물대장 지상층수(최대). 검색한 필지의 지붕에 음영 계산용으로 쓴다      // 앱 전체화면(시스템 바 숨김) 상태
@@ -598,7 +599,8 @@
       if (!b) { $('bldHead').textContent = $('kepcoHead').textContent = '법정동을 못 찾음'; return; }
       geocoder.coord2Address(lng, lat, (ar, st) => {
         const ad = st === kakao.maps.services.Status.OK && ar[0] && ar[0].address;
-        if (ad) { if (siteAddr !== ad.address_name) nasSite = null; siteAddr = ad.address_name; }   // 현장이 바뀌면 NAS 폴더도 다시 찾는다 (2026-10-22: 전 현장 폴더에 저장되던 문제)
+        if (ad) { if (siteAddr !== ad.address_name) nasSite = null; siteAddr = ad.address_name; }
+        { const rd = st === kakao.maps.services.Status.OK && ar[0] && ar[0].road_address; siteRoad = rd && rd.address_name ? rd.address_name : ''; }   // 현장이 바뀌면 NAS 폴더도 다시 찾는다 (2026-10-22: 전 현장 폴더에 저장되던 문제)
         if (siteNameSrc !== 'search') {
           const road = st === kakao.maps.services.Status.OK && ar[0] && ar[0].road_address;
           if (road && road.building_name) setSiteName(road.building_name, 'kakao');
@@ -1930,13 +1932,13 @@
     await Nas.ensureRoot();
     // N:\02. 제안서작성 아래에서 주소로 현장 폴더를 스스로 찾는다(2026-10-20 사용자 지시). 상담번호는 찾으면 보조로, 새 폴더 이름에만 쓴다
     const addr = (siteAddr || siteName || '').split('\n')[0];
-    const pg = window.__prog; if (pg) pg.step('NAS 에서 현장 폴더 찾는 중 — ' + addr);
+    const pg = window.__prog; if (pg) pg.step('NAS 에서 현장 폴더 찾는 중 — ' + addr + (siteRoad ? ' / ' + siteRoad : ''));
     // 상담일지(상담번호)는 새 폴더 이름에만 쓰니 뒤에서 돌리고, 못 찾았을 때만 3초까지 기다린다
     const consultP = Promise.race([Proposal.consult(addr).catch(() => null), new Promise(r => setTimeout(() => r(null), 3000))]);
     const yearLine = document.createElement('div'); if (pg) $('prog_log').appendChild(yearLine);
     const onYear = yn => { yearLine.textContent = '   … ' + yn + ' 훑는 중'; };
     // 1) 주소로 전체 연도·월 검색  2) 없으면 상담일지의 상담번호로 한 번 더  3) 그래도 없으면 올해·이달에 새 폴더
-    let sd = await Nas.siteDir({ addr, altAddr: siteName !== addr ? siteName : '', no: '', name: '', noCreate: true, onYear });
+    let sd = await Nas.siteDir({ addr, altAddr: siteName !== addr ? siteName : '', roadAddr: siteRoad, no: '', name: '', noCreate: true, onYear });   // 지번·업체명·도로명 모두로
     let h = null;
     if (!sd) {
       const m = await consultP; h = ((m && m.hits) || []).find(x => x.no);
@@ -2772,7 +2774,7 @@
   }
   function snapshot() {
     return ({
-        curType, settings, siteName, siteAddr, shade, moduleCfg, edits, structure,
+        curType, settings, siteName, siteAddr, siteRoad, shade, moduleCfg, edits, structure,
         roofs: roofs.map(r => ({ id: r.id, name: r.name, type: r.type, points: r.points, src: r.src, floors: r.floors, floorsManual: r.floorsManual, spans: r.spans, vent: r.vent,
           parcels: r.parcels, extra: r.extra, review: r.review && !r.review.pending ? r.review : undefined, force: r.force,
           azimuth: r.azimuth, margin: r.margin, tiers: r.tiers, terrain: r.terrain, moved: r.moved, flip: r.flip, rowAngle: r.rowAngle, frontTiers: r.frontTiers, backTiers: r.backTiers, ventN: r.ventN, ventPos: r.ventPos, ridgeOff: r.ridgeOff, ridgeExt: r.ridgeExt, ridgeOn: r.ridgeOn, attach: r.attach, ventExtra: r.ventExtra, ventH: r.ventH, rect: r.rect })),
@@ -2788,7 +2790,7 @@
       curType = Layout.PRESETS[st.curType] ? st.curType : 'slab';
       structure = STRUCTS[st.structure] ? st.structure : 'alu';
       settings = Object.assign({ ginseng: {}, flush: {}, slab: {} }, st.settings || {});
-      siteName = st.siteName || ''; siteAddr = st.siteAddr || siteAddr || '';
+      siteName = st.siteName || ''; siteAddr = st.siteAddr || siteAddr || ''; siteRoad = st.siteRoad || '';
       shade = Object.assign({ on: false, floorH: 3.5 }, st.shade || {});
       moduleCfg = Object.assign({}, MODULE_DEFAULT, st.moduleCfg || {});
       edits = Array.isArray(st.edits) ? st.edits : [];
