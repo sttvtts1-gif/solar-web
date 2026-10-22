@@ -40,8 +40,8 @@
   let preview = null;
 
   // 형태별 상세 설정 키. 모듈 규격은 형태와 무관하게 공통(moduleCfg)이라 여기 없다.
-  const OPT_KEYS = ['orient', 'tiers', 'tilt', 'shadeAngle', 'autoGap', 'arrayGap', 'tierGap', 'colGap', 'margin', 'align', 'alignLimit', 'eaveSetback', 'ridgeSetback', 'lift', 'colBlock', 'blockGap', 'azimuth', 'maxLiftH'];
-  const NUM_KEYS = ['maxLiftH', 'tiers', 'tilt', 'shadeAngle', 'arrayGap', 'tierGap', 'colGap', 'margin', 'alignLimit', 'eaveSetback', 'ridgeSetback', 'lift', 'colBlock', 'blockGap', 'azimuth'];
+  const OPT_KEYS = ['maxRearH', 'frontLift', 'rowAngle', 'orient', 'tiers', 'tilt', 'shadeAngle', 'autoGap', 'arrayGap', 'tierGap', 'colGap', 'margin', 'align', 'alignLimit', 'eaveSetback', 'ridgeSetback', 'lift', 'colBlock', 'blockGap', 'azimuth', 'maxLiftH'];
+  const NUM_KEYS = ['maxRearH', 'frontLift', 'rowAngle', 'maxLiftH', 'tiers', 'tilt', 'shadeAngle', 'arrayGap', 'tierGap', 'colGap', 'margin', 'alignLimit', 'eaveSetback', 'ridgeSetback', 'lift', 'colBlock', 'blockGap', 'azimuth'];
   // 모듈 편집: 지도에서 드래그한 사각형 목록. 순서대로 적용(del=지움, add=되살림).
   // 위도·경도 상자라서 배치 설정을 바꿔 모듈 격자가 움직여도 "그 자리" 에 그대로 먹는다.
   let edits = [];
@@ -147,6 +147,7 @@
       const tag = (e.target && e.target.tagName) || '';
       if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || e.target.isContentEditable) return;
       if (e.key === 'Escape') { if (picked) setPick(null); if (ventAdd) { ventAdd = null; renderList(); hint('벤츄레이터 추가 끝.'); } if (shapeEdit) { const r = roofs.find(x => x.id === shapeEdit); shapeEdit = null; if (r) recompute(r); renderList(); hint('모양 편집 끝.'); } return; }
+      if ((e.ctrlKey || e.metaKey) && !e.shiftKey && (e.key === 'z' || e.key === 'Z')) { e.preventDefault(); undo(); return; }
       if (e.key !== 'Delete') return;
       if (deletePick()) { e.preventDefault(); return; }
       const r = roofs.find(x => x.id === selectedId);
@@ -212,6 +213,16 @@
     $('btnElec').onclick = () => openElec();
     $('btnElecPos').onclick = () => { let f = fixtures.find(x => x.kind === 'elec'); const mc = map.getCenter(); if (!f) { addFixture('elec'); f = fixtures.find(x => x.kind === 'elec'); } f.c = { lat: mc.getLat(), lng: mc.getLng() }; afterFixtureChange(); hint('전기실을 화면 가운데에 놓았습니다. 꾹 눌러 끌어 자리를 잡으세요. 탭 후 Del 로 삭제.'); };
     $('btnBridge').onclick = addBridges;
+    // 자동배치 뒤 줄 방향 전체 돌리기 (2026-10-22): 고른 지붕이 있으면 그것만, 없으면 전부. 현재 각도(자동이면 결과 각도)에서 ±5°
+    const rotRows = dv => {
+      const r = null, targets = roofs.filter(x => x.result);   // 전체(사용자 지시: 모듈 각도 전체 돌리기)
+      if (!targets.length) { hint('먼저 배치를 하세요.'); return; }
+      targets.forEach(x => { const cur = x.rowAngle != null && x.rowAngle !== '' ? +x.rowAngle : ((x.result && x.result.rowAngle) || 0); x.rowAngle = Math.round(((cur + dv + 540) % 360) - 180); recompute(x); });
+      renderList(); save();
+      hint((r ? r.name : '지붕 ' + targets.length + '개') + ' 줄 각도 ' + targets[0].rowAngle + '° (수동) — 「줄 자동」으로 되돌림');
+    };
+    $('btnRotL').onclick = () => rotRows(5); $('btnRotR').onclick = () => rotRows(-5);
+    $('btnRotAuto').onclick = () => { const targets = roofs; targets.forEach(x => { delete x.rowAngle; recompute(x); }); renderList(); save(); hint('줄 방향 자동으로'); };
     $('btnLadder').onclick = () => { addFixture('ladder'); const l = fixtures.filter(x => x.kind === 'ladder').pop(); if (l) openElec(l); };
     $('btnNas').onclick = saveToNas;
     // 위반건축물: 대장 PDF 읽기 / 수동 체크
@@ -578,7 +589,7 @@
       if (!b) { $('bldHead').textContent = $('kepcoHead').textContent = '법정동을 못 찾음'; return; }
       geocoder.coord2Address(lng, lat, (ar, st) => {
         const ad = st === kakao.maps.services.Status.OK && ar[0] && ar[0].address;
-        if (ad) siteAddr = ad.address_name;
+        if (ad) { if (siteAddr !== ad.address_name) nasSite = null; siteAddr = ad.address_name; }   // 현장이 바뀌면 NAS 폴더도 다시 찾는다 (2026-10-22: 전 현장 폴더에 저장되던 문제)
         if (siteNameSrc !== 'search') {
           const road = st === kakao.maps.services.Status.OK && ar[0] && ar[0].road_address;
           if (road && road.building_name) setSiteName(road.building_name, 'kakao');
@@ -1482,7 +1493,7 @@
       const pg = new kakao.maps.Polygon({ path: fixRing(f).map(p => new kakao.maps.LatLng(p.lat, p.lng)),
         strokeWeight: isL ? 0 : 2, strokeColor: on ? '#00e5ff' : '#fff', fillColor: on ? '#00e5ff' : (isL ? '#fff' : FIX[f.kind].color), fillOpacity: isL ? (on ? 0.35 : 0.12) : 0.9, zIndex: 5 });
       pg.setMap(map); fixGfx.push(pg);
-      if (isL) (f.kind === 'bridge' ? bridgeLines(f) : ladderLines(f)).forEach(seg => { const pl = new kakao.maps.Polyline({ path: seg.map(p => new kakao.maps.LatLng(p.lat, p.lng)), strokeWeight: 2, strokeColor: on ? '#00e5ff' : '#ffeb3b', strokeOpacity: 1, zIndex: 6 }); pl.setMap(map); fixGfx.push(pl); });
+      if (isL) (f.kind === 'bridge' ? bridgeLines(f) : ladderLines(f)).forEach(seg => { const pl = new kakao.maps.Polyline({ path: seg.map(p => new kakao.maps.LatLng(p.lat, p.lng)), strokeWeight: 2, strokeColor: on ? '#00e5ff' : '#ffeb3b', strokeOpacity: 1, zIndex: 6 }); pl.setMap(map); fixGfx.push(pl); kakao.maps.event.addListener(pl, 'click', () => { if (drawing || editing || Date.now() < lastPick) return; lastPick = Date.now() + 300; setPick({ roofId: null, kind: 'fix', idx: i }); }); });   // 사다리는 선 위를 눌러도 열리게 (2026-10-22)
       kakao.maps.event.addListener(pg, 'click', () => { if (drawing || editing || Date.now() < lastPick) return; lastPick = Date.now() + 300; setPick({ roofId: null, kind: 'fix', idx: i }); });
       const el = document.createElement('div'); el.className = 'lbl fix'; el.textContent = fixLabel(f);
       const ov = new kakao.maps.CustomOverlay({ position: new kakao.maps.LatLng(f.c.lat, f.c.lng), content: el, xAnchor: 0, yAnchor: 0, zIndex: 21 });
@@ -1663,7 +1674,7 @@
       const span = kind === 'gable-ew' ? res.depthM / spans : kind === 'gable-ns' ? res.widthM / spans : 0;
       const ridgeH = kind === 'flat' ? eaveH : eaveH + span / 2 * Math.tan(roofSlope * Math.PI / 180);
       const dSlope = opt.orient === 'portrait' ? opt.modL : opt.modS;
-      const tiers = Math.max(1, opt.tiers | 0), tilt = r.type === 'flush' ? 0 : (Number(opt.tilt) || 0);
+      const tiers = Math.max(1, (res.tiers || opt.tiers) | 0), tilt = r.type === 'flush' ? 0 : (Number(opt.tilt) || 0);
       const arraySlope = tiers * dSlope + (tiers - 1) * (opt.tierGap || 0);
       const arrayH = r.type === 'flush' ? 0.15 : arraySlope * Math.sin(tilt * Math.PI / 180);
       const arrayDepth = r.type === 'flush' ? dSlope : arraySlope * Math.cos(tilt * Math.PI / 180);
@@ -1724,7 +1735,8 @@
         const buf = await templateFile.arrayBuffer(); await withMemo();
         hint('배치도·측면도 그리고 표 채우는 중…');
         const imgs = { planMap: await Proposal.drawPlanSheet(data, { satellite: true }), plan: await Proposal.drawPlanSheet(data), section: Proposal.drawSectionSheet(data), cover };
-        imgs.selfPages = (data.profitSel.self || []).map(mode => ({ mode, png: Proposal.drawSelfSheet(RpsUI.selfFor(mode), data) }));   // 자가소비 쪽(계약방식별)
+        data.selfRes = (data.profitSel.self || []).map(mode => RpsUI.selfFor(mode));            // 자가소비 결과(계약방식별) → 원본 42~44쪽 표에 채움
+        data.selfBase = data.selfRes.length ? RpsUI.selfFor('단순병렬', true) : null;             // 42쪽: 전량 자가소비(요금표) 기준
         const blob = await Proposal.fillTemplate(buf, data, imgs);
         const name = templateFile.name.replace(/\.pptx$/i, '') + '_' + (siteName || '현장').replace(/[\\/:*?"<>|]/g, '') + '_' + data.kw.toFixed(0) + 'kW.pptx';
         showDownload(blob, name);                                                   // 자동 내려받기 + 화면 버튼(자동이 막혀도 직접 누르게)
@@ -1898,9 +1910,11 @@
       const m = await consultP; h = ((m && m.hits) || []).find(x => x.no);
       if (h) { if (pg) pg.step('주소로 못 찾음 → 상담번호 ' + h.no + ' 로 다시 검색'); sd = await Nas.siteDir({ addr: '', no: h.no, name: '', noCreate: true, onYear }); }
     }
-    if (!sd) {
-      if (pg) pg.step('기존 폴더 없음 → 올해·이달에 새 폴더 만들기');
-      sd = await Nas.siteDir({ addr, altAddr: siteName !== addr ? siteName : '', no: h ? h.no : '', name: (h && h.name) || (siteName && siteName !== addr ? siteName : '') });
+    if (!sd) {   // 폴더가 없으면 만들지 않고 NAS 저장을 건너뛴다 (2026-10-22 사용자 지시)
+      yearLine.remove();
+      if (pg) pg.step('NAS 에 현장 폴더 없음 → 저장 건너뜀');
+      hint('NAS 에 「' + addr + '」 현장 폴더가 없어 NAS 저장은 건너뜁니다. 폴더를 만든 뒤 다시 하세요.');
+      return null;
     }
     yearLine.remove();
     nasSite = sd;
@@ -2284,6 +2298,8 @@
     // 토지·주차장은 지붕마다 방위각·경계 이격·단수를 따로 둘 수 있다(목록의 버튼)
     if (r.azimuth != null) { opt.azimuth = r.azimuth; opt.align = 'south'; }   // 방위각을 주면 정남 기준으로 돈다 (주차장은 기본 자동 맞춤)
     opt.flipAxis = !!r.flip;                                                     // 형태 버튼 재탭으로 뒤집은 방향(남서향↔남동향)
+    if (r.rowAngle != null && r.rowAngle !== '') opt.rowAngle = r.rowAngle;     // ↺↻ 버튼으로 돌린 줄 각도(수동)
+    opt.parking = r.type === 'parking';
     if (r.type === 'ground' && r.terrain) { opt.groundGradN = r.terrain.gradN; opt.groundGradE = r.terrain.gradE; }   // 지면 경사로 이격 보정
     if (r.margin != null) opt.margin = r.margin;
     if (r.tiers) opt.tiers = r.tiers;
@@ -2684,18 +2700,38 @@
   }
 
   // ------------------------------------------------------------ 저장
+  // Ctrl+Z 되돌리기 (2026-10-22 사용자 지시): save() 할 때마다 직전 저장본을 쌓아 두고, 되돌리면 그 저장본을 다시 읽어 전부 다시 그린다
+  const hist = []; let histBusy = false;
+  function undo() {
+    if (!hist.length) { hint('되돌릴 작업이 없습니다.'); return; }
+    const s = hist.pop(); histBusy = true;
+    try {
+      roofs.forEach(clearGfx); buildings.forEach(b => b.gfx && b.gfx.setMap(null));
+      localStorage.setItem(STORE, s); load();
+      renderTypes(); fillSettings(); roofs.forEach(recompute); drawObstacles(); drawFixtures(); renderList();
+      if (typeof RpsUI !== 'undefined') RpsUI.setSite(siteName);
+    } catch (e) { console.warn('undo', e); }
+    finally { histBusy = false; }
+    hint('되돌렸습니다 (Ctrl+Z, 남은 ' + hist.length + '단계)');
+  }
   function save() {
     try {
-      localStorage.setItem(STORE, JSON.stringify({
+      const prev = localStorage.getItem(STORE);
+      const next = JSON.stringify(snapshot());
+      if (!histBusy && prev && prev !== next) { hist.push(prev); if (hist.length > 50) hist.shift(); }
+      localStorage.setItem(STORE, next);
+    } catch (e) { /* 저장 실패는 치명적이지 않다 */ }
+  }
+  function snapshot() {
+    return ({
         curType, settings, siteName, siteAddr, shade, moduleCfg, edits,
         roofs: roofs.map(r => ({ id: r.id, name: r.name, type: r.type, points: r.points, src: r.src, floors: r.floors, floorsManual: r.floorsManual, spans: r.spans, vent: r.vent,
           parcels: r.parcels, extra: r.extra, review: r.review && !r.review.pending ? r.review : undefined, force: r.force,
-          azimuth: r.azimuth, margin: r.margin, tiers: r.tiers, terrain: r.terrain, moved: r.moved, flip: r.flip, ventN: r.ventN, ventPos: r.ventPos, ridgeOff: r.ridgeOff, ridgeExt: r.ridgeExt, ridgeOn: r.ridgeOn, attach: r.attach, ventExtra: r.ventExtra, ventH: r.ventH, rect: r.rect })),
+          azimuth: r.azimuth, margin: r.margin, tiers: r.tiers, terrain: r.terrain, moved: r.moved, flip: r.flip, rowAngle: r.rowAngle, ventN: r.ventN, ventPos: r.ventPos, ridgeOff: r.ridgeOff, ridgeExt: r.ridgeExt, ridgeOn: r.ridgeOn, attach: r.attach, ventExtra: r.ventExtra, ventH: r.ventH, rect: r.rect })),
         // 음영 장애물로 다시 쓰려고 주변 건물도 남긴다 (그림은 다시 그리지 않는다)
         buildings: buildings.map(b => ({ id: b.id, name: b.name, ring: b.ring, floors: b.floors })),
         fixtures: fixtures.map(f => ({ id: f.id, kind: f.kind, c: f.c, w: f.w, h: f.h, ang: f.ang, manual: f.manual })),
-      }));
-    } catch (e) { /* 저장 실패는 치명적이지 않다 */ }
+      });
   }
   function load() {
     try {

@@ -28,10 +28,10 @@ const Layout = (() => {
     flush:   { label: '남북지붕 · 원단',       orient: 'portrait', tiers: 1, tierGap: 0.05, tilt: 10, shadeAngle: 22, autoGap: true, arrayGap: 0.05,
                ridge: true, spans: 1, eaveSetback: 0.5, ridgeSetback: 0.3, lift: 0, colBlock: 20, blockGap: 0.6, frontLift: 0.5, maxLiftH: 4 },   // frontLift = 앞다리(지붕면에서 띄움), maxLiftH = 북면 블록 지붕 위 최대 높이(m)
     // 평슬라브: 정남 경사거치, 줄마다 후면입사각 이격
-    slab:    { label: '평슬라브 · 경사거치',   orient: 'portrait', tiers: 1, tierGap: 0.05, tilt: 15, shadeAngle: 22, autoGap: true, arrayGap: 2.5, colBlock: 20, blockGap: 0.6 },
+    slab:    { label: '평슬라브 · 경사거치',   orient: 'portrait', tiers: 0, tierGap: 0.05, tilt: 15, shadeAngle: 22, autoGap: true, arrayGap: 2.5, colBlock: 20, blockGap: 0.6 },
     // 토지(노지): 필지 외곽선 안에 정남 2단 거치. 앞뒤는 후면입사각 22° 이격, 좌우는 30열마다 2m 통로(점검·장비 진입). 경계 이격 3m(펜스).
     //   필지는 건물처럼 축이 뚜렷하지 않아 줄 방향은 기본 정남. 경사각은 2단 기준 15°(설정에서 바꿀 수 있음).
-    ground:  { label: '토지 · 노지 2단',       orient: 'portrait', tiers: 2, tierGap: 0.10, tilt: 15, shadeAngle: 22, autoGap: true, arrayGap: 3.0,
+    ground:  { label: '토지 · 노지',          orient: 'portrait', tiers: 0, tierGap: 0.10, tilt: 15, shadeAngle: 22, autoGap: true, arrayGap: 3.0,
                colBlock: 30, blockGap: 2.0, margin: 3.0, align: 'south' },   // 지적경계 3m 이격 = 펜스 돌릴 공간(사용자 지정)
     // 주차장 캐노피: 주차장 면적 위에 1~4단(지붕 목록에서 고름) 경사 10°. 방위각으로 돌린다.
     //   줄은 기본으로 주차장(건물) 축에 맞추고(align auto), 목록에서 방위각을 주면 그때 정남 기준 방위각으로 돈다.
@@ -41,7 +41,10 @@ const Layout = (() => {
 
   const DEFAULTS = {
     ridge: false, spans: 1, eaveSetback: 0.5, ridgeSetback: 0.3, lift: 0,   // 원단(용마루 분할) 전용, 다른 형태는 안 씀
-    maxLiftH: 4,          // 원단 북면 블록이 지붕면 위로 올라갈 수 있는 최대 높이(m). 넘으면 끊고 22° 이격 뒤 새 블록
+    maxLiftH: 3.5,        // 원단 북면 블록이 지붕면 위로 올라갈 수 있는 최대 높이(m). 넘으면 끊고 22° 이격 뒤 새 블록 (2026-10-22: 4 → 3.5)
+    maxRearH: 3.5,        // 경사거치 어레이 뒷단 최대 높이(m, 앞다리 포함). tiers 0(자동)이면 이 안에서 단수를 최대로, 숫자면 넘을 때만 줄인다 (2026-10-22 사용자 지시)
+    frontLift: 0.5,       // 앞다리 높이(m). 원단은 지붕면에서 띄우는 높이, 거치는 앞단 높이
+    rowAngle: '',         // 줄 방향 수동 각도(°, 수학각·동쪽 0·반시계 +). 비우면 자동(건물맞춤/정남)
     ventN: 2,             // 벤츄레이터 개수(동마다). 용마루 위에 고르게
     ventLen: 2,           // 벤츄레이터 한 개의 용마루 방향 길이(m). 폭(용마루 직각)은 1m
     ventPos: null,        // 사용자가 옮긴 벤츄레이터 중심 [{lat,lng}|null, ...] (전체 순번). null 이면 자동 자리
@@ -167,6 +170,8 @@ const Layout = (() => {
    * 건물에 맞춘다(남동/남서향). 넘어가면 정남(0°) 고정.
    */
   function pickRowAngle(rect, opt) {
+    // 수동 각도(자동배치 뒤 전체 돌리기, 2026-10-22): 값이 있으면 그대로
+    if (opt.rowAngle !== '' && opt.rowAngle != null && isFinite(+opt.rowAngle)) return { angle: fold(+opt.rowAngle), aligned: false, manual: true, buildingAngle: fold(rect.angle), azimuth: 0 };
     // 정남 고정 + 방위각: 앞면을 남쪽에서 시계방향(서쪽)으로 az 만큼 돌리면 줄은 수학각으로 −az 돈다
     // flipAxis: 사용자가 방향을 뒤집은 경우(형태 버튼 재탭). 정남+방위각이면 방위각 부호를, 건물맞춤이면 외접사각형의 다른 축을 쓴다(남서향↔남동향).
     if (opt.align === 'south') { const az = (opt.flipAxis ? -1 : 1) * (Number(opt.azimuth) || 0); return { angle: fold(-az), aligned: false, buildingAngle: fold(rect.angle), azimuth: az }; }
@@ -326,8 +331,14 @@ const Layout = (() => {
     const w = opt.orient === 'portrait' ? opt.modS : opt.modL;   // 줄 방향 폭
     const dSlope = opt.orient === 'portrait' ? opt.modL : opt.modS;   // 모듈 경사길이
     const m = Math.max(0, opt.margin);
-    const tiers = Math.max(1, opt.tiers | 0);
     const tilt = Math.max(0, Number(opt.tilt) || 0) * D2R;
+    // 단수: 0 이면 자동 — 뒷단 높이(앞다리 + 어레이 경사길이·sinθ)가 maxRearH 안에 드는 최대 단수(1~6). 숫자면 넘을 때만 줄인다. 캐노피(주차장)는 높이 제한 없음
+    const rearOf = t => (Number(opt.frontLift) || 0) + (t * dSlope + (t - 1) * opt.tierGap) * Math.sin(tilt);
+    const maxRear = opt.parking ? 0 : (Number(opt.maxRearH) || 0);
+    let tiers = Math.max(0, opt.tiers | 0), tierCapped = false;
+    if (!tiers) { tiers = 1; if (maxRear > 0 && tilt > 0) { while (tiers < 6 && rearOf(tiers + 1) <= maxRear + 1e-9) tiers++; } else tiers = 2; }
+    else if (maxRear > 0 && tilt > 0 && rearOf(tiers) > maxRear + 1e-9) { while (tiers > 1 && rearOf(tiers) > maxRear + 1e-9) tiers--; tierCapped = true; }
+    const rearH = Math.round(rearOf(tiers) * 100) / 100;
     const cosT = Math.cos(tilt);
     const d = dSlope * cosT;                      // 평면에서 차지하는 깊이
     const tierGap = opt.tierGap * cosT;
@@ -489,7 +500,8 @@ const Layout = (() => {
       areaM2: Math.round(areaM2 * 10) / 10,
       rowAngle: Math.round(row.angle * 10) / 10,
       buildingAngle: Math.round(row.buildingAngle * 10) / 10,
-      aligned: row.aligned,
+      aligned: row.aligned, manual: !!row.manual,
+      tiers, tierCapped, rearH,
       azimuth: row.azimuth || 0,
       rows,
       pitch: Math.round((d * tiers + tierGap * (tiers - 1) + arrayGap) * 100) / 100,

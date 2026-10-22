@@ -187,9 +187,9 @@ const RpsUI = (() => {
     return { monthly: r.monthly, mode, re100: r.re100, surplusPct: r.surplusPct };
   }
   /** 제안서용: 계약방식 mode 로 계산한 자가소비 결과(화면 상태는 그대로) */
-  function selfFor(mode) {
+  function selfFor(mode, plain) {
     const saved = st.ppMode; st.ppMode = mode;
-    try { const base = RPS.computeSelf(Object.assign({}, st, { selfOverride: null })); const ov = ppOverride(base); const r = ov ? RPS.computeSelf(Object.assign({}, st, { selfOverride: ov })) : base; r.ovInfo = ov; r.mode = mode; r.ppRate = st.ppRate || 0; r.pp = st.pp; return r; }
+    try { const base = RPS.computeSelf(Object.assign({}, st, { selfOverride: null })); const ov = plain ? null : ppOverride(base); const r = ov ? RPS.computeSelf(Object.assign({}, st, { selfOverride: ov })) : base; r.ovInfo = ov; r.mode = mode; r.ppRate = st.ppRate || 0; r.pp = st.pp; return r; }
     finally { st.ppMode = saved; }
   }
   function renderSelf() {

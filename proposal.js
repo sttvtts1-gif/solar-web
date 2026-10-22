@@ -574,12 +574,15 @@ const Proposal = (() => {
       zip.file('ppt/slides/slide1.xml', s1);
     }
     // 37쪽: 위성사진 배치도(앱 화면 꼴). 그 뒤에 CAD 도면 배치도를 한 장 더 넣는다(37-2). 38쪽: 측면도.
-    if (imgs && imgs.planMap) zip.file('ppt/media/image141.png', dataUrlBytes(imgs.planMap));
+    // 배치도·측면도 그림 이름은 원본 판마다 다르다(10-06 판 141/142, 10-22 판 142/143) → 37·38쪽 rels 에서 읽는다 (2026-10-22)
+    const imgOf = async n => { const f = zip.file('ppt/slides/_rels/slide' + n + '.xml.rels'); if (!f) return null; const rl = await f.async('string'); return (rl.match(/media\/(image\d+\.(?:png|jpe?g))/i) || [])[1] || null; };
+    const img37 = (await imgOf(37)) || 'image141.png', img38 = (await imgOf(38)) || 'image142.png';
+    if (imgs && imgs.planMap) zip.file('ppt/media/' + img37, dataUrlBytes(imgs.planMap));
     if (imgs && imgs.plan) {
-      if (imgs.planMap) await addSlideCopy(zip, 37, 'image141.png', dataUrlBytes(imgs.plan), '배치도', '배치도(도면)');
-      else zip.file('ppt/media/image141.png', dataUrlBytes(imgs.plan));
+      if (imgs.planMap) await addSlideCopy(zip, 37, img37, dataUrlBytes(imgs.plan), '배치도', '배치도(도면)');
+      else zip.file('ppt/media/' + img37, dataUrlBytes(imgs.plan));
     }
-    if (imgs && imgs.section) zip.file('ppt/media/image142.png', dataUrlBytes(imgs.section));
+    if (imgs && imgs.section) zip.file('ppt/media/' + img38, dataUrlBytes(imgs.section));
     const kw = d.kw, T = computeTables(kw, d.costPerKw, { underground: !!d.underground });
     const note = [kepcoLine(d.lines)].concat((d.memo || []).slice(0, 1).map(m => '상담일지: ' + m.slice(0, 70)));
     const get = async n => zip.file('ppt/slides/slide' + n + '.xml').async('string');
@@ -611,10 +614,7 @@ const Proposal = (() => {
     x = setNote(x, note);
     zip.file('ppt/slides/slide49.xml', x);
     // 자가소비 쪽(계약방식별 그림 한 장씩): 37쪽(그림 한 장짜리) 복제 → 49 뒤에 차례로. 발전사업을 안 고르면 47~49 를 뺀다 (2026-10-22)
-    if (imgs && imgs.selfPages && imgs.selfPages.length) {
-      let after = 49;
-      for (const pgs of imgs.selfPages) { after = await addSlideCopy(zip, 37, 'image141.png', dataUrlBytes(pgs.png), '배치도', '자가소비 절감 분석 — ' + pgs.mode, after); }
-    }
+    await fillSelfPages(zip, d);                                                  // 자가소비 42(전량)·43(상계/단순)·44(자가PPA), 안 고른 쪽은 뺀다
     if (d.profitSel && !d.profitSel.rps) await removeSlides(zip, [47, 48, 49]);
     // JSZip 이 만든 폴더 항목(ppt/, ppt/media/ …)이 있으면 파워포인트가 "복구" 를 띄운다 → 전부 뺀다
     // (zip.remove 는 폴더 아래 파일까지 지워 버린다 → 항목만 빼낸다)
@@ -659,6 +659,68 @@ const Proposal = (() => {
     g.fillText(r.override ? '#예상절감액 = 재생E 사용량 × (전력량요금 + 기후환경 9 + 연료비조정 5)' + (r.mode === '상계거래' ? ' + 잉여 × 전력량요금(상계)' : r.mode === '자가PPA' ? ' + 잉여 × SMP+1REC' : ' · 단순병렬은 잉여 수익 없음') + ' · 발전량 = 설비용량 × 월별 시간대 발전량(kWh/kW)' : '#예상절감액 = 발전량 × (전력량요금 + 기후환경 9 + 연료비조정 5) · 발전시간 ' + r.input.baseGenTime + 'h/일', L, y + 10);
     return cv.toDataURL('image/png');
   }
+  /** 도형(이름) 안에서만 글 run 을 바꾼다: map { '원래 run 글': '새 글' } (빈 문자열이면 지움) */
+  function setRuns(xml, shapeName, map) {
+    return xml.replace(/<p:sp>[\s\S]*?<\/p:sp>/g, sp => {
+      if (sp.indexOf('name="' + shapeName + '"') < 0) return sp;
+      Object.keys(map).forEach(k => { sp = sp.split('<a:t>' + esc(k) + '</a:t>').join('<a:t>' + esc(map[k]) + '</a:t>'); });
+      return sp;
+    });
+  }
+  /**
+   * 자가소비 쪽 채우기 (원본 10-22 판, 2026-10-22 사용자 지시): 42 = 전량 자가소비(요금표 기준, 「없을때」 엑셀 꼴) · 43 = 상계거래/단순병렬 · 44 = 자가PPA.
+   * d.selfRes = RpsUI.selfFor(mode) 결과들, d.selfBase = 전량 자가소비 결과. 파워플래너 자료가 없으면 43~46 은 뺀다(사용량이 없어 못 채움).
+   * 상계·단순을 둘 다 고르면 43 을 복제해 하나씩. 안 고른 쪽·발전사업은 removeSlides.
+   */
+  async function fillSelfPages(zip, d) {
+    const sel = d.profitSel || { rps: true, self: [] }, modes = sel.self || [], res = d.selfRes || [];
+    if (!modes.length || !res.length) { await removeSlides(zip, [42, 43, 44, 45, 46]); return; }
+    const get = async n => { const f = zip.file('ppt/slides/slide' + n + '.xml'); return f ? f.async('string') : null; };
+    const put = (n, x) => zip.file('ppt/slides/slide' + n + '.xml', x);
+    const k = v => Math.round(v || 0).toLocaleString();
+    const co2 = r => (r.totalGen * 0.45941 / 1000);                                  // 원본 주석: 전력배출계수 0.45941 tCO2-eq/MWh
+    const byMode = m => res.find(r => r.mode === m);
+    // ---- 42: 전량 자가소비 (요금표 × 발전량)
+    const b = d.selfBase || res[0];
+    let x = await get(42);
+    if (x && b) {
+      const lab = [b.labels.category, b.labels.voltage, b.labels.selection];
+      x = setTable(x, '표 13', [null, null].concat(b.monthly.map((m, i) => [i === 0 ? lab[0] : i === 4 ? lab[1] : i === 8 ? lab[2] : '', m.month + '월', '9.0', m.energyCharge.toFixed(1), '5', m.totalUnitRate.toFixed(1), k(m.gen), k(m.saving1Y)])));
+      x = setTable(x, '표 18', [[null, k(b.avgMonthly) + ' 원'], [null, k(b.total1Y) + ' 원'], [null, k(b.total1Y * 20) + ' 원'], [null, co2(b).toFixed(2) + ' tCO2-eq/MWh/년']]);
+      put(42, x);
+    }
+    // ---- 43·44: 파워플래너 실사용량 기준
+    const hasUse = res.some(r => r.override);
+    const fillUse = (x, r, mode, isPpa) => {
+      const S = key => r.monthly.reduce((a, m) => a + (m[key] || 0), 0);
+      x = setTable(x, '표 3', [null, null].concat(r.monthly.map(m => [(m.y ? m.y + '년 ' : '') + m.month + '월', k(m.use), k(m.self), k(m.surplus), k(m.elecSaving), k(m.surplusSaving), k(m.saving1Y)]),
+        [['합 계', k(S('use')), k(S('self')), k(S('surplus')), k(S('elecSaving')), k(S('surplusSaving')), k(r.total1Y)]]));
+      x = setTable(x, '표 4', [null, [r.capacity.toFixed(3) + 'kW', String(r.input.baseGenTime), mode, r.labels.category + ' ' + r.labels.voltage + ' ' + r.labels.selection, co2(r).toFixed(2), (r.ovInfo.re100 * 100).toFixed(2) + '%', k(r.total1Y)]]);
+      x = isPpa ? setTable(x, '표 7', [null, [(r.savingRate + 14).toFixed(1), (r.ppRate || 0).toFixed(1)]]) : setTable(x, '표 6', [null, [(r.savingRate + 14).toFixed(1)]]);
+      x = x.replace('<a:t>   %</a:t>', '<a:t> ' + (r.ovInfo.surplusPct * 100).toFixed(1) + '%</a:t>');   // "#최근 1년간 … 잉여량    %"
+      return x;
+    };
+    const rm = [];
+    if (!hasUse) rm.push(43, 44, 45, 46);
+    else {
+      const net = byMode('상계거래'), simple = byMode('단순병렬'), ppa = byMode('자가PPA');
+      if (net || simple) {
+        const first = net || simple;
+        let y = await get(43);
+        y = fillUse(y, first, first.mode, false);
+        y = setRuns(y, 'TextBox 2', net ? { ',': '', ' 단순': '' } : { '상계': '단순병렬', ',': '', ' 단순': '' });
+        put(43, y);
+        if (net && simple) {                                                       // 둘 다: 43 복제 → 단순병렬
+          const n2 = await addSlideCopy(zip, 43, null, null, null, null, 43);
+          let z = fillUse(await get(n2), simple, simple.mode, false);
+          z = setRuns(z, 'TextBox 2', { '단순병렬': '', '상계': '단순병렬', ',': '', ' 단순': '' });
+          put(n2, z);
+        }
+      } else rm.push(43);
+      if (ppa) { let y = await get(44); y = fillUse(y, ppa, ppa.mode, true); put(44, y); } else rm.push(44);
+    }
+    if (rm.length) await removeSlides(zip, rm);
+  }
   function payLabelOf(p) { return !p || p.year === '-' ? '30년 내 미회수' : p.year + '년 ' + p.month + '개월'; }
   /** 슬라이드 n 들을 뺀다(sldIdLst·presentation.rels·파일·[Content_Types]·그 노트). 발전사업 손익을 안 넣을 때 47~49 */
   async function removeSlides(zip, nums) {
@@ -686,9 +748,10 @@ const Proposal = (() => {
     const mNo = Math.max(...files.map(f => (f.match(/^ppt\/media\/image(\d+)\./) || [0, 0])[1] | 0)) + 1;
     let xml = await zip.file('ppt/slides/slide' + srcNo + '.xml').async('string');
     let rels = await zip.file('ppt/slides/_rels/slide' + srcNo + '.xml.rels').async('string');
-    rels = rels.replace(imgName, 'image' + mNo + '.png').replace(/<Relationship [^>]*notesSlide[^>]*\/>/g, '');
+    const withImg = !!(imgName && imgBytes);                                      // 표만 있는 쪽(43)도 복제할 수 있게 그림은 선택 (2026-10-22)
+    rels = (withImg ? rels.replace(imgName, 'image' + mNo + '.png') : rels).replace(/<Relationship [^>]*notesSlide[^>]*\/>/g, '');
     if (titleFrom) xml = xml.replace('<a:t>' + titleFrom + '</a:t>', '<a:t>' + esc(titleTo) + '</a:t>');
-    zip.file('ppt/media/image' + mNo + '.png', imgBytes);
+    if (withImg) zip.file('ppt/media/image' + mNo + '.png', imgBytes);
     zip.file('ppt/slides/slide' + newNo + '.xml', xml);
     zip.file('ppt/slides/_rels/slide' + newNo + '.xml.rels', rels);
     let ct = await zip.file('[Content_Types].xml').async('string');
