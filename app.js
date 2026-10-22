@@ -808,7 +808,8 @@
 
   /** O / X 창. 확인(O) 이면 true. */
   /** 진행 창: 누르자마자 떠서 단계가 보이게. progress('제목') → p.step('글'), p.done('마지막 글') / p.fail(err) */
-  function progress(title) {
+  function progress(title, opt) {
+    if (opt && opt.bg) return bgProgress(title);
     $('prog_title').textContent = title; $('prog_log').textContent = ''; $('prog_close').style.display = 'none'; $('progModal').classList.add('on');
     const log = $('prog_log'); let n = 0;
     const add = (t, cls) => { const d = document.createElement('div'); d.textContent = t; if (cls) d.style.color = cls; log.appendChild(d); log.scrollTop = log.scrollHeight; };
@@ -818,6 +819,22 @@
       fail: e => { add('✖ ' + (e && e.message || e), '#ff8a80'); $('prog_close').style.display = ''; $('prog_close').onclick = () => $('progModal').classList.remove('on');
         if (e && e.repick) { const b = document.createElement('button'); b.className = 'btn accent'; b.textContent = '📁 폴더 다시 고르기'; b.onclick = async () => { try { const h = await Nas.ensureRoot(true); nasSite = null; add('저장 폴더: ' + h.name + ' — 다시 「NAS 저장」을 누르세요', '#8ce99a'); const nm = $('nasRootName'); if (nm) nm.textContent = h.name; } catch (x) { add('취소: ' + x.message, '#ff8a80'); } }; log.appendChild(b); } },
       close: () => $('progModal').classList.remove('on'),
+    };
+    return p;
+  }
+  /** 화면을 막지 않는 작은 진행 띠(왼쪽 아래). 끝나면 ✔ 로 바뀌고 잠시 뒤 사라진다 — 파워플래너 가져오기처럼 오래 걸리는 일은 이걸로 (2026-10-22 사용자 지시) */
+  function bgProgress(title) {
+    let el = $('bgProg');
+    if (!el) { el = document.createElement('div'); el.id = 'bgProg'; el.className = 'bgprog'; document.body.appendChild(el); }
+    el.style.display = ''; el.classList.remove('ok', 'bad');
+    let n = 0, hideT = null;
+    const set = (t, cls) => { el.innerHTML = '<b>' + title + '</b><span>' + t.replace(/</g, '&lt;') + '</span><button title="닫기">×</button>'; el.querySelector('button').onclick = () => { el.style.display = 'none'; }; if (cls) el.classList.add(cls); };
+    set('시작…');
+    const p = {
+      step: t => set((++n) + '. ' + t),
+      done: t => { set('✔ ' + t, 'ok'); hint(title + ' — ' + t); if (window.Native && window.Native.toast) try { window.Native.toast(title + ' 끝: ' + t); } catch (e) {} clearTimeout(hideT); hideT = setTimeout(() => { el.style.display = 'none'; }, 8000); },
+      fail: e => { set('✖ ' + (e && e.message || e), 'bad'); hint(title + ' 실패: ' + (e && e.message || e)); },
+      close: () => { el.style.display = 'none'; },
     };
     return p;
   }
@@ -1330,7 +1347,8 @@
       if (typeof RpsUI !== 'undefined' && RpsUI.getState) RpsUI.getState().ppRate = parseFloat($('pp_rate').value) || 0;
       if (!id || !pw) { hint('아이디와 비밀번호를 넣으세요.'); return; }
       localStorage.setItem('solar.pp.id', id); m.classList.remove('on');
-      const pg = progress('🔌 파워플래너 가져오기');
+      const pg = progress('🔌 파워플래너 가져오기', { bg: true });               // 화면을 막지 않고 뒤에서 — 그동안 배치 등 다른 작업 가능
+      hint('파워플래너에서 사용량을 가져오는 중입니다(1~2분). 그동안 다른 작업을 해도 됩니다 — 끝나면 알려 드립니다.');
       try {
         pg.step('중계로 로그인 요청 (비밀번호는 저장하지 않음)');
         const res = await PP.fetchUsage(id, pw, type, t => pg.step(t));
@@ -1967,7 +1985,7 @@
       if (!roofs.some(r => r.result)) throw new Error('먼저 배치를 하세요.');
       pg.step('배치 자료 모으는 중');
       const data = await proposalData(false); if (!data) throw new Error('먼저 배치를 하세요.');
-      const sd = await siteFolder(); if (!sd) return;
+      const sd = await siteFolder(); if (!sd) { pg.close(); return; }                 // 폴더 없음 → 저장 건너뜀, 진행창 닫음(안내는 hint 에) (2026-10-22)
       const base = (siteName || '현장').replace(/[\\/:*?"<>|]/g, '') + '_' + data.kw.toFixed(0) + 'kW_' + new Date().toISOString().slice(0, 10);
       pg.step('폴더: ' + sd.path + (sd.created ? ' (새로 만듦)' : ' (' + sd.matched + ' 일치)'));
       pg.step('배치도(위성) 그리는 중'); await Nas.write(sd.dir, base + '_배치도_위성.png', Nas.dataUrlBlob(await Proposal.drawPlanSheet(data, { satellite: true })));
