@@ -42,6 +42,9 @@ const Layout = (() => {
   const DEFAULTS = {
     ridge: false, spans: 1, eaveSetback: 0.5, ridgeSetback: 0, lift: 0,   // 원단(용마루 분할) 전용, 다른 형태는 안 씀
     maxLiftH: 3.5,        // 원단 북면 블록이 지붕면 위로 올라갈 수 있는 최대 높이(m). 넘으면 끊고 22° 이격 뒤 새 블록 (2026-10-22: 4 → 3.5)
+    frontTiers: '3',      // 원단 남면(앞단) 블록 단수: '2' | '3' | '2,3'(번갈아). 블록 사이는 faceGap (2026-10-22 사용자 지시)
+    backTiers: '3',       // 원단 북면(뒷단) 블록 단수(높이 maxLiftH 와 함께 끊음)
+    faceGap: 0.6,         // 원단 블록 사이 이격(m)
     maxRearH: 3.5,        // 경사거치 어레이 뒷단 최대 높이(m, 앞다리 포함). tiers 0(자동)이면 이 안에서 단수를 최대로, 숫자면 넘을 때만 줄인다 (2026-10-22 사용자 지시)
     frontLift: 0.5,       // 앞다리 높이(m). 원단은 지붕면에서 띄우는 높이, 거치는 앞단 높이
     rowAngle: '',         // 줄 방향 수동 각도(°, 수학각·동쪽 0·반시계 +). 비우면 자동(건물맞춤/정남)
@@ -390,10 +393,18 @@ const Layout = (() => {
         // 용마루를 옮기면 남면은 경사각 그대로, 북면은 같은 처마 높이로 내려오는 다른 경사(tN)
         const ridgeH = (ridge - y0) * tS, tN = ridgeH / Math.max(0.5, y0n - ridge);
         const roofZ = y => y <= ridge ? (y - y0) * tS : (y0n - y) * tN;
-        let y = Math.max(y0 + eave, nextStart), n = 0;
+        // 남면: 앞단 블록 단수(frontTiers: 3 / 2 / 2,3 번갈아)마다 faceGap(0.6m) 띄우고 다음 블록 (2026-10-22)
+        const pat = s => { const a = String(s == null ? '' : s).split(/[,\s]+/).map(v => parseInt(v, 10)).filter(v => v > 0); return a.length ? a : [3]; };
+        const fp = pat(opt.frontTiers), bp = pat(opt.backTiers), fg = Math.max(0, Number(opt.faceGap) || 0);
+        let y = Math.max(y0 + eave, nextStart), n = 0, bi = 0, inB = 0, bStart = y;
         const first = y;
-        while (y + d <= ridge - rs + 1e-9) { ys.push(y); zAt.push({ zf: roofZ(y) + fl, zb: roofZ(y + d) + fl }); y += d + tierGap; n++; }
-        if (n) blocks.push({ rows: n, from: rel(first), to: rel(ys[ys.length - 1] + d), gap: r2(Math.max(0, first - (y0 + eave))), zf: r2(roofZ(first) + fl), zb: r2(roofZ(ys[ys.length - 1] + d) + fl) });
+        while (y + d <= ridge - rs + 1e-9) {
+          ys.push(y); zAt.push({ zf: roofZ(y) + fl, zb: roofZ(y + d) + fl }); n++; inB++;
+          const yEndRow = y + d;
+          if (inB >= fp[bi % fp.length]) { blocks.push({ rows: inB, from: rel(bStart), to: rel(yEndRow), gap: r2(Math.max(0, bStart - (bi === 0 ? y0 + eave : bStart - fg))), zf: r2(roofZ(bStart) + fl), zb: r2(roofZ(yEndRow) + fl) }); y = yEndRow + fg; bi++; inB = 0; bStart = y; }
+          else y = yEndRow + tierGap;
+        }
+        if (inB) blocks.push({ rows: inB, from: rel(bStart), to: rel(ys[ys.length - 1] + d), gap: r2(bi === 0 ? Math.max(0, first - (y0 + eave)) : fg), zf: r2(roofZ(bStart) + fl), zb: r2(roofZ(ys[ys.length - 1] + d) + fl) });
         // 북면 블록들 (부착이면 지붕면에 붙여 한 블록 — 북향, 들어올리지 않음, 다음 동 그림자 없음)
         // 북면은 **북쪽 처마선(뒷선)에 맞춰 뒤에서부터 채운다**: 먼저 용마루 바로 뒤에서 시작해 들어가는 줄을 세고, 남는 길이만큼 전부 북쪽으로 민다.
         // 그러면 빈자리가 용마루 쪽에 생겨 벤츄레이터와 겹치지 않는다(2026-10-12 사용자 지시). 블록 높이는 시작점 기준 상대값이라 밀어도 같다.
@@ -405,17 +416,18 @@ const Layout = (() => {
             if (nn) bks.push({ rows: nn, from: rel(f2), to: rel(rows[rows.length - 1].y + d), gap: 0, zf: r2(roofZ(f2) + fl), zb: r2(roofZ(rows[rows.length - 1].y + d) + fl), attached: true });
             return { rows, bks, top: null, end: nn ? rows[rows.length - 1].y + d : yStart };
           }
+          let nb = 0;
           while (yS + d <= y0n - eave + 1e-9) {
-            const base = roofZ(yS) + fl;                                   // 블록 앞줄 모듈면 높이
+            const base = roofZ(yS) + fl, kMax = bp[nb % bp.length];        // 블록 앞줄 모듈면 높이 · 이 블록 단수(뒷단 2/3/2,3)
             yy = yS; nn = 0;
-            while (yy + d <= y0n - eave + 1e-9 && base + (yy + d - yS) * tS - roofZ(yy + d) <= maxH + 1e-9) { rows.push({ y: yy, zf: base + (yy - yS) * tS, zb: base + (yy + d - yS) * tS }); yy += d + tierGap; nn++; }
+            while (nn < kMax && yy + d <= y0n - eave + 1e-9 && base + (yy + d - yS) * tS - roofZ(yy + d) <= maxH + 1e-9) { rows.push({ y: yy, zf: base + (yy - yS) * tS, zb: base + (yy + d - yS) * tS }); yy += d + tierGap; nn++; }
+            nb++;
             if (!nn) break;
             const yEnd = rows[rows.length - 1].y + d, zTop = base + (yEnd - yS) * tS;
             bks.push({ rows: nn, from: rel(yS), to: rel(yEnd), gap: r2(Math.max(0, yS - (ridge + rs))), zf: r2(base), zb: r2(zTop), lifted: r2(zTop - roofZ(yEnd)) });
             top = { y: yEnd, z: zTop };
-            if (tA - tN <= 1e-6) break;
-            // 다음 블록 앞줄(지붕면 + 앞다리)이 앞 블록 꼭대기의 그림자선 zTop − (y − yEnd)·tanα 밖에 오도록
-            yS = (zTop + yEnd * tA - y0n * tN - fl) / (tA - tN);
+            // 다음 블록 앞줄(지붕면 + 앞다리)이 앞 블록 꼭대기의 그림자선 zTop − (y − yEnd)·tanα 밖에 오도록. 최소 faceGap 은 띄운다
+            yS = Math.max(yEnd + fg, tA - tN > 1e-6 ? (zTop + yEnd * tA - y0n * tN - fl) / (tA - tN) : yEnd + fg);
           }
           return { rows, bks, top, end: top ? top.y : yStart };
         };

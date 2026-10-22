@@ -34,15 +34,22 @@ const Nas = (() => {
     try { const db = await idb(); await new Promise((res, rej) => { const t = db.transaction(STORE, 'readwrite').objectStore(STORE).put(h, 'root'); t.onsuccess = res; t.onerror = () => rej(t.error); }); } catch (e) {}
   }
   /** 폴더를 고른다(처음) 또는 저장된 폴더의 권한을 확인한다. 돌려주는 값: 폴더 핸들 */
+  /** 고른 폴더가 "02. 제안서작성"(연도 폴더들이 있는 곳) 또는 연도 폴더 자체인지 — 현장 폴더(12-2932 …)나 엉뚱한 폴더는 안 된다 (2026-10-22) */
+  async function isProposalRoot(h) {
+    if (/^\d{2}-\d{4}\s/.test(h.name)) return false;
+    if (yearOf(h.name)) return true;
+    try { return (await dirs(h)).some(([n]) => yearOf(n)); } catch (e) { return false; }
+  }
   async function ensureRoot(forcePick) {
     if (!available()) throw new Error('이 브라우저는 폴더 저장을 지원하지 않습니다. PC 크롬·엣지에서 쓰세요.');
     let h = forcePick ? null : await loadRoot();
     if (h) {
       let p = await h.queryPermission({ mode: 'readwrite' });
       if (p !== 'granted') p = await h.requestPermission({ mode: 'readwrite' });
-      if (p === 'granted') return h;
+      if (p === 'granted' && await isProposalRoot(h)) return h;                // 저장돼 있던 폴더가 현장 폴더면 다시 고르게
     }
     h = await window.showDirectoryPicker({ mode: 'readwrite', id: 'solar-nas' });
+    if (!(await isProposalRoot(h))) { const e = new Error('「' + h.name + '」 은 저장 기준 폴더가 아닙니다. N:\\02. 제안서작성 (안에 "01. 제안서작성(2026년)" 같은 연도 폴더가 있는 곳) 을 고르세요. 그 뒤로는 주소·상담번호로 현장 폴더를 자동으로 찾습니다.'); e.repick = true; throw e; }
     await saveRoot(h);
     return h;
   }

@@ -43,8 +43,8 @@
   let preview = null;
 
   // 형태별 상세 설정 키. 모듈 규격은 형태와 무관하게 공통(moduleCfg)이라 여기 없다.
-  const OPT_KEYS = ['frontLift', 'rowAngle', 'orient', 'tiers', 'tilt', 'shadeAngle', 'autoGap', 'arrayGap', 'tierGap', 'colGap', 'margin', 'align', 'alignLimit', 'eaveSetback', 'ridgeSetback', 'lift', 'colBlock', 'blockGap', 'azimuth'];
-  const NUM_KEYS = ['frontLift', 'rowAngle', 'tiers', 'tilt', 'shadeAngle', 'arrayGap', 'tierGap', 'colGap', 'margin', 'alignLimit', 'eaveSetback', 'ridgeSetback', 'lift', 'colBlock', 'blockGap', 'azimuth'];
+  const OPT_KEYS = ['faceGap', 'frontLift', 'rowAngle', 'orient', 'tiers', 'tilt', 'shadeAngle', 'autoGap', 'arrayGap', 'tierGap', 'colGap', 'margin', 'align', 'alignLimit', 'eaveSetback', 'ridgeSetback', 'lift', 'colBlock', 'blockGap', 'azimuth'];
+  const NUM_KEYS = ['faceGap', 'frontLift', 'rowAngle', 'tiers', 'tilt', 'shadeAngle', 'arrayGap', 'tierGap', 'colGap', 'margin', 'alignLimit', 'eaveSetback', 'ridgeSetback', 'lift', 'colBlock', 'blockGap', 'azimuth'];
   // 모듈 편집: 지도에서 드래그한 사각형 목록. 순서대로 적용(del=지움, add=되살림).
   // 위도·경도 상자라서 배치 설정을 바꿔 모듈 격자가 움직여도 "그 자리" 에 그대로 먹는다.
   let edits = [];
@@ -1493,14 +1493,15 @@
     const b = $('btnElec'); if (b) b.textContent = '⚡ 전기실' + (f ? ' ' + f.w + '×' + f.h : '');
   }
   /** 모듈 줄 각도 전체 돌리기 (1° 단위, 2026-10-22). 조절 버튼은 지도 위 고른 건물의 동쪽 끝선에 붙는다 */
-  function rotRows(dv) {
-    const targets = roofs.filter(x => x.result);
-    if (!targets.length) { hint('먼저 배치를 하세요.'); return; }
-    targets.forEach(x => { const cur = x.rowAngle != null && x.rowAngle !== '' ? +x.rowAngle : ((x.result && x.result.rowAngle) || 0); x.rowAngle = Math.round(((cur + dv + 540) % 360) - 180); recompute(x); });
+  function rotRows(dv, roofId) {
+    const x = roofs.find(q => q.id === roofId && q.result);                      // 조절판이 붙은 그 동만 (2026-10-22: 동별로)
+    if (!x) { hint('먼저 배치를 하세요.'); return; }
+    const cur = x.rowAngle != null && x.rowAngle !== '' ? +x.rowAngle : ((x.result && x.result.rowAngle) || 0);
+    x.rowAngle = Math.round(((cur + dv + 540) % 360) - 180); recompute(x);
     renderList(); save();
-    hint('모듈 줄 각도 ' + targets[0].rowAngle + '° (전체, 수동) — 「자동」을 누르면 건물맞춤/정남으로 돌아갑니다');
+    hint(x.name + ' 모듈 줄 각도 ' + x.rowAngle + '° (수동) — 「자동」을 누르면 건물맞춤/정남으로 돌아갑니다');
   }
-  function rotAuto() { roofs.forEach(x => { delete x.rowAngle; recompute(x); }); renderList(); save(); hint('모듈 줄 방향을 자동(건물맞춤/정남)으로 되돌렸습니다'); }
+  function rotAuto(roofId) { const x = roofs.find(q => q.id === roofId); if (!x) return; delete x.rowAngle; recompute(x); renderList(); save(); hint(x.name + ' 줄 방향을 자동(건물맞춤/정남)으로 되돌렸습니다'); }
   let rotCtl = null;
   function drawRotCtl() {
     if (rotCtl) { rotCtl.setMap(null); rotCtl = null; }
@@ -1510,7 +1511,7 @@
     const ang = r.rowAngle != null && r.rowAngle !== '' ? +r.rowAngle : r.result.rowAngle;
     const el = document.createElement('div'); el.className = 'rotctl';
     el.innerHTML = '<button data-d="1" title="반시계 1°">↺</button><b>' + ang + '°</b><button data-d="-1" title="시계 1°">↻</button><button class="auto" data-d="0" title="자동(건물맞춤/정남)으로">자동</button>';
-    el.querySelectorAll('button').forEach(b => { b.onclick = e => { e.stopPropagation(); const d = +b.dataset.d; if (d) rotRows(d); else rotAuto(); }; b.onmousedown = e => e.stopPropagation(); b.ontouchstart = e => e.stopPropagation(); });
+    el.querySelectorAll('button').forEach(b => { b.onclick = e => { e.stopPropagation(); const d = +b.dataset.d; if (d) rotRows(d, r.id); else rotAuto(r.id); }; b.onmousedown = e => e.stopPropagation(); b.ontouchstart = e => e.stopPropagation(); });
     rotCtl = new kakao.maps.CustomOverlay({ position: new kakao.maps.LatLng(p.lat, p.lng), content: el, xAnchor: 0, yAnchor: 0.5, zIndex: 30 });
     rotCtl.setMap(map);
   }
@@ -2335,6 +2336,7 @@
     if (r.type === 'ground' && r.terrain) { opt.groundGradN = r.terrain.gradN; opt.groundGradE = r.terrain.gradE; }   // 지면 경사로 이격 보정
     if (r.margin != null) opt.margin = r.margin;
     if (r.tiers) opt.tiers = r.tiers;
+    if (r.frontTiers) opt.frontTiers = r.frontTiers; if (r.backTiers) opt.backTiers = r.backTiers;   // 원단 앞단·뒷단 블록 단수
     if (r.extra && r.extra.length) opt.extraRings = r.extra;
     const shadeArg = { on: shade.on, obstacles: obstaclesFor(r), blockers: blockersFor(r) };
     if (!(opt.tiers | 0) && r.type !== 'flush') {
@@ -2431,7 +2433,7 @@
     const prev = shapeEdit; shapeEdit = shapeEdit === r.id ? null : r.id;
     if (prev && prev !== r.id) { const q = roofs.find(x => x.id === prev); if (q) recompute(q); }
     recompute(r); renderList();
-    hint(shapeEdit ? r.name + ' — 모양 편집: 하늘색 손잡이를 꾹 눌러 끌면 꼭짓점 이동, 변을 탭하면 꼭짓점 추가, 손잡이 탭 후 Del 로 삭제. 끝내려면 「주차장」을 다시 누르거나 Esc.' : r.name + ' — 모양 편집 끝.');
+    hint(shapeEdit ? r.name + ' — 모양 편집: 하늘색 손잡이를 꾹 눌러 끌면 꼭짓점 이동, 변을 탭하면 꼭짓점 추가, 손잡이 탭 후 Del 로 삭제. 끝내려면 「모양」을 다시 누르거나 Esc.' : r.name + ' — 모양 편집 끝.');
   }
   /** 용마루 idx 하나만 지운다. 나머지 용마루는 제자리를 지키도록 새 간격 기준의 옮긴 거리(ridgeOff)로 바꿔 둔다 */
   function deleteRidge(r, idx) {
@@ -2590,11 +2592,6 @@
           rb.onclick = e => { stop(e); const s = prompt(r.name + ' — 가로 세로 (m)', rc.w + ' ' + rc.h); if (s === null) return; const m = s.trim().split(/[\s,x×]+/).map(parseFloat); if (!(m[0] >= 3 && m[1] >= 3)) return; rc.w = m[0]; rc.h = m[1]; r.points = rectPoints(rc); r.name = '주차장 ' + rc.w + '×' + rc.h + 'm'; recompute(r); renderList(); save(); };
           d.appendChild(rb);
         }
-        if (r.type === 'parking') {
-          const sh = document.createElement('button'); sh.className = 'btn ' + (shapeEdit === r.id ? 'accent' : 'ghost'); sh.textContent = shapeEdit === r.id ? '모양 편집 중' : '모양'; sh.title = '꼭짓점을 끌어 모양을 바꾼다(형태「주차장」을 다시 눌러도 된다)';
-          sh.onclick = e => { stop(e); toggleShapeEdit(r); };
-          d.appendChild(sh);
-        }
         const mk = (label, vals, cur, fmt, on) => {
           const s = document.createElement('select'); s.className = 'btn ghost'; s.title = label; s.onclick = stop;
           vals.forEach(v => { const o = document.createElement('option'); o.value = v; o.textContent = fmt(v); if (v === cur) o.selected = true; s.appendChild(o); });
@@ -2711,6 +2708,18 @@
         at.onclick = e => { e.stopPropagation(); r.attach = !r.attach; r.ridgeOff = null; r.ridgeExt = null; r.ventPos = null; recompute(r); renderList(); save(); hint(r.name + (r.attach ? ' — 부착 배치: ' + (r.type === 'ginseng' ? '동서 양면에 붙여 깔았습니다.' : '북면도 붙여 깔았습니다(북향).') : ' — 거치 배치로 되돌렸습니다.')); };
         d.appendChild(at);
       }
+      {   // 모든 지붕: 직접 그린 외곽선을 꼭짓점 손잡이로 고친다 (2026-10-22 사용자 지시)
+        const sh = document.createElement('button'); sh.className = 'btn ' + (shapeEdit === r.id ? 'accent' : 'ghost'); sh.textContent = shapeEdit === r.id ? '모양 편집 중' : '모양'; sh.title = '하늘색 손잡이를 꾹 눌러 끌면 꼭짓점 이동, 변을 탭하면 꼭짓점 추가, 손잡이 탭 후 Del 로 삭제';
+        sh.onclick = e => { e.stopPropagation(); toggleShapeEdit(r); };
+        d.appendChild(sh);
+      }
+      if (r.type === 'flush') {   // 원단: 앞단·뒷단 블록 단수(2 / 3 / 2,3 복합) — 삭제 앞 (2026-10-22 사용자 지시)
+        const mkS = (label, cur, on) => { const s = document.createElement('select'); s.className = 'btn ghost'; s.title = label; s.onclick = e => e.stopPropagation();
+          [['2', label + ' 2단'], ['3', label + ' 3단'], ['2,3', label + ' 2·3단']].forEach(([v, t]) => { const o = document.createElement('option'); o.value = v; o.textContent = t; if (v === cur) o.selected = true; s.appendChild(o); });
+          s.onchange = e => { e.stopPropagation(); on(s.value); recompute(r); renderList(); save(); }; return s; };
+        d.appendChild(mkS('앞단', r.frontTiers || '3', v => { r.frontTiers = v; }));
+        d.appendChild(mkS('뒷단', r.backTiers || '3', v => { r.backTiers = v; }));
+      }
       const del = document.createElement('button');
       del.className = 'btn danger'; del.textContent = '삭제';
       del.onclick = e => { e.stopPropagation(); remove(r.id); };
@@ -2766,7 +2775,7 @@
         curType, settings, siteName, siteAddr, shade, moduleCfg, edits, structure,
         roofs: roofs.map(r => ({ id: r.id, name: r.name, type: r.type, points: r.points, src: r.src, floors: r.floors, floorsManual: r.floorsManual, spans: r.spans, vent: r.vent,
           parcels: r.parcels, extra: r.extra, review: r.review && !r.review.pending ? r.review : undefined, force: r.force,
-          azimuth: r.azimuth, margin: r.margin, tiers: r.tiers, terrain: r.terrain, moved: r.moved, flip: r.flip, rowAngle: r.rowAngle, ventN: r.ventN, ventPos: r.ventPos, ridgeOff: r.ridgeOff, ridgeExt: r.ridgeExt, ridgeOn: r.ridgeOn, attach: r.attach, ventExtra: r.ventExtra, ventH: r.ventH, rect: r.rect })),
+          azimuth: r.azimuth, margin: r.margin, tiers: r.tiers, terrain: r.terrain, moved: r.moved, flip: r.flip, rowAngle: r.rowAngle, frontTiers: r.frontTiers, backTiers: r.backTiers, ventN: r.ventN, ventPos: r.ventPos, ridgeOff: r.ridgeOff, ridgeExt: r.ridgeExt, ridgeOn: r.ridgeOn, attach: r.attach, ventExtra: r.ventExtra, ventH: r.ventH, rect: r.rect })),
         // 음영 장애물로 다시 쓰려고 주변 건물도 남긴다 (그림은 다시 그리지 않는다)
         buildings: buildings.map(b => ({ id: b.id, name: b.name, ring: b.ring, floors: b.floors })),
         fixtures: fixtures.map(f => ({ id: f.id, kind: f.kind, c: f.c, w: f.w, h: f.h, ang: f.ang, manual: f.manual })),
