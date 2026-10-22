@@ -274,7 +274,15 @@
     $('btnUndo').onclick = undoPoint;
     $('btnDone').onclick = finishDraw;
     $('btnCancel').onclick = cancelDraw;
-    $('btnClear').onclick = () => { if (roofs.length && confirm('지붕 ' + roofs.length + '개를 모두 지울까요?')) { roofs.forEach(clearGfx); roofs = []; edits = []; selectedId = null; renderList(); save(); } };
+    // 전체 삭제: 지붕·토지뿐 아니라 전기실·사다리·구름사다리(fixtures)도 같이 (2026-10-22 사용자 지시)
+    $('btnClear').onclick = () => {
+      const nF = fixtures.length; if (!roofs.length && !nF) { hint('지울 것이 없습니다.'); return; }
+      const what = [roofs.length ? '지붕·토지 ' + roofs.length + '개' : '', nF ? '전기실·사다리 ' + nF + '개' : ''].filter(Boolean).join(', ');
+      if (!confirm(what + '를 모두 지울까요?')) return;
+      roofs.forEach(clearGfx); roofs = []; edits = []; selectedId = null; picked = null;
+      fixtures = []; afterFixtureChange();
+      renderList(); save();
+    };
     $('btnShare').onclick = share;
     $('btnReset').onclick = () => { settings[curType] = {}; fillSettings(); applySettingsToSelected(); save(); };
 
