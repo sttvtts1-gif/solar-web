@@ -73,8 +73,14 @@ const Nas = (() => {
   async function siteDir(o) {
     const r = o.__root || await ensureRoot();   // __root: 검사용
     // 고른 폴더가 현장 폴더 자체(예 "12-2932 경남 양산시 … 그린피엔텍")면 그대로 거기에 쓴다
-    if (/^\d{2}-\d{4}\s/.test(r.name)) return { dir: r, path: r.name, created: false, matched: '지정 폴더' };
     const keySets = [o.addr, o.altAddr].filter(Boolean).map(addrKeys).filter(k => k.length);
+    if (/^\d{2}-\d{4}\s/.test(r.name)) {
+      // 고른 폴더가 현장 폴더 자체(예 "12-2932 경남 양산시 … 그린피엔텍")면 주소가 맞을 때만 거기에 쓴다. 다른 현장이면 막고 N:\02. 제안서작성 을 다시 고르게
+      // (2026-10-22: 모든 현장이 그린피엔텍에 저장되던 원인)
+      const ns = norm(r.name);
+      if (keySets.some(keys => keys.every(k => ns.includes(k)))) return { dir: r, path: r.name, created: false, matched: '지정 폴더(주소 일치)' };
+      const e = new Error('NAS 저장 폴더가 현장 하나(' + r.name + ')로 고정돼 있어 「' + (o.addr || o.altAddr || '') + '」 은 저장할 수 없습니다. 「폴더 다시 고르기」로 N:\\02. 제안서작성 (연도 폴더들이 있는 곳) 을 고르세요.'); e.repick = true; throw e;
+    }
     const noKey = o.no ? norm(o.no) : '';
     // 연도 폴더 목록: 고른 폴더가 연도 폴더 자체면 그것만
     let years = yearOf(r.name) ? [[r.name, r]] : (await dirs(r)).filter(([n]) => yearOf(n));

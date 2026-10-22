@@ -1,0 +1,4 @@
+{"version":"0.0.1","configurations":[
+ {"name":"assets","runtimeExecutable":"npx","runtimeArgs":["-y","http-server","app/src/main/assets","-p","8080","-c-1"],"port":8080},
+ {"name":"dl","runtimeExecutable":"npx","runtimeArgs":["-y","http-server","C:/Users/USER/Downloads","-p","8081","-c-1","--cors"],"port":8081}
+]}
