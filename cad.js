@@ -72,6 +72,7 @@ const Cad = (() => {
     (d.fixtures || []).forEach(f => { if (f.lines) f.lines.forEach(seg => w.poly('FRAME', toXY(seg, o), false)); else w.poly('FRAME', toXY(f.ring, o), true); const c = toXY([f.c], o)[0]; w.text('TEXT', { x: c.x, y: c.y + (f.kind === 'elec' ? 0 : 1.2) }, 0.5, f.label, 0, true); });
     // ---- 측면도 (오른쪽), 배면도 (그 아래)
     let ox = maxX + 25;
+    const ox0 = ox, topMax = Math.max(...d.roofs.map(r => r.topH || 0), 4);   // 배면도는 줄마다 따로(폭이 건물 길이라 옆으로 두면 겹친다, 2026-10-23)
     const picks = d.roofs.slice().sort((a, b) => b.kw - a.kw).slice(0, 2);
     picks.forEach((r, i) => {
       const depth = Math.max(8, r.depthM), eave = r.eaveH, ridge = r.ridgeH, top = r.topH, lift = r.frontLift != null ? r.frontLift : 0.5;
@@ -125,10 +126,10 @@ const Cad = (() => {
       }
       w.text('DIM', { x: ox, y: oy - 1.2 }, 0.6, '남'); w.text('DIM', { x: ox + depth - 0.5, y: oy - 1.2 }, 0.6, '북');
       // 배면도: 북쪽에서 본 입면(줄 방향 폭 × 높이). 벽 → 처마, 지붕선, 모듈 상단선(북측 끝 높이), 다리.
-      const by = oy - (top + 12);
-      const B = (x, z) => ({ x: ox + x, y: by + z });
+      const by = oy - (topMax + 12) - i * (topMax + 16);   // i번째 배면도는 i번째 줄, x 는 측면도 첫 열부터
+      const B = (x, z) => ({ x: ox0 + x, y: by + z });
       const wd = Math.max(8, r.widthM || depth);
-      w.text('TEXT', { x: ox, y: by + top + 3 }, 1.0, '"' + String.fromCharCode(65 + i) + '" 배면도 (북측 입면)');
+      w.text('TEXT', { x: ox0, y: by + top + 3 }, 1.0, '"' + String.fromCharCode(65 + i) + '" 배면도 (북측 입면)');
       w.line('BLDG', B(-2, 0), B(wd + 2, 0));
       w.poly('BLDG', [B(0, 0), B(wd, 0), B(wd, eave), B(0, eave)], true);
       if (r.kind === 'gable-ns') {
@@ -142,8 +143,8 @@ const Cad = (() => {
         if (r.kind === 'gable-ew') { w.line('BLDG', B(0, eave), B(wd, eave)); }
         w.row(B, 0.3, wd - 0.3, r.kind === 'gable-ew' ? eave + 0.08 : eave, top);   // 줄 정면: 기둥 사이 X보강 (구조도 VIEW A-A 꼴)
       }
-      w.vdim(ox - 2.5, by, by + eave, mm(eave)); w.vdim(ox + wd + 2.5, by, by + top, mm(top));
-      w.hdim(by - 1.5, ox, ox + wd, mm(wd));
+      w.vdim(ox0 - 2.5, by, by + eave, mm(eave)); w.vdim(ox0 + wd + 2.5, by, by + top, mm(top));
+      w.hdim(by - 1.5, ox0, ox0 + wd, mm(wd));
       ox += depth + 30;
     });
     return w.dump();
