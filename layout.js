@@ -567,5 +567,31 @@ const Layout = (() => {
     return Math.max(1, Math.round((((type === 'ginseng' && !(opt && opt.attach)) ? r.widthM : r.depthM) || 0) / 20));
   }
 
-  return { compute, guessType, guessSpans, containsGeo, sunPositions, PRESETS, DEFAULTS, centroid, toLocal, toGeo, area, minRect, rotate };
+  // ------------------------------------------------------------ 복합 지붕: 외곽선 하나를 분할선으로 구역 나누기 (2026-10-23 사용자 지시)
+  PRESETS.multi = { label: '복합 · 구역 나눔', orient: 'portrait', tiers: 1, tierGap: 0.01, tilt: 10, shadeAngle: 22, autoGap: true, arrayGap: 2.5 };
+  /** 외곽(지리좌표)을 a–b 를 지나는 직선으로 둘로 나눈다. 한쪽이 1㎡ 미만이면 null */
+  function splitPolygon(ptsGeo, aGeo, bGeo) {
+    const loc = toLocal(ptsGeo, aGeo), b = toLocal([bGeo], aGeo)[0];
+    const s = p => b.x * p.y - b.y * p.x;
+    const clip = sign => { const out = []; for (let i = 0; i < loc.length; i++) { const P = loc[i], Q = loc[(i + 1) % loc.length], sp = s(P) * sign, sq = s(Q) * sign; if (sp >= 0) out.push(P); if ((sp >= 0) !== (sq >= 0)) { const t = sp / (sp - sq); out.push({ x: P.x + t * (Q.x - P.x), y: P.y + t * (Q.y - P.y) }); } } return out; };
+    const A = clip(1), B = clip(-1);
+    if (A.length < 3 || B.length < 3 || Math.abs(area(A)) < 1 || Math.abs(area(B)) < 1) return null;
+    return [toGeo(A, aGeo), toGeo(B, aGeo)];
+  }
+  /** a–b 직선이 외곽과 만나는 두 끝(보이는 구간). 안 만나면 null */
+  function lineClip(ptsGeo, aGeo, bGeo) {
+    const loc = toLocal(ptsGeo, aGeo), b = toLocal([bGeo], aGeo)[0], Lb = Math.hypot(b.x, b.y) || 1, ux = b.x / Lb, uy = b.y / Lb;
+    const s = p => b.x * p.y - b.y * p.x, ts = [];
+    for (let i = 0; i < loc.length; i++) { const P = loc[i], Q = loc[(i + 1) % loc.length], sp = s(P), sq = s(Q); if ((sp >= 0) !== (sq >= 0)) { const t = sp / (sp - sq), X = { x: P.x + t * (Q.x - P.x), y: P.y + t * (Q.y - P.y) }; ts.push(X.x * ux + X.y * uy); } }
+    if (ts.length < 2) return null;
+    const t0 = Math.min(...ts), t1 = Math.max(...ts);
+    return toGeo([{ x: ux * t0, y: uy * t0 }, { x: ux * t1, y: uy * t1 }], aGeo);
+  }
+  /** 점 p 를 외곽선 위 가장 가까운 자리로 */
+  function snapToRing(ptsGeo, pGeo) {
+    const loc = toLocal(ptsGeo, pGeo); let best = null;
+    for (let i = 0; i < loc.length; i++) { const P = loc[i], Q = loc[(i + 1) % loc.length], vx = Q.x - P.x, vy = Q.y - P.y, l2 = vx * vx + vy * vy || 1, t = Math.max(0, Math.min(1, -(P.x * vx + P.y * vy) / l2)), X = { x: P.x + t * vx, y: P.y + t * vy }, d = Math.hypot(X.x, X.y); if (!best || d < best.d) best = { d, X }; }
+    return best ? toGeo([best.X], pGeo)[0] : pGeo;
+  }
+  return { compute, guessType, guessSpans, containsGeo, sunPositions, PRESETS, DEFAULTS, centroid, toLocal, toGeo, area, minRect, rotate, empty, splitPolygon, lineClip, snapToRing };
 })();

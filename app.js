@@ -22,7 +22,8 @@
   let settings = { ginseng: {}, flush: {}, slab: {} };
   let picked = null;        // 지도에서 탭해 고른 부속물 { roofId, kind:'ridge'|'vent', idx } — Del 키로 지운다
   let ventAdd = null;     // 「벤츄 추가」 켜진 지붕 id — 지도 탭마다 그 자리에 벤츄레이터를 놓는다(다시 누르거나 Esc 로 끔)
-  let shapeEdit = null;   // 「주차장」을 다시 눌러 모양 편집 중인 주차장 id — 꼭짓점 손잡이를 끌고, 변을 탭해 꼭짓점을 더한다
+  let shapeEdit = null;
+  let splitAdd = null, splitFirst = null;   // 복합 지붕 분할선 긋는 중인 지붕 id · 첫 점 (2026-10-23)   // 「주차장」을 다시 눌러 모양 편집 중인 주차장 id — 꼭짓점 손잡이를 끌고, 변을 탭해 꼭짓점을 더한다
   let siteName = '';
 
   // V-World 에서 받아온 건물 외곽선. 누르면 지붕으로 들어가고, 음영 계산의 장애물로도 쓴다.
@@ -96,6 +97,16 @@
       const p = { lat: e.latLng.getLat(), lng: e.latLng.getLng() };
       if (editing) return;
       if (drawing) { addPoint(p); return; }
+      if (splitAdd) {
+        const r = roofs.find(x => x.id === splitAdd); if (!r) { splitAdd = null; return; }
+        const q = Layout.snapToRing(r.points, p);
+        if (!splitFirst) { splitFirst = q; recompute(r); hint('첫 점 ✓ — 두 번째 점을 외곽선 위에 탭하세요.'); return; }
+        const a = splitFirst, b = q; splitFirst = null;
+        if (Math.hypot((a.lat - b.lat) * 110574, (a.lng - b.lng) * 111320 * Math.cos(a.lat * Math.PI / 180)) < 1) { hint('두 점이 너무 가깝습니다. 다시 탭하세요.'); recompute(r); return; }
+        r.splits.push({ a, b }); splitAdd = null; rebuildZones(r); renderList(); save();
+        hint(r.name + ' — 구역 ' + zoneChildren(r).length + '개. 분할선 ⇕ 를 끌어 옮기거나, 「분할선」을 또 눌러 더 나누세요.');
+        return;
+      }
       if (ventAdd) {
         const r = roofs.find(x => x.id === ventAdd);
         if (!r) { ventAdd = null; return; }
@@ -150,7 +161,7 @@
     document.addEventListener('keydown', e => {
       const tag = (e.target && e.target.tagName) || '';
       if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || e.target.isContentEditable) return;
-      if (e.key === 'Escape') { if (picked) setPick(null); if (ventAdd) { ventAdd = null; renderList(); hint('벤츄레이터 추가 끝.'); } if (shapeEdit) { const r = roofs.find(x => x.id === shapeEdit); shapeEdit = null; if (r) recompute(r); renderList(); hint('모양 편집 끝.'); } return; }
+      if (e.key === 'Escape') { if (splitAdd) { const r = roofs.find(x => x.id === splitAdd); splitAdd = null; splitFirst = null; if (r) recompute(r); renderList(); hint('분할선 긋기 끝'); } if (picked) setPick(null); if (ventAdd) { ventAdd = null; renderList(); hint('벤츄레이터 추가 끝.'); } if (shapeEdit) { const r = roofs.find(x => x.id === shapeEdit); shapeEdit = null; if (r) recompute(r); renderList(); hint('모양 편집 끝.'); } return; }
       if ((e.ctrlKey || e.metaKey) && !e.shiftKey && (e.key === 'z' || e.key === 'Z')) { e.preventDefault(); undo(); return; }
       if (e.key !== 'Delete') return;
       if (deletePick()) { e.preventDefault(); return; }
@@ -433,6 +444,8 @@
           return;
         }
         // 주차장: 고른 지붕이 주차장이 아니면 새 사각형 주차장을 놓는다(건물 지붕을 주차장으로 바꾸지 않는다)
+        if (t === 'multi') { if (!r) { hint('먼저 지붕을 고르세요(복합으로 바꿀 지붕).'); return; } if (r.type === 'multi') { toggleSplitAdd(r); return; } convertToMulti(r); return; }
+        if (r && r.type === 'multi') { hint('복합 지붕은 구역 카드(A-1, A-2 …)를 골라 형태를 바꾸세요.'); return; }
         if (t === 'parking' && !(r && r.type === 'parking')) { addParkingRect(); return; }
         if (t === 'parking' && r && r.type === 'parking') { toggleShapeEdit(r); return; }   // 고른 주차장을 다시 누르면 모양 편집
         curType = t;
@@ -1103,6 +1116,9 @@
     el.addEventListener('pointerdown', e => {
       if (drawing || editing || !e.isPrimary) return;
       down = { x: e.clientX, y: e.clientY, id: e.pointerId };
+      // 복합 지붕 분할선 손잡이(18px 안): 바로 끌린다
+      { let best = null; for (const r of roofs) { if (r.type !== 'multi') continue; (r.splits || []).forEach((s, i) => { if (!s.__mid) return; const d = pxDist(e, s.__mid); if (d <= 18 && (!best || d < best.d)) best = { roof: r, idx: i, d }; }); }
+        if (best) { e.preventDefault(); const s = best.roof.splits[best.idx], ll = toLL(e); moving = { split: best, start: ll, last: ll, orig: { a: Object.assign({}, s.a), b: Object.assign({}, s.b) }, immediate: true, started: false, downX: e.clientX, downY: e.clientY }; try { el.setPointerCapture(e.pointerId); } catch (x) {} map.setDraggable(false); map.setZoomable(false); return; } }
       // 모양 편집 중인 주차장의 꼭짓점 손잡이(2.5m 안)가 제일 먼저
       let handle = (() => { const r = roofs.find(x => x.id === shapeEdit) || roofs.find(x => x.id === selectedId && x.rect); if (!r) return null; let best = null; for (let i = 0; i < r.points.length; i++) { const d = pxDist(e, r.points[i]); if (d <= 18 && (!best || d < best.d)) best = { roof: r, idx: i, d }; } return best; })();
       let cornerFromHandle = null;
@@ -1188,11 +1204,17 @@
     el.addEventListener('pointermove', e => {
       if (hold && down && Math.hypot(e.clientX - down.x, e.clientY - down.y) > 8) stopHold();     // 움직이면 그냥 지도 끌기
       if (!moving) return;
-      if (moving.immediate && !moving.started) { if (Math.hypot(e.clientX - moving.downX, e.clientY - moving.downY) < 4) return; moving.started = true; cornerStart(moving.corner.roof, moving.corner); }
+      if (moving.immediate && !moving.started) { if (Math.hypot(e.clientX - moving.downX, e.clientY - moving.downY) < 4) return; moving.started = true; if (moving.corner) cornerStart(moving.corner.roof, moving.corner); }
       e.preventDefault();
       const ll = toLL(e);
       const dLat = ll.getLat() - moving.start.getLat(), dLng = ll.getLng() - moving.start.getLng();
       const sh = rg => rg.map(p => ({ lat: p.lat + dLat, lng: p.lng + dLng }));
+      if (moving.split) {   // 분할선 평행 이동 미리보기
+        const r = moving.split.roof, s = r.splits[moving.split.idx]; if (!s) return;
+        s.a = { lat: moving.orig.a.lat + dLat, lng: moving.orig.a.lng + dLng }; s.b = { lat: moving.orig.b.lat + dLat, lng: moving.orig.b.lng + dLng };
+        const seg = Layout.lineClip(r.points, s.a, s.b) || [s.a, s.b]; if (s.__pl) s.__pl.setPath(seg.map(p => new kakao.maps.LatLng(p.lat, p.lng)));
+        moving.last = ll; return;
+      }
       if (moving.fix) {
         const f = moving.fix.f; f.c = { lat: moving.orig.lat + dLat, lng: moving.orig.lng + dLng };
         drawFixtures();
@@ -1235,6 +1257,13 @@
     const end = e => {
       stopHold();
       if (!moving) return;
+      if (moving.split) {
+        const r = moving.split.roof; moving = null;
+        map.setDraggable(true); map.setZoomable(true); lastPick = Date.now() + 700;
+        rebuildZones(r); renderList(); save();
+        hint(r.name + ' — 분할선을 옮기고 구역을 다시 나눴습니다.');
+        return;
+      }
       if (moving.fix) {
         const f = moving.fix.f;
         moving = null;
@@ -1848,7 +1877,7 @@
   }
   /** 3D 데이터(조감도·표지 그림 공용) */
   function open3dData() {
-    const done = roofs.filter(r => r.result);
+    const done = roofs.filter(r => r.result && r.type !== 'multi');   // 복합 부모(외곽만)는 뺀다 — 구역이 그린다
     if (!done.length) return null;
     const all = [].concat(...done.map(r => r.points));
     const origin = Layout.centroid(all);
@@ -2329,8 +2358,60 @@
     hint(edits.length ? '모듈 편집 ' + edits.length + '건 적용됨. 「✂ 모듈 편집」에서 되돌릴 수 있습니다.' : '');
   }
 
+  // ------------------------------------------------------------ 복합 지붕 (2026-10-23 사용자 지시): 외곽선 하나 + 분할선 → 구역(자식 지붕)마다 형태 따로
+  function zoneChildren(r) { return roofs.filter(x => x.parentId === r.id); }
+  function convertToMulti(r) {
+    if (r.parentId) { hint('구역은 복합으로 바꿀 수 없습니다.'); return; }
+    r.prevType = r.type; r.type = 'multi'; r.splits = r.splits || [];
+    rebuildZones(r); select(r.id); save();
+    hint(r.name + ' — 복합: 「분할선」을 누르고 외곽선 위 두 점을 탭해 구역을 나누세요. 구역 카드에서 형태를 따로 고릅니다.');
+  }
+  /** 외곽 + 분할선들 → 구역 다각형 → 자식 지붕을 만들거나(형태는 전 형태) 자리로 짝지어 유지 */
+  function rebuildZones(r) {
+    let zones = [r.points];
+    (r.splits || []).forEach(s => { const next = []; zones.forEach(z => { const cut = Layout.lineClip(z, s.a, s.b) ? Layout.splitPolygon(z, s.a, s.b) : null; if (cut) next.push(cut[0], cut[1]); else next.push(z); }); zones = next; });
+    const cen = z => Layout.centroid(z);
+    zones.sort((p, q) => { const a = cen(p), b = cen(q); return (a.lng - b.lng) || (a.lat - b.lat); });
+    const old = zoneChildren(r), used = new Set(), kids = [];
+    zones.forEach((z, k) => {
+      let c = old.find(o => !used.has(o.id) && Layout.containsGeo(z, cen(o.points)));
+      if (!c) { let best = null; old.forEach(o => { if (used.has(o.id)) return; const d = Math.hypot(cen(o.points).lat - cen(z).lat, cen(o.points).lng - cen(z).lng); if (!best || d < best.d) best = { o, d }; }); c = best && old.length >= zones.length ? best.o : null; }
+      if (c) { used.add(c.id); c.points = z.slice(); c.rect = null; }
+      else { c = { id: r.id + 'z' + Date.now().toString(36) + k, name: '', type: r.prevType && r.prevType !== 'multi' ? r.prevType : 'flush', points: z.slice(), parentId: r.id, floors: r.floors, floorsManual: r.floorsManual, src: null }; }
+      c.name = r.name + '-' + (k + 1); kids.push(c);
+    });
+    old.forEach(o => { if (!used.has(o.id)) { clearGfx(o); roofs.splice(roofs.indexOf(o), 1); if (selectedId === o.id) selectedId = r.id; } });
+    kids.forEach(k => { if (!roofs.includes(k)) roofs.splice(roofs.indexOf(r) + 1 + kids.indexOf(k), 0, k); });
+    // 순서: 부모 바로 뒤에 구역들
+    const others = roofs.filter(x => x !== r && x.parentId !== r.id), at = roofs.indexOf(r);
+    roofs.length = 0; others.slice(0, Math.min(at, others.length)).forEach(x => roofs.push(x)); roofs.push(r); kids.forEach(k => roofs.push(k)); others.slice(Math.min(at, others.length)).forEach(x => roofs.push(x));
+    kids.forEach(recompute); recompute(r);
+  }
+  function drawMulti(r) {
+    const toLL = pts => pts.map(p => new kakao.maps.LatLng(p.lat, p.lng));
+    const on = r.id === selectedId;
+    const outline = new kakao.maps.Polygon({ path: toLL(r.points), strokeWeight: on ? 4 : 2.5, strokeColor: on ? '#ffd54a' : '#fff', strokeStyle: 'solid', fillColor: '#ffd54a', fillOpacity: 0.04, zIndex: 1 });
+    outline.setMap(map);
+    const extra = [];
+    (r.splits || []).forEach((s, i) => {
+      const seg = Layout.lineClip(r.points, s.a, s.b) || [s.a, s.b];
+      const sel = picked && picked.roofId === r.id && picked.kind === 'split' && picked.idx === i;
+      const pl = new kakao.maps.Polyline({ path: toLL(seg), strokeWeight: sel ? 7 : 5, strokeColor: sel ? '#00e5ff' : '#ffeb3b', strokeOpacity: 0.95, zIndex: 6 }); pl.setMap(map); extra.push(pl);
+      kakao.maps.event.addListener(pl, 'click', () => { if (drawing || editing || Date.now() < lastPick) return; lastPick = Date.now() + 300; setPick({ roofId: r.id, kind: 'split', idx: i }); });
+      const mid = { lat: (seg[0].lat + seg[1].lat) / 2, lng: (seg[0].lng + seg[1].lng) / 2 };
+      const el = document.createElement('div'); el.className = 'splith' + (sel ? ' on' : ''); el.textContent = '⇕'; el.title = '끌어서 분할선 이동 · 탭 후 Del 삭제';
+      const ov = new kakao.maps.CustomOverlay({ position: new kakao.maps.LatLng(mid.lat, mid.lng), content: el, xAnchor: 0.5, yAnchor: 0.5, zIndex: 31 }); ov.setMap(map); extra.push(ov);
+      s.__mid = mid; s.__pl = pl; s.__seg = seg;
+    });
+    if (splitFirst && splitAdd === r.id) { const el = document.createElement('div'); el.className = 'splith on'; el.textContent = '1'; const ov = new kakao.maps.CustomOverlay({ position: new kakao.maps.LatLng(splitFirst.lat, splitFirst.lng), content: el, xAnchor: 0.5, yAnchor: 0.5, zIndex: 31 }); ov.setMap(map); extra.push(ov); }
+    const handles = (shapeEdit === r.id) ? r.points.map((p, i) => { const m = 0.8 / 111320, mx = 0.8 / (111320 * Math.cos(p.lat * Math.PI / 180)); const pg = new kakao.maps.Polygon({ path: [[p.lat - m, p.lng - mx], [p.lat - m, p.lng + mx], [p.lat + m, p.lng + mx], [p.lat + m, p.lng - mx]].map(q => new kakao.maps.LatLng(q[0], q[1])), strokeWeight: 2, strokeColor: '#00e5ff', fillColor: '#00e5ff', fillOpacity: 0.8, zIndex: 7 }); pg.setMap(map); return pg; }) : [];
+    const lel = document.createElement('div'); lel.className = 'lbl'; lel.style.display = 'none';
+    const label = new kakao.maps.CustomOverlay({ position: new kakao.maps.LatLng(r.points[0].lat, r.points[0].lng), content: lel, zIndex: 20 }); label.setMap(map);
+    r.gfx = { outline, mods: [], label, vents: [], ridges: [], handles, extraLines: extra };
+  }
   function recompute(r) {
     clearGfx(r);
+    if (r.type === 'multi') { r.result = Layout.empty(effectiveOpt('slab')); drawMulti(r); return; }
     const opt = effectiveOpt(r.type);
     opt.attach = !!r.attach;                                                     // 부착 배치(원단 북면도 붙임 / 인삼밭 동서 양면 붙임)
     if (r.type === 'flush' || r.type === 'ginseng') {
@@ -2382,7 +2463,7 @@
     });
     outline.setMap(map);
     // 벤츄 추가·모양 편집 중엔 지붕 탭이 선택/확대로 가지 않게(지도 click 이 그 탭을 처리한다)
-    kakao.maps.event.addListener(outline, 'click', e => { if (drawing || ventAdd || shapeEdit) return; pickAt(e && e.latLng ? { lat: e.latLng.getLat(), lng: e.latLng.getLng() } : Layout.centroid(r.points)); });
+    kakao.maps.event.addListener(outline, 'click', e => { if (drawing || ventAdd || shapeEdit || splitAdd) return; pickAt(e && e.latLng ? { lat: e.latLng.getLat(), lng: e.latLng.getLng() } : Layout.centroid(r.points)); });
 
     // 모듈 하나당 폴리곤 하나. 수백 장은 문제없고 수천 장이면 느려질 수 있다.
     const mods = res.modules.map(c => {
@@ -2448,9 +2529,15 @@
     if (p && p.kind === 'fix') { const f = fixtures[p.idx]; if (f) openElec(f); hint((f ? fixLabel(f) : '') + ' 선택 — 창에서 크기·각도, Del 키로 삭제, 꾹 눌러 끌면 이동.'); return; }
     if (p) { const r = roofs.find(x => x.id === p.roofId); hint((r ? r.name + ' ' : '') + (p.kind === 'ridge' ? '용마루 ' : '벤츄레이터 ') + (p.idx + 1) + ' 선택 — Del 키로 지웁니다. 꾹 눌러 끌면 옮기고, 용마루는 끝을 끌면 길이가 바뀝니다.'); }
   }
+  function toggleSplitAdd(r) {
+    if (splitAdd === r.id) { splitAdd = null; splitFirst = null; recompute(r); renderList(); hint('분할선 긋기 끝'); return; }
+    splitAdd = r.id; splitFirst = null; shapeEdit = null; recompute(r); renderList();
+    hint(r.name + ' — 분할선: 외곽선 위 두 점을 차례로 탭하세요(비스듬해도 됨). 그은 선은 ⇕ 를 끌어 옮기고, 선 탭 후 Del 로 지웁니다. Esc 로 끝.');
+  }
   /** 주차장 모양 편집 켜고 끄기 (형태「주차장」을 다시 누르면) */
   function toggleShapeEdit(r) {
     const prev = shapeEdit; shapeEdit = shapeEdit === r.id ? null : r.id;
+    if (!shapeEdit && r.type === 'multi') rebuildZones(r);   // 복합 외곽선을 고쳤으면 구역도 다시
     if (prev && prev !== r.id) { const q = roofs.find(x => x.id === prev); if (q) recompute(q); }
     recompute(r); renderList();
     hint(shapeEdit ? r.name + ' — 모양 편집: 하늘색 손잡이를 꾹 눌러 끌면 꼭짓점 이동, 변을 탭하면 꼭짓점 추가, 손잡이 탭 후 Del 로 삭제. 끝내려면 「모양」을 다시 누르거나 Esc.' : r.name + ' — 모양 편집 끝.');
@@ -2480,6 +2567,7 @@
     const r = roofs.find(x => x.id === picked.roofId); const p = picked; picked = null;
     if (!r) return false;
     if (p.kind === 'ridge') { deleteRidge(r, p.idx); return true; }
+    if (p.kind === 'split') { (r.splits || []).splice(p.idx, 1); rebuildZones(r); renderList(); save(); hint(r.name + ' — 분할선 삭제, 구역 ' + zoneChildren(r).length + '개'); return true; }
     if (p.kind === 'vertex') {
       if (r.points.length <= 3) { recompute(r); hint(r.name + ' — 꼭짓점은 3개 이상이어야 합니다.'); return true; }
       r.points.splice(p.idx, 1); r.rect = null;
@@ -2515,6 +2603,7 @@
     if (r && r.type === 'ground' && !r.review) reviewSite(r);
   }
   function remove(id) {
+    roofs.filter(x => x.parentId === id).forEach(k => { clearGfx(k); roofs.splice(roofs.indexOf(k), 1); });   // 복합: 구역도 같이
     const i = roofs.findIndex(x => x.id === id);
     if (i < 0) return;
     clearGfx(roofs[i]);
@@ -2535,7 +2624,7 @@
     const total = roofs.reduce((a, r) => a + (r.result ? r.result.kw : 0), 0);
     const cnt = roofs.reduce((a, r) => a + (r.result ? r.result.count : 0), 0);
     $('summary').innerHTML = roofs.length
-      ? '합계 <b>' + total.toFixed(2) + ' kW</b> · ' + cnt + ' EA · 지붕 ' + roofs.length + '개 → <span style="color:var(--accent)">수익분석 탭</span>에서 이 용량으로 계산'
+      ? '합계 <b>' + total.toFixed(2) + ' kW</b> · ' + cnt + ' EA · 지붕 ' + roofs.filter(x => x.type !== 'multi').length + '개 → <span style="color:var(--accent)">수익분석 탭</span>에서 이 용량으로 계산'
       : '지번을 검색하면 그 필지의 건물이 자동 배치됩니다. 없으면 「건물 가져오기」나 「직접 그리기」.';
 
     // 수익분석 탭에 용량 전달 (사용자가 직접 고치기 전까지 따라간다)
@@ -2550,11 +2639,22 @@
     roofs.forEach(r => {
       const res = r.result || {};
       const d = document.createElement('div');
+      if (r.type === 'multi') {   // 복합 부모 카드: 분할선·모양·삭제만. 구역은 아래 자식 카드(└)
+        d.className = 'roof' + (r.id === selectedId ? ' sel' : ''); d.onclick = () => select(r.id);
+        const kids = zoneChildren(r), kw = kids.reduce((a, k) => a + (k.result ? k.result.kw : 0), 0);
+        d.innerHTML = '<span class="nm">' + r.name + ' · 복합 (구역 ' + kids.length + '개 · ' + kw.toFixed(2) + 'kW)<br><small style="color:var(--muted)">분할선 ' + (r.splits || []).length + '개 · 구역마다 형태를 따로 고릅니다</small></span>';
+        const sp = document.createElement('button'); sp.className = 'btn ' + (splitAdd === r.id ? 'accent' : 'ghost'); sp.textContent = splitAdd === r.id ? '분할선 긋는 중' : '분할선'; sp.title = '외곽선 위 두 점을 탭해 구역을 나눈다';
+        sp.onclick = e => { e.stopPropagation(); toggleSplitAdd(r); }; d.appendChild(sp);
+        const sh = document.createElement('button'); sh.className = 'btn ' + (shapeEdit === r.id ? 'accent' : 'ghost'); sh.textContent = shapeEdit === r.id ? '모양 편집 중' : '모양'; sh.onclick = e => { e.stopPropagation(); toggleShapeEdit(r); }; d.appendChild(sh);
+        const un = document.createElement('button'); un.className = 'btn ghost'; un.textContent = '복합 해제'; un.title = '구역을 없애고 하나의 지붕으로'; un.onclick = e => { e.stopPropagation(); zoneChildren(r).forEach(k => { clearGfx(k); roofs.splice(roofs.indexOf(k), 1); }); r.type = r.prevType && r.prevType !== 'multi' ? r.prevType : 'flush'; r.splits = []; recompute(r); select(r.id); save(); }; d.appendChild(un);
+        const del = document.createElement('button'); del.className = 'btn danger'; del.textContent = '삭제'; del.onclick = e => { e.stopPropagation(); remove(r.id); }; d.appendChild(del);
+        box.appendChild(d); return;
+      }
       d.className = 'roof' + (r.id === selectedId ? ' sel' : '');
       const az = res.azimuth || 0;
       const dir = (res.aligned ? ('건물맞춤 ' + res.rowAngle + '°') : (az ? '방위 ' + (az > 0 ? '서 ' : '동 ') + Math.abs(az) + '°' : '정남')) + (r.flip ? '(뒤집음)' : '');
       const shadeTxt = shade.on ? ' · <span style="color:' + (res.shaded ? 'var(--danger)' : 'var(--ok)') + '">음영 제외 ' + (res.shaded || 0) + '장</span>' : '';
-      d.innerHTML = '<span class="nm">' + r.name + ' · ' + Layout.PRESETS[r.type].label.split(' · ')[1] + ' · ' + dir
+      d.innerHTML = '<span class="nm">' + (r.parentId ? '└ ' : '') + r.name + ' · ' + Layout.PRESETS[r.type].label.split(' · ')[1] + ' · ' + dir
         + '<br><small style="color:var(--muted)">' + res.areaM2 + '㎡ · ' + res.rows + '줄 · 피치 ' + res.pitch + 'm' + (res.opt.ridge
             ? ' · 용마루 ' + res.spans + '개' + (r.spans ? '' : '(추정)') + (Array.isArray(r.ridgeOff) && r.ridgeOff.some(v => v) ? '(옮김)' : '') + (r.attach ? ' · 부착' : '') + ' · 블록 ' + res.blocks.length
               + (res.blocks.some(b => b.gap) ? ' · 22° 이격 ' + [...new Set(res.blocks.filter(b => b.gap).map(b => b.gap))].map(g => g + 'm').join('/') : '')
@@ -2795,7 +2895,7 @@
         curType, settings, siteName, siteAddr, siteRoad, shade, moduleCfg, edits, structure,
         roofs: roofs.map(r => ({ id: r.id, name: r.name, type: r.type, points: r.points, src: r.src, floors: r.floors, floorsManual: r.floorsManual, spans: r.spans, vent: r.vent,
           parcels: r.parcels, extra: r.extra, review: r.review && !r.review.pending ? r.review : undefined, force: r.force,
-          azimuth: r.azimuth, margin: r.margin, tiers: r.tiers, terrain: r.terrain, moved: r.moved, flip: r.flip, rowAngle: r.rowAngle, frontTiers: r.frontTiers, backTiers: r.backTiers, ventN: r.ventN, ventPos: r.ventPos, ridgeOff: r.ridgeOff, ridgeExt: r.ridgeExt, ridgeOn: r.ridgeOn, attach: r.attach, ventExtra: r.ventExtra, ventH: r.ventH, rect: r.rect })),
+          azimuth: r.azimuth, margin: r.margin, tiers: r.tiers, terrain: r.terrain, moved: r.moved, flip: r.flip, rowAngle: r.rowAngle, frontTiers: r.frontTiers, backTiers: r.backTiers, parentId: r.parentId, splits: (r.splits || []).map(s => ({ a: s.a, b: s.b })), prevType: r.prevType, ventN: r.ventN, ventPos: r.ventPos, ridgeOff: r.ridgeOff, ridgeExt: r.ridgeExt, ridgeOn: r.ridgeOn, attach: r.attach, ventExtra: r.ventExtra, ventH: r.ventH, rect: r.rect })),
         // 음영 장애물로 다시 쓰려고 주변 건물도 남긴다 (그림은 다시 그리지 않는다)
         buildings: buildings.map(b => ({ id: b.id, name: b.name, ring: b.ring, floors: b.floors })),
         fixtures: fixtures.map(f => ({ id: f.id, kind: f.kind, c: f.c, w: f.w, h: f.h, ang: f.ang, manual: f.manual })),
@@ -2817,6 +2917,7 @@
       Object.values(settings).forEach(s => { delete s.moduleWp; delete s.modL; delete s.modS; delete s.maxRearH; delete s.maxLiftH; });
       buildings = (st.buildings || []).map(b => ({ ...b, gfx: null }));
       roofs = (st.roofs || []).filter(r => r.points && r.points.length >= 3).map(r => ({ ...r, gfx: null }));
+      roofs.forEach(r => { if (r.type === 'multi' && !Array.isArray(r.splits)) r.splits = []; });
       if (roofs.length) selectedId = roofs[roofs.length - 1].id;   // 형태 버튼이 바로 먹도록 마지막 지붕을 선택해 둔다
     } catch (e) { roofs = []; }
   }
