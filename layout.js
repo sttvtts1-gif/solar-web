@@ -26,7 +26,7 @@ const Layout = (() => {
     //   처마·골 이격 500, 용마루 이격 300, 경사 10°. 북측 블록은 남쪽 면과 같은 면으로 들어 올려 이어 붙인다(lift 는 안 씀).
     //   건물 지붕은 좌우 20열마다 60cm 통로(colBlock/blockGap).
     flush:   { label: '남북지붕 · 원단',       orient: 'portrait', tiers: 1, tierGap: 0.01, tilt: 10, shadeAngle: 22, autoGap: true, arrayGap: 0.01,
-               ridge: true, spans: 1, eaveSetback: 0.5, ridgeSetback: 0, lift: 0, colBlock: 20, blockGap: 0.6, frontLift: 0.5 },   // 용마루 이격 없음, 뒷단 높이는 구조물(알루미늄 3.5 / 포스맥·용융 4.5) 이 정한다 (2026-10-22)   // frontLift = 앞다리(지붕면에서 띄움), maxLiftH = 북면 블록 지붕 위 최대 높이(m)
+               ridge: true, spans: 1, eaveSetback: 0.5, ridgeSetback: 0, lift: 0, colBlock: 20, blockGap: 0.6, frontLift: 0.6 },   // 용마루 이격 없음, 뒷단 높이는 구조물(알루미늄 3.5 / 포스맥·용융 4.5) 이 정한다 (2026-10-22)   // frontLift = 앞다리(지붕면에서 띄움), maxLiftH = 북면 블록 지붕 위 최대 높이(m)
     // 평슬라브: 정남 경사거치, 줄마다 후면입사각 이격
     slab:    { label: '평슬라브 · 경사거치',   orient: 'portrait', tiers: 0, tierGap: 0.01, tilt: 10, shadeAngle: 22, autoGap: true, arrayGap: 2.5, colBlock: 20, blockGap: 0.6 },
     // 토지(노지): 필지 외곽선 안에 정남 2단 거치. 앞뒤는 후면입사각 22° 이격, 좌우는 30열마다 2m 통로(점검·장비 진입). 경계 이격 3m(펜스).
@@ -46,7 +46,7 @@ const Layout = (() => {
     backTiers: '3',       // 원단 북면(뒷단) 블록 단수(높이 maxLiftH 와 함께 끊음)
     faceGap: 0.6,         // 원단 블록 사이 이격(m)
     maxRearH: 3.5,        // 경사거치 어레이 뒷단 최대 높이(m, 앞다리 포함). tiers 0(자동)이면 이 안에서 단수를 최대로, 숫자면 넘을 때만 줄인다 (2026-10-22 사용자 지시)
-    frontLift: 0.5,       // 앞다리 높이(m). 원단은 지붕면에서 띄우는 높이, 거치는 앞단 높이
+    frontLift: 0.6,       // 앞다리 높이(m, 2026-10-23: 60cm). 원단은 지붕면에서 띄우는 높이, 거치는 앞단 높이
     rowAngle: '',         // 줄 방향 수동 각도(°, 수학각·동쪽 0·반시계 +). 비우면 자동(건물맞춤/정남)
     ventN: 2,             // 벤츄레이터 개수(동마다). 용마루 위에 고르게
     ventLen: 2,           // 벤츄레이터 한 개의 용마루 방향 길이(m). 폭(용마루 직각)은 1m

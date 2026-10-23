@@ -1781,7 +1781,7 @@
       const arrayDepth = r.type === 'flush' ? dSlope : arraySlope * Math.cos(tilt * Math.PI / 180);
       const blocks = res.blocks || [];
       const topH = (kind === 'gable-ew' && r.type !== 'ginseng') ? (blocks.length ? eaveH + Math.max(...blocks.map(bk => bk.zb || 0)) : eaveH + span * Math.tan(roofSlope * Math.PI / 180) + 0.15)
-        : r.type === 'ginseng' ? (r.attach ? ridgeH + 0.12 + arrayH : ridgeH + 0.3 + arrayH)   // 플랫 인삼밭: 용마루 위 수평 프레임(+0.3) 위 거치대 · 부착: 지붕면 따라
+        : r.type === 'ginseng' ? ridgeH + (r.attach ? 0.12 : (Number(opt.frontLift) || 0.6)) + arrayH   // 인삼밭: 지붕 따라가는 거치대(앞다리 0.6, 부착 0.12) 중 용마루 쪽이 최고
         : kind === 'gable-ns' ? ridgeH + 0.3 + arrayH
         : (r.type === 'parking' ? 2.5 : r.type === 'ground' ? 0.5 : eaveH) + 0.3 + arrayH;
       const ridges = res.ridges || [];          // 용마루 선(배치 계산이 준 것 — 옮긴 자리 반영)

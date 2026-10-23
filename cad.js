@@ -110,12 +110,9 @@ const Cad = (() => {
         const rpn = Array.isArray(r.ridgePos) && r.ridgePos.length === n ? r.ridgePos : null;
         for (let k = 0; k < n; k++) { const x0 = k * Wd, c = Math.min(Wd - 0.5, Math.max(0.5, rpn ? rpn[k] - k * Wd : Wd / 2)), xc = x0 + c, hr = eave + c * t; w.line('BLDG', P(x0, eave), P(xc, hr)); w.line('BLDG', P(xc, hr), P(x0 + Wd, eave)); w.vent(P(xc, hr)); }
         const rz = x => { const i = Math.min(n - 1, Math.max(0, Math.floor(x / Wd))), u = x - i * Wd, c = Math.min(Wd - 0.5, Math.max(0.5, rpn ? rpn[i] - i * Wd : Wd / 2)); return eave + (u <= c ? u * t : c * t * Math.max(0, Wd - u) / Math.max(0.5, Wd - c)); };
-        // 플랫 인삼밭: 용마루 위 수평 프레임(+0.3) + 거치대 + 지붕면까지 다리 (2026-10-23 사용자 CAD 그림)
-        const fb = ridge + 0.3, aw = r.arrayDepth, ah = r.arrayH, legs = [0.5, depth - 0.5];
-        w.line('BLDG', P(0.5, fb), P(depth - 0.5, fb));
-        for (let x = 0.5; x + aw <= depth - 0.5 + 1e-9; x += r.pitch) { w.rack(P, x, aw, fb, fb + 0.05, fb, fb + 0.05 + ah, r.tiers || 2); legs.push(x, x + aw); }
-        { const lx = [...new Set(legs.map(v => Math.round(v * 100) / 100))].filter(x => x >= 0.3 && x <= depth - 0.3).sort((a, b) => a - b); lx.forEach((x, k) => { w.post(P(x, rz(x)), P(x, fb)); if (k + 1 < lx.length && lx[k + 1] - x < 6) { const x2 = lx[k + 1]; if (k % 2 === 0) w.line('FRAME', P(x, rz(x) + 0.15), P(x2, fb - 0.08)); else w.line('FRAME', P(x, fb - 0.08), P(x2, rz(x2) + 0.15)); } }); }
-        w.vdim(ox - 1.2, oy + rz(0.5), oy + fb, mm(fb - rz(0.5)), 0.45); w.vdim(ox + depth + 1.2, oy + ridge, oy + fb + ah, mm(fb + ah - ridge), 0.45);
+        // 플랫 인삼밭(비부착): 지붕을 따라가는 거치대, 앞다리 lift(0.6m) (2026-10-23)
+        { const aw = r.arrayDepth, ah = r.arrayH; let topZ = ridge; for (let x = 0.5; x + aw <= depth - 0.5 + 1e-9; x += r.pitch) { const zf = rz(x) + lift, zb = rz(x + aw) + lift + ah; w.rack(P, x, aw, rz(x), zf, rz(x + aw), zb, r.tiers || 2); topZ = Math.max(topZ, zf, zb); }
+          w.vdim(ox - 1.2, oy + rz(0.5), oy + rz(0.5) + lift, mm(lift), 0.45); w.vdim(ox + depth + 1.2, oy + ridge, oy + topZ, mm(topZ - ridge), 0.45); }
         w.vdim(ox - 4, oy, oy + eave, mm(eave)); w.vdim(ox - 2.5, oy, oy + ridge, mm(ridge)); w.vdim(ox + depth + 2.5, oy, oy + top, mm(top));
       } else {
         const base = r.type === 'parking' ? 2.5 : r.type === 'ground' ? 0.5 : eave;
@@ -136,9 +133,8 @@ const Cad = (() => {
         // 플랫 인삼밭을 길이 방향(C 방향)에서 본 입면 (2026-10-23 사용자 지시): 용마루는 길이 방향이라 처마선·용마루선이 수평, 그 위 프레임(용마루+0.3)에 거치대가 줄 간격(pitch)으로 톱니처럼
         w.line('BLDG', B(0, eave), B(wd, eave)); w.line('BLDG', B(0, ridge), B(wd, ridge)); w.line('BLDG', B(0, eave), B(0, ridge)); w.line('BLDG', B(wd, eave), B(wd, ridge));
         for (let x = 4; x < wd - 2; x += 8) w.vent(B(x, ridge));
-        const fb = ridge + 0.3, aw = r.arrayDepth, ah = r.arrayH;
-        w.line('BLDG', B(0.5, fb), B(wd - 0.5, fb));
-        for (let x = 0.5; x + aw <= wd - 0.5 + 1e-9; x += r.pitch) { w.rack(B, x, aw, fb, fb + 0.05, fb, fb + 0.05 + ah, r.tiers || 2); w.post(B(x, ridge), B(x, fb)); w.post(B(x + aw, ridge), B(x + aw, fb)); }
+        // 배면도(길이 방향): 가장 앞(처마) 줄의 거치대가 보인다 — 처마 + 앞다리 lift 에서 시작하는 톱니
+        { const aw = r.arrayDepth, ah = r.arrayH; for (let x = 0.5; x + aw <= wd - 0.5 + 1e-9; x += r.pitch) w.rack(B, x, aw, eave, eave + lift, eave, eave + lift + ah, r.tiers || 2); }
       } else {
         if (r.kind === 'gable-ew') { w.line('BLDG', B(0, eave), B(wd, eave)); }
         w.row(B, 0.3, wd - 0.3, r.kind === 'gable-ew' ? eave + 0.08 : eave, top);   // 줄 정면: 기둥 사이 X보강 (구조도 VIEW A-A 꼴)

@@ -241,18 +241,11 @@ const Proposal = (() => {
       for (let i = 0; i < n; i++) { const x0 = i * Wd, c = Math.min(Wd - 0.5, Math.max(0.5, rpn ? rpn[i] - i * Wd : Wd / 2)), xc = x0 + c; g.beginPath(); g.moveTo(X(x0), Y(eave)); g.lineTo(X(xc), Y(eave + c * t)); g.lineTo(X(x0 + Wd), Y(eave)); g.stroke(); vent(xc, eave + c * t); }
       // 지붕면 높이: 경간마다 처마→용마루(옮긴 자리 반영)→처마
       const roofZ = x => { const i = Math.min(n - 1, Math.max(0, Math.floor(x / Wd))), u = x - i * Wd, c = Math.min(Wd - 0.5, Math.max(0.5, rpn ? rpn[i] - i * Wd : Wd / 2)); return eave + (u <= c ? u * t : c * t * Math.max(0, Wd - u) / Math.max(0.5, Wd - c)); };
-      // 플랫 인삼밭: 용마루 위 수평 프레임(용마루+0.3)에 거치대를 얹고, 프레임에서 지붕면까지 다리를 내린다 (2026-10-23 사용자 CAD 그림)
-      const base = ridge + 0.3, aw = r.arrayDepth, ah = r.arrayH;
-      g.strokeStyle = '#1aa'; g.lineWidth = 3; g.beginPath(); g.moveTo(X(0.5), Y(base)); g.lineTo(X(depth - 0.5), Y(base)); g.stroke(); g.strokeStyle = BLK;
-      const legXs = [0.5, depth - 0.5];
-      for (let x = 0.5; x + aw <= depth - 0.5 + 1e-9; x += r.pitch) {
-        rack(x, aw, base, base + 0.05, base, base + 0.05 + ah, r.tiers || 2);   // 프레임 위 거치대(X보강)
-        legXs.push(x, x + aw);
-      }
-      { const lx = [...new Set(legXs.map(v => Math.round(v * 100) / 100))].filter(x => x >= 0.3 && x <= depth - 0.3).sort((a, b) => a - b);
-        lx.forEach((x, k) => { post(x, roofZ(x), base, ['#1a4fd6', '#e0251f', '#1a9a4a'][k % 3]); bracket(x, roofZ(x)); bolt(x, base); if (k + 1 < lx.length) { const x2 = lx[k + 1]; if (x2 - x < 6) { if (k % 2 === 0) brace(x, roofZ(x) + 0.15, x2, base - 0.08); else brace(x, base - 0.08, x2, roofZ(x2) + 0.15); } } }); }   // 프레임 기둥 + 가세
-      dim(X(0) - 20, roofZ(0.5), base, mm(base - roofZ(0.5)), 26);               // 처마 쪽 다리 높이
-      dim(X(depth) + 34, ridge, base + ah, mm(base + ah - ridge), 26);          // 용마루 위 높이
+      // 플랫 인삼밭(비부착): 지붕을 따라가는 거치대 — 앞다리 lift(0.6m)에서 시작, 뒷다리 = 앞다리 + 어레이 높이, 기둥 사이 X보강 (2026-10-23 사용자 지시: 용마루 높이 수평 프레임 X)
+      const aw = r.arrayDepth, ah = r.arrayH; let topZ = ridge;
+      for (let x = 0.5; x + aw <= depth - 0.5 + 1e-9; x += r.pitch) { const zf = roofZ(x) + lift, zb = roofZ(x + aw) + lift + ah; rack(x, aw, roofZ(x), zf, roofZ(x + aw), zb, r.tiers || 2); topZ = Math.max(topZ, zf, zb); }
+      dim(X(0) - 20, roofZ(0.5), roofZ(0.5) + lift, mm(lift), 26);              // 처마 쪽 앞다리
+      dim(X(depth) + 34, ridge, topZ, mm(topZ - ridge), 26);                   // 용마루 위 높이
       dim(X(0) - 150, 0, eave, mm(eave));
       dim(X(0) - 70, 0, ridge, mm(ridge));
       dim(X(depth) + 90, 0, top, mm(top));
