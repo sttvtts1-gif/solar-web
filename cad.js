@@ -103,8 +103,12 @@ const Cad = (() => {
         const rpn = Array.isArray(r.ridgePos) && r.ridgePos.length === n ? r.ridgePos : null;
         for (let k = 0; k < n; k++) { const x0 = k * Wd, c = Math.min(Wd - 0.5, Math.max(0.5, rpn ? rpn[k] - k * Wd : Wd / 2)), xc = x0 + c, hr = eave + c * t; w.line('BLDG', P(x0, eave), P(xc, hr)); w.line('BLDG', P(xc, hr), P(x0 + Wd, eave)); }
         const rz = x => { const i = Math.min(n - 1, Math.max(0, Math.floor(x / Wd))), u = x - i * Wd, c = Math.min(Wd - 0.5, Math.max(0.5, rpn ? rpn[i] - i * Wd : Wd / 2)); return eave + (u <= c ? u * t : c * t * Math.max(0, Wd - u) / Math.max(0.5, Wd - c)); };
-        const lift2 = r.frontLift != null ? r.frontLift : 0.5, aw = r.arrayDepth, ah = r.arrayH;
-        for (let x = 0.5; x + aw <= depth - 0.5 + 1e-9; x += r.pitch) { const zf = rz(x) + lift2, zb = zf + ah; w.line('MODULE', P(x, zf), P(x + aw, zb)); w.line('DIM', P(x + 0.05, rz(x + 0.05)), P(x + 0.05, zf)); w.line('DIM', P(x + aw - 0.05, rz(x + aw - 0.05)), P(x + aw - 0.05, zb)); }   // 인삼밭: 지붕면 따라 거치대 (2026-10-23)
+        // 플랫 인삼밭: 용마루 위 수평 프레임(+0.3) + 거치대 + 지붕면까지 다리 (2026-10-23 사용자 CAD 그림)
+        const fb = ridge + 0.3, aw = r.arrayDepth, ah = r.arrayH, legs = [0.5, depth - 0.5];
+        w.line('BLDG', P(0.5, fb), P(depth - 0.5, fb));
+        for (let x = 0.5; x + aw <= depth - 0.5 + 1e-9; x += r.pitch) { w.line('MODULE', P(x, fb), P(x + aw, fb + ah)); const nt = Math.max(2, Math.round(aw / 1.2)); for (let k = 1; k <= nt; k++) { const u = x + aw * k / nt; w.line('DIM', P(u, fb), P(u, fb + ah * k / nt)); } legs.push(x, x + aw); }
+        [...new Set(legs.map(v => Math.round(v * 100) / 100))].forEach(x => { if (x >= 0.3 && x <= depth - 0.3) w.line('BLDG', P(x, rz(x)), P(x, fb)); });
+        w.vdim(ox - 1.2, oy + rz(0.5), oy + fb, mm(fb - rz(0.5)), 0.45); w.vdim(ox + depth + 1.2, oy + ridge, oy + fb + ah, mm(fb + ah - ridge), 0.45);
         w.vdim(ox - 4, oy, oy + eave, mm(eave)); w.vdim(ox - 2.5, oy, oy + ridge, mm(ridge)); w.vdim(ox + depth + 2.5, oy, oy + top, mm(top));
       } else {
         const base = r.type === 'parking' ? 2.5 : r.type === 'ground' ? 0.5 : eave;

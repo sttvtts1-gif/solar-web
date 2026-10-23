@@ -205,11 +205,22 @@ const Proposal = (() => {
       for (let i = 0; i < n; i++) { const x0 = i * Wd, c = Math.min(Wd - 0.5, Math.max(0.5, rpn ? rpn[i] - i * Wd : Wd / 2)), xc = x0 + c; g.beginPath(); g.moveTo(X(x0), Y(eave)); g.lineTo(X(xc), Y(eave + c * t)); g.lineTo(X(x0 + Wd), Y(eave)); g.stroke(); }
       // 지붕면 높이: 경간마다 처마→용마루(옮긴 자리 반영)→처마
       const roofZ = x => { const i = Math.min(n - 1, Math.max(0, Math.floor(x / Wd))), u = x - i * Wd, c = Math.min(Wd - 0.5, Math.max(0.5, rpn ? rpn[i] - i * Wd : Wd / 2)); return eave + (u <= c ? u * t : c * t * Math.max(0, Wd - u) / Math.max(0.5, Wd - c)); };
-      racks(roofZ, 0.5, depth - 0.5, lift);                                       // 인삼밭: 지붕면을 따라 거치대 반복(앞다리 lift)
+      // 플랫 인삼밭: 용마루 위 수평 프레임(용마루+0.3)에 거치대를 얹고, 프레임에서 지붕면까지 다리를 내린다 (2026-10-23 사용자 CAD 그림)
+      const base = ridge + 0.3, aw = r.arrayDepth, ah = r.arrayH;
+      g.strokeStyle = '#1aa'; g.lineWidth = 3; g.beginPath(); g.moveTo(X(0.5), Y(base)); g.lineTo(X(depth - 0.5), Y(base)); g.stroke(); g.strokeStyle = BLK;
+      const legXs = [0.5, depth - 0.5];
+      for (let x = 0.5; x + aw <= depth - 0.5 + 1e-9; x += r.pitch) {
+        mod(x, base, x + aw, base + ah);
+        const nt = Math.max(2, Math.round(aw / 1.2));
+        for (let k = 1; k <= nt; k++) { const u = x + aw * k / nt; post(u, base, base + ah * k / nt); }   // 거치대 잔다리(빨간 눈금)
+        legXs.push(x, x + aw);
+      }
+      [...new Set(legXs.map(v => Math.round(v * 100) / 100))].forEach(x => { if (x >= 0.3 && x <= depth - 0.3) { g.strokeStyle = '#1aa'; g.lineWidth = 2.5; g.beginPath(); g.moveTo(X(x), Y(roofZ(x))); g.lineTo(X(x), Y(base)); g.stroke(); g.strokeStyle = BLK; } });   // 프레임 다리
+      dim(X(0) - 20, roofZ(0.5), base, mm(base - roofZ(0.5)), 26);               // 처마 쪽 다리 높이
+      dim(X(depth) + 34, ridge, base + ah, mm(base + ah - ridge), 26);          // 용마루 위 높이
       dim(X(0) - 150, 0, eave, mm(eave));
       dim(X(0) - 70, 0, ridge, mm(ridge));
       dim(X(depth) + 90, 0, top, mm(top));
-      dim(X(0) - 20, eave, top, mm(top - eave), 26);
     } else {
       // 평슬라브·토지·주차장: 기준면 위 경사거치
       const base = r.type === 'parking' ? 2.5 : r.type === 'ground' ? 0.5 : eave;

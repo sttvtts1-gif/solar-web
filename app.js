@@ -1781,7 +1781,7 @@
       const arrayDepth = r.type === 'flush' ? dSlope : arraySlope * Math.cos(tilt * Math.PI / 180);
       const blocks = res.blocks || [];
       const topH = (kind === 'gable-ew' && r.type !== 'ginseng') ? (blocks.length ? eaveH + Math.max(...blocks.map(bk => bk.zb || 0)) : eaveH + span * Math.tan(roofSlope * Math.PI / 180) + 0.15)
-        : r.type === 'ginseng' ? ridgeH + (r.attach ? 0.12 : (Number(opt.frontLift) || 0.5)) + arrayH
+        : r.type === 'ginseng' ? (r.attach ? ridgeH + 0.12 + arrayH : ridgeH + 0.3 + arrayH)   // 플랫 인삼밭: 용마루 위 수평 프레임(+0.3) 위 거치대 · 부착: 지붕면 따라
         : kind === 'gable-ns' ? ridgeH + 0.3 + arrayH
         : (r.type === 'parking' ? 2.5 : r.type === 'ground' ? 0.5 : eaveH) + 0.3 + arrayH;
       const ridges = res.ridges || [];          // 용마루 선(배치 계산이 준 것 — 옮긴 자리 반영)
@@ -2842,7 +2842,7 @@
           const gin = r.type === 'ginseng' && !r.attach;
           const v = parseInt(prompt(r.name + ' — 붙어 있는 동(용마루) 수 · ' + (r.type === 'ginseng' ? '동서로 나란히 붙은 동 수' : '남북으로 이어진 동 수') + (gin ? ' · 0 이면 용마루 없이 전부 배치' : ''), gin && !r.ridgeOn ? 0 : (r.spans || r.spansGuess || 1)), 10);
           if (gin && v === 0) { r.ridgeOn = false; r.ridgeOff = null; r.ridgeExt = null; recompute(r); renderList(); save(); hint(r.name + ' — 용마루를 껐습니다. 용마루 자리 없이 전부 배치합니다.'); return; }
-          if (v > 0 && v < 30) { r.spans = v; r.ridgeOff = null; r.ridgeExt = null; if (gin) r.ridgeOn = true; recompute(r); renderList(); save(); hint(r.name + ' — 용마루 ' + v + '개를 가운데에 놓았습니다' + (gin ? ' (용마루 띠 0.6m 자리의 모듈을 뺍니다)' : '') + '. 노란 점선을 꾹 눌러 끌면 이동, 끝을 끌면 길이, 탭 후 Del 로 삭제.'); }
+          if (v > 0 && v < 30) { r.spans = v; r.ridgeOff = null; r.ridgeExt = null; recompute(r); renderList(); save(); hint(r.name + ' — 용마루 ' + v + '개를 가운데에 놓았습니다' + (gin ? ' (용마루 띠 0.6m 자리의 모듈을 뺍니다)' : '') + '. 노란 점선을 꾹 눌러 끌면 이동, 끝을 끌면 길이, 탭 후 Del 로 삭제.'); }
         };
         d.appendChild(sp);
         // 용마루가 여러 개면 하나씩 지우는 버튼 (지도에서 탭 + Del 과 같다)
