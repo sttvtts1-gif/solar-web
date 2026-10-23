@@ -23,7 +23,9 @@
   let picked = null;        // 지도에서 탭해 고른 부속물 { roofId, kind:'ridge'|'vent', idx } — Del 키로 지운다
   let ventAdd = null;     // 「벤츄 추가」 켜진 지붕 id — 지도 탭마다 그 자리에 벤츄레이터를 놓는다(다시 누르거나 Esc 로 끔)
   let shapeEdit = null;
-  let splitAdd = null, splitFirst = null;   // 복합 지붕 분할선 긋는 중인 지붕 id · 첫 점 (2026-10-23)   // 「주차장」을 다시 눌러 모양 편집 중인 주차장 id — 꼭짓점 손잡이를 끌고, 변을 탭해 꼭짓점을 더한다
+  let splitAdd = null, splitFirst = null;
+  let lastRealType = 'flush';               // 복합이 아닌 마지막 형태 — 새 지붕(건물·토지 가져오기, 직접 그리기)은 이걸로 (2026-10-23: 복합 상태에서 가져온 건물이 구역 없는 복합이 되던 문제)
+  function newRoofType() { return curType === 'multi' ? lastRealType : curType; }   // 복합 지붕 분할선 긋는 중인 지붕 id · 첫 점 (2026-10-23)   // 「주차장」을 다시 눌러 모양 편집 중인 주차장 id — 꼭짓점 손잡이를 끌고, 변을 탭해 꼭짓점을 더한다
   let siteName = '';
 
   // V-World 에서 받아온 건물 외곽선. 누르면 지붕으로 들어가고, 음영 계산의 장애물로도 쓴다.
@@ -432,6 +434,7 @@
       d.innerHTML = typeIcon(t) + '<b>' + p.label.split(' · ')[0] + '</b>' + p.label.split(' · ')[1];
       d.onclick = () => {
         const r = roofs.find(x => x.id === selectedId);
+        if (t === 'multi') { if (!r) { hint('먼저 지붕을 고르세요(복합으로 바꿀 지붕).'); return; } if (r.type === 'multi') { toggleSplitAdd(r); return; } convertToMulti(r); return; }
         if (t === curType) {
           // 이미 켜진 형태를 한 번 더 누르면 줄 방향을 뒤집는다: 남서향 배치 ↔ 남동향 배치 (건물맞춤이면 다른 축, 토지·주차장은 방위각 부호 반전)
           const targets = r ? [r] : roofs.filter(x => x.type === t);
@@ -444,11 +447,10 @@
           return;
         }
         // 주차장: 고른 지붕이 주차장이 아니면 새 사각형 주차장을 놓는다(건물 지붕을 주차장으로 바꾸지 않는다)
-        if (t === 'multi') { if (!r) { hint('먼저 지붕을 고르세요(복합으로 바꿀 지붕).'); return; } if (r.type === 'multi') { toggleSplitAdd(r); return; } convertToMulti(r); return; }
         if (r && r.type === 'multi') { hint('복합 지붕은 구역 카드(A-1, A-2 …)를 골라 형태를 바꾸세요.'); return; }
         if (t === 'parking' && !(r && r.type === 'parking')) { addParkingRect(); return; }
         if (t === 'parking' && r && r.type === 'parking') { toggleShapeEdit(r); return; }   // 고른 주차장을 다시 누르면 모양 편집
-        curType = t;
+        curType = t; lastRealType = t;
         renderTypes();
         fillSettings();
         // 선택된 지붕이 있으면 그 지붕의 형태를 바꾼다.
@@ -2055,13 +2057,14 @@
       select(roof.id); return;
     }
     const bd = smallest(buildings, b => b.ring);
-    if (bd) { adoptBuilding(bd, curType); renderList(); save(); return; }
+    if (bd) { adoptBuilding(bd, newRoofType()); renderList(); save(); return; }
     const pc = smallest(parcels, x => x.ring);
     if (pc) { adoptParcel(pc); return; }
     if (buildings.length || parcels.length) hint('누른 곳에 건물·필지 외곽선이 없습니다. 하늘색 건물이나 노란 필지 안쪽을 누르거나 「직접 그리기」를 쓰세요.');
   }
 
   function adoptBuilding(bd, type, batch) {
+    if (type === 'multi') type = lastRealType;
     const dup = roofs.find(r => r.src === bd.id);
     if (dup) { if (!batch) select(dup.id); return; }
     const roof = { id: Date.now().toString(36) + Math.random().toString(36).slice(2, 5), name: bd.name || ('지붕 ' + (roofs.length + 1)), type: type || curType, points: bd.ring.slice(), src: bd.id, floors: bd.floors || parseInt((bd.props || {}).gro_flo_co, 10) || 1, gfx: null };
@@ -2118,7 +2121,7 @@
   function cancelDraw() { endDrawUi(); hint(''); }
   function finishDraw() {
     if (pts.length < 3) { hint('점을 3개 이상 찍어야 면이 됩니다.'); return; }
-    const roof = { id: Date.now().toString(36), name: (curType === 'ground' ? '토지 ' : curType === 'parking' ? '주차장 ' : '지붕 ') + (roofs.length + 1), type: curType, points: pts.slice(), floors: curType === 'ground' ? 0 : 1, gfx: null };
+    const roof = { id: Date.now().toString(36), name: (curType === 'ground' ? '토지 ' : curType === 'parking' ? '주차장 ' : '지붕 ') + (roofs.length + 1), type: newRoofType(), points: pts.slice(), floors: curType === 'ground' ? 0 : 1, gfx: null };
     endDrawUi();
     roofs.push(roof);
     selectedId = roof.id;
@@ -2376,7 +2379,7 @@
     zones.forEach((z, k) => {
       let c = old.find(o => !used.has(o.id) && Layout.containsGeo(z, cen(o.points)));
       if (!c) { let best = null; old.forEach(o => { if (used.has(o.id)) return; const d = Math.hypot(cen(o.points).lat - cen(z).lat, cen(o.points).lng - cen(z).lng); if (!best || d < best.d) best = { o, d }; }); c = best && old.length >= zones.length ? best.o : null; }
-      if (c) { used.add(c.id); c.points = z.slice(); c.rect = null; }
+      if (c) { used.add(c.id); const moved = JSON.stringify(c.points) !== JSON.stringify(z); c.points = z.slice(); c.rect = null; if (moved) { c.spansGuess = undefined; c.ridgeOff = null; c.ridgeExt = null; c.ventPos = null; c.moved = false; } }   // 외곽이 바뀌면 용마루·벤츄는 새 구역 기준으로 다시 자동
       else { c = { id: r.id + 'z' + Date.now().toString(36) + k, name: '', type: r.prevType && r.prevType !== 'multi' ? r.prevType : 'flush', points: z.slice(), parentId: r.id, floors: r.floors, floorsManual: r.floorsManual, src: null }; }
       c.name = r.name + '-' + (k + 1); kids.push(c);
     });
@@ -2411,7 +2414,7 @@
   }
   function recompute(r) {
     clearGfx(r);
-    if (r.type === 'multi') { r.result = Layout.empty(effectiveOpt('slab')); drawMulti(r); return; }
+    if (r.type === 'multi') { if (!zoneChildren(r).length && !r.__rebuilding) { r.__rebuilding = true; try { rebuildZones(r); } finally { r.__rebuilding = false; } return; } r.result = Layout.empty(effectiveOpt('slab')); drawMulti(r); return; }
     const opt = effectiveOpt(r.type);
     opt.attach = !!r.attach;                                                     // 부착 배치(원단 북면도 붙임 / 인삼밭 동서 양면 붙임)
     if (r.type === 'flush' || r.type === 'ginseng') {
@@ -2596,7 +2599,7 @@
   function select(id) {
     selectedId = id;
     const r = roofs.find(x => x.id === id);
-    if (r) { curType = r.type; renderTypes(); fillSettings(); const c = Layout.centroid(r.points); siteInfoAt(c.lat, c.lng, /^지붕 \d+$/.test(r.name) ? '' : r.name); }
+    if (r) { curType = r.type; if (r.type !== 'multi') lastRealType = r.type; renderTypes(); fillSettings(); const c = Layout.centroid(r.points); siteInfoAt(c.lat, c.lng, /^지붕 \d+$/.test(r.name) ? '' : r.name); }
     roofs.forEach(recompute);
     renderList();
     renderReview(r && r.type === 'ground' ? r : null);
