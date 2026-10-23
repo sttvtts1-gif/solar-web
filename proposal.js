@@ -168,6 +168,23 @@ const Proposal = (() => {
       g.lineWidth = 2.5; g.beginPath(); g.moveTo(X(x - 0.16), Y(lo)); g.lineTo(X(x + 0.16), Y(lo)); g.stroke();   // 받침판
       g.strokeStyle = BLK; g.lineWidth = 2.5;
     };
+    // 구조도(정우산업기계·디제이티 DWG 분석, 2026-10-23) 요소: 가세·X보강(파랑 선), 기초 브라켓(주황 작은 사각), 볼트(주황 점)
+    const brace = (x1, z1, x2, z2) => { g.strokeStyle = '#1a4fd6'; g.lineWidth = 1.5; g.beginPath(); g.moveTo(X(x1), Y(z1)); g.lineTo(X(x2), Y(z2)); g.stroke(); g.strokeStyle = BLK; g.lineWidth = 2.5; };
+    const bracket = (x, z) => { g.strokeStyle = '#e08a00'; g.lineWidth = 1.5; g.strokeRect(X(x - 0.12), Y(z + 0.06), X(x + 0.12) - X(x - 0.12), Y(z) - Y(z + 0.06)); g.strokeStyle = BLK; g.lineWidth = 2.5; };
+    const bolt = (x, z) => { g.fillStyle = '#e08a00'; g.beginPath(); g.arc(X(x), Y(z), 2.5, 0, Math.PI * 2); g.fill(); };
+    /** 거치대 단면(구조도 「측면1」): 앞기둥(fb→ft)·뒷기둥(bb→bt) + 기둥 사이 X보강 + 기초 브라켓 + 레일 위 모듈 */
+    const rack = (x, aw, fb, ft, bb, bt, nSeg) => {
+      post(x, fb, ft, '#1a4fd6'); post(x + aw, bb, bt, '#1a4fd6');
+      brace(x, fb + 0.1, x + aw, bt - 0.08); brace(x + aw, bb + 0.1, x, ft - 0.08);
+      bracket(x, fb); bracket(x + aw, bb); mod(x, ft, x + aw, bt, nSeg); bolt(x, ft); bolt(x + aw, bt);
+    };
+    /** 원단 레일(구조도 「측면도」): 지붕면 위 아래레일(브라켓) + 윗레일(모듈) 사이에 1.5m 마다 기둥, 번갈아 가는 가세 */
+    const railOnRoof = (from, to, topZ, botZ, nSeg) => {
+      mod(from, topZ(from), to, topZ(to), nSeg);
+      g.strokeStyle = '#1aa'; g.lineWidth = 2; g.beginPath(); g.moveTo(X(from), Y(botZ(from) + 0.08)); g.lineTo(X(to), Y(botZ(to) + 0.08)); g.stroke(); g.strokeStyle = BLK;
+      const n = Math.max(1, Math.round((to - from) / 1.5)), xs = []; for (let k = 0; k <= n; k++) xs.push(from + (to - from) * k / n);
+      xs.forEach((x, k) => { post(x, botZ(x) + 0.08, topZ(x) - 0.06, '#1a4fd6'); bracket(x, botZ(x)); bolt(x, topZ(x) - 0.06); if (k < n) { const x2 = xs[k + 1]; if (k % 2 === 0) brace(x, botZ(x) + 0.12, x2, topZ(x2) - 0.1); else brace(x, topZ(x) - 0.1, x2, botZ(x2) + 0.12); } });
+    };
     const vent = (x, z) => {
       g.strokeStyle = BLK; g.lineWidth = 1.5;
       g.strokeRect(X(x - 0.35), Y(z + 0.6), X(x + 0.35) - X(x - 0.35), Y(z + 0.12) - Y(z + 0.6));
@@ -180,9 +197,7 @@ const Proposal = (() => {
       const aw = r.arrayDepth, ah = r.arrayH;
       for (let x = from; x + aw <= to + 1e-9; x += r.pitch) {
         const zf = roofZ(x) + legH, zb = zf + ah;
-        mod(x, zf, x + aw, zb, r.tiers || 2);
-        post(x + 0.05, roofZ(x + 0.05), zf, '#1a4fd6'); post(x + aw - 0.05, roofZ(x + aw - 0.05), zb, '#e0251f');
-        if (aw > 3) post(x + aw / 2, roofZ(x + aw / 2), zf + ah / 2);
+        rack(x, aw, roofZ(x), zf, roofZ(x + aw), zb, r.tiers || 2);
       }
     };
     if (r.kind === 'gable-ew') {
@@ -201,9 +216,8 @@ const Proposal = (() => {
       } else if (r.blocks && r.blocks.length) {
         // 배치 계산이 준 블록 그대로: 남면 밀착(앞다리), 북면은 블록마다 지붕+앞다리에서 남향으로 올라가다 최대 높이에서 끊김
         r.blocks.forEach(bk => {
-          mod(bk.from, eave + bk.zf, bk.to, eave + bk.zb, bk.rows);
-          const nPost = Math.max(2, Math.round((bk.to - bk.from) / 3));
-          for (let k = 0; k <= nPost; k++) { const y = bk.from + (bk.to - bk.from) * k / nPost; post(y, roofZ(y), eave + bk.zf + (bk.zb - bk.zf) * k / nPost); }
+          const planeZ = y => eave + bk.zf + (bk.zb - bk.zf) * (y - bk.from) / Math.max(0.01, bk.to - bk.from);
+          railOnRoof(bk.from, bk.to, planeZ, roofZ, bk.rows);
         });
       } else {
         for (let i = 0; i < n; i++) {
@@ -232,12 +246,11 @@ const Proposal = (() => {
       g.strokeStyle = '#1aa'; g.lineWidth = 3; g.beginPath(); g.moveTo(X(0.5), Y(base)); g.lineTo(X(depth - 0.5), Y(base)); g.stroke(); g.strokeStyle = BLK;
       const legXs = [0.5, depth - 0.5];
       for (let x = 0.5; x + aw <= depth - 0.5 + 1e-9; x += r.pitch) {
-        mod(x, base, x + aw, base + ah, r.tiers || 2);
-        const nt = Math.max(2, Math.round(aw / 1.2));
-        for (let k = 1; k <= nt; k++) { const u = x + aw * k / nt; post(u, base, base + ah * k / nt); }   // 거치대 잔다리(빨간 눈금)
+        rack(x, aw, base, base + 0.05, base, base + 0.05 + ah, r.tiers || 2);   // 프레임 위 거치대(X보강)
         legXs.push(x, x + aw);
       }
-      [...new Set(legXs.map(v => Math.round(v * 100) / 100))].forEach((x, k) => { if (x >= 0.3 && x <= depth - 0.3) post(x, roofZ(x), base, ['#1a4fd6', '#e0251f', '#1a9a4a'][k % 3]); });   // 프레임 기둥(샘플처럼 색 구분)
+      { const lx = [...new Set(legXs.map(v => Math.round(v * 100) / 100))].filter(x => x >= 0.3 && x <= depth - 0.3).sort((a, b) => a - b);
+        lx.forEach((x, k) => { post(x, roofZ(x), base, ['#1a4fd6', '#e0251f', '#1a9a4a'][k % 3]); bracket(x, roofZ(x)); bolt(x, base); if (k + 1 < lx.length) { const x2 = lx[k + 1]; if (x2 - x < 6) { if (k % 2 === 0) brace(x, roofZ(x) + 0.15, x2, base - 0.08); else brace(x, base - 0.08, x2, roofZ(x2) + 0.15); } } }); }   // 프레임 기둥 + 가세
       dim(X(0) - 20, roofZ(0.5), base, mm(base - roofZ(0.5)), 26);               // 처마 쪽 다리 높이
       dim(X(depth) + 34, ridge, base + ah, mm(base + ah - ridge), 26);          // 용마루 위 높이
       dim(X(0) - 150, 0, eave, mm(eave));
@@ -249,7 +262,7 @@ const Proposal = (() => {
       if (r.type === 'parking') { for (let x = 2; x < depth; x += 6) post(x, 0, base); g.beginPath(); g.moveTo(X(0), Y(base)); g.lineTo(X(depth), Y(base)); g.stroke(); }
       if (r.type !== 'ground' && r.type !== 'parking') { g.beginPath(); g.moveTo(X(0), Y(eave)); g.lineTo(X(depth), Y(eave)); g.stroke(); }
       const aw = r.arrayDepth, ah = r.arrayH;
-      for (let x = (r.type === 'ground' ? r.margin : 0.5); x + aw <= depth - 0.5; x += r.pitch) { mod(x, base + 0.3, x + aw, base + 0.3 + ah, r.tiers || 1); post(x + aw, base, base + 0.3 + ah, '#e0251f'); post(x, base, base + 0.3, '#1a4fd6'); }
+      for (let x = (r.type === 'ground' ? r.margin : 0.5); x + aw <= depth - 0.5; x += r.pitch) rack(x, aw, base, base + 0.3, base, base + 0.3 + ah, r.tiers || 1);
       if (clipDepth < r.depthM) { g.fillStyle = '#666'; g.font = '22px ' + FONT; g.textAlign = 'right'; g.textBaseline = 'top'; g.fillText('(전체 ' + Math.round(r.depthM) + 'm 중 ' + Math.round(depth) + 'm 구간)', X(depth) + 60, 20); g.fillStyle = BLK; }
       if (base > 0) dim(X(0) - 150, 0, base, mm(base));
       dim(X(depth) + 90, 0, base + 0.3 + ah, mm(base + 0.3 + ah));
