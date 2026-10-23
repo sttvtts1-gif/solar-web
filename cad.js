@@ -125,10 +125,17 @@ const Cad = (() => {
       w.text('TEXT', { x: ox, y: by + top + 3 }, 1.0, '"' + String.fromCharCode(65 + i) + '" 배면도 (북측 입면)');
       w.line('BLDG', B(-2, 0), B(wd + 2, 0));
       w.poly('BLDG', [B(0, 0), B(wd, 0), B(wd, eave), B(0, eave)], true);
-      if (r.kind === 'gable-ns') { const n = r.spans, Wd = wd / n; for (let k = 0; k < n; k++) { w.line('BLDG', B(k * Wd, eave), B(k * Wd + Wd / 2, ridge)); w.line('BLDG', B(k * Wd + Wd / 2, ridge), B((k + 1) * Wd, eave)); } }
-      else if (r.kind === 'gable-ew') { w.line('BLDG', B(0, eave), B(wd, eave)); }
-      w.line('MODULE', B(0.3, top), B(wd - 0.3, top)); w.line('MODULE', B(0.3, top - 0.05), B(wd - 0.3, top - 0.05));
-      for (let x = 0.5; x < wd; x += 4) w.line('DIM', B(x, r.kind === 'gable-ew' ? eave : (r.kind === 'gable-ns' ? ridge : eave)), B(x, top));
+      if (r.kind === 'gable-ns') {
+        // 플랫 인삼밭을 길이 방향(C 방향)에서 본 입면 (2026-10-23 사용자 지시): 용마루는 길이 방향이라 처마선·용마루선이 수평, 그 위 프레임(용마루+0.3)에 거치대가 줄 간격(pitch)으로 톱니처럼
+        w.line('BLDG', B(0, eave), B(wd, eave)); w.line('BLDG', B(0, ridge), B(wd, ridge)); w.line('BLDG', B(0, eave), B(0, ridge)); w.line('BLDG', B(wd, eave), B(wd, ridge));
+        const fb = ridge + 0.3, aw = r.arrayDepth, ah = r.arrayH;
+        w.line('BLDG', B(0.5, fb), B(wd - 0.5, fb));
+        for (let x = 0.5; x + aw <= wd - 0.5 + 1e-9; x += r.pitch) { w.line('MODULE', B(x, fb), B(x + aw, fb + ah)); w.line('DIM', B(x + aw, fb), B(x + aw, fb + ah)); w.line('DIM', B(x + aw / 2, fb), B(x + aw / 2, fb + ah / 2)); w.line('BLDG', B(x, ridge), B(x, fb)); w.line('BLDG', B(x + aw, ridge), B(x + aw, fb)); }
+      } else {
+        if (r.kind === 'gable-ew') { w.line('BLDG', B(0, eave), B(wd, eave)); }
+        w.line('MODULE', B(0.3, top), B(wd - 0.3, top)); w.line('MODULE', B(0.3, top - 0.05), B(wd - 0.3, top - 0.05));
+      }
+      if (r.kind !== 'gable-ns') for (let x = 0.5; x < wd; x += 4) w.line('DIM', B(x, eave), B(x, top));   // 플랫 인삼밭은 위에서 거치대마다 다리를 그렸다
       w.vdim(ox - 2.5, by, by + eave, mm(eave)); w.vdim(ox + wd + 2.5, by, by + top, mm(top));
       w.hdim(by - 1.5, ox, ox + wd, mm(wd));
       ox += depth + 30;
