@@ -31,7 +31,9 @@ const Auth = (() => {
     if (window.Native && window.NativeHttp) return window.NativeHttp.get(url + '?' + Object.keys(p).map(k => k + '=' + encodeURIComponent(p[k])).join('&'), '').catch(jsonp);
     const ac = typeof AbortController !== 'undefined' ? new AbortController() : null;   // 응답이 멈추면 jsonp 로 한 번 더 (2026-10-22)
     const at = ac ? setTimeout(() => ac.abort(), tmo) : null;
-    return fetch(url, { method: 'POST', body: JSON.stringify(p), headers: { 'Content-Type': 'text/plain;charset=utf-8' }, signal: ac ? ac.signal : undefined })
+    const qs = url + '?' + Object.keys(p).map(k => k + '=' + encodeURIComponent(p[k])).join('&');
+    // 작은 요청은 GET(단순 요청, 리다이렉트 echo 단계가 덜 걸림 — 2026-10-23 POST 가 pending 으로 쌓이던 문제), 긴 것만 POST
+    return (qs.length < 1800 ? fetch(qs, { signal: ac ? ac.signal : undefined }) : fetch(url, { method: 'POST', body: JSON.stringify(p), headers: { 'Content-Type': 'text/plain;charset=utf-8' }, signal: ac ? ac.signal : undefined }))
       .then(r => r.json()).finally(() => { if (at) clearTimeout(at); }).catch(jsonp);
   }
 
@@ -67,7 +69,7 @@ const Auth = (() => {
   function init() {
     const m = document.getElementById('authModal'); if (!m) return;
     const v = id => (document.getElementById(id) || {}).value || '';
-    document.getElementById('au_login').onclick = async () => { show('확인 중… (구글 서버가 자고 있으면 30초쯤 걸립니다)', true); try { await login(v('au_email').trim(), v('au_pw')); } catch (e) { show('응답이 늦습니다: ' + e.message + ' — 10초 뒤 「로그인」을 다시 누르세요'); } };
+    document.getElementById('au_login').onclick = async () => { const btn = document.getElementById('au_login'); if (btn.disabled) return; btn.disabled = true; show('확인 중… (구글 서버가 자고 있으면 30초쯤 걸립니다)', true); try { await login(v('au_email').trim(), v('au_pw')); } catch (e) { show('응답이 늦습니다: ' + e.message + ' — 10초 뒤 「로그인」을 다시 누르세요'); } finally { btn.disabled = false; } };
     document.getElementById('au_signup').onclick = async () => {
       if (!v('au_name').trim()) { show('이름을 넣으세요'); return; }
       show('신청 중…', true); try { await signup(v('au_email').trim(), v('au_pw'), v('au_name').trim(), v('au_company').trim()); } catch (e) { show(e.message); }
