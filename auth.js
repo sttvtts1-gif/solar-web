@@ -17,19 +17,20 @@ const Auth = (() => {
     const url = cfg().KEPCO_PROXY;
     if (!url) return Promise.reject(new Error('중계 주소(KEPCO_PROXY)가 없습니다'));
     const p = Object.assign({ token: token() }, params);
+    const tmo = timeoutMs || (p.path === 'auth' ? 60000 : 25000);   // 로그인·확인은 구글 콜드스타트(30초 넘기도)를 기다린다 (2026-10-23)
     const jsonp = () => new Promise((res, rej) => {
       const cb = '__au' + Date.now() + Math.floor(Math.random() * 1e4);
       const s = document.createElement('script');
       const done = () => { delete window[cb]; s.remove(); clearTimeout(t); };
       window[cb] = d => { done(); res(d); };
       s.onerror = () => { done(); rej(new Error('중계 서버에 닿지 못했습니다')); };
-      const t = setTimeout(() => { done(); rej(new Error('중계 응답 시간 초과')); }, timeoutMs || 25000);
+      const t = setTimeout(() => { done(); rej(new Error('중계 응답 시간 초과')); }, tmo);
       s.src = url + '?' + Object.keys(p).map(k => k + '=' + encodeURIComponent(p[k])).join('&') + '&callback=' + cb;
       document.head.appendChild(s);
     });
     if (window.Native && window.NativeHttp) return window.NativeHttp.get(url + '?' + Object.keys(p).map(k => k + '=' + encodeURIComponent(p[k])).join('&'), '').catch(jsonp);
     const ac = typeof AbortController !== 'undefined' ? new AbortController() : null;   // 응답이 멈추면 jsonp 로 한 번 더 (2026-10-22)
-    const at = ac ? setTimeout(() => ac.abort(), timeoutMs || 25000) : null;
+    const at = ac ? setTimeout(() => ac.abort(), tmo) : null;
     return fetch(url, { method: 'POST', body: JSON.stringify(p), headers: { 'Content-Type': 'text/plain;charset=utf-8' }, signal: ac ? ac.signal : undefined })
       .then(r => r.json()).finally(() => { if (at) clearTimeout(at); }).catch(jsonp);
   }
@@ -49,7 +50,7 @@ const Auth = (() => {
       if (d && d.ok) { me = d; hide(); return true; }
       if (d && /path/i.test(d.errMsg || '')) { me = { email: '(중계 미배포)' }; hide(); return true; }   // 아직 auth 를 모르는 옛 중계
       localStorage.removeItem(KEY); show(d && d.errMsg || '다시 로그인하세요'); return false;
-    } catch (e) { show('중계 서버에 닿지 못했습니다: ' + e.message + ' — 다시 시도'); return false; }
+    } catch (e) { show('중계 응답이 늦습니다(구글 서버 깨우는 중). 잠시 뒤 자동으로 다시 확인합니다…', true); await new Promise(r => setTimeout(r, 4000)); try { const d2 = await call({ path: 'auth', op: 'check' }); if (d2 && d2.ok) { me = d2; hide(); return true; } } catch (x) {} show('중계 서버에 닿지 못했습니다: ' + e.message + ' — 「로그인」을 다시 누르세요'); return false; }
   }
   async function login(email, pw) {
     const d = await call({ path: 'auth', op: 'login', email, pw });
@@ -66,7 +67,7 @@ const Auth = (() => {
   function init() {
     const m = document.getElementById('authModal'); if (!m) return;
     const v = id => (document.getElementById(id) || {}).value || '';
-    document.getElementById('au_login').onclick = async () => { show('확인 중…', true); try { await login(v('au_email').trim(), v('au_pw')); } catch (e) { show(e.message); } };
+    document.getElementById('au_login').onclick = async () => { show('확인 중… (구글 서버가 자고 있으면 30초쯤 걸립니다)', true); try { await login(v('au_email').trim(), v('au_pw')); } catch (e) { show('응답이 늦습니다: ' + e.message + ' — 10초 뒤 「로그인」을 다시 누르세요'); } };
     document.getElementById('au_signup').onclick = async () => {
       if (!v('au_name').trim()) { show('이름을 넣으세요'); return; }
       show('신청 중…', true); try { await signup(v('au_email').trim(), v('au_pw'), v('au_name').trim(), v('au_company').trim()); } catch (e) { show(e.message); }
