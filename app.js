@@ -1121,8 +1121,8 @@
       // 복합 지붕 분할선 손잡이(18px 안): 바로 끌린다
       { let best = null;
         const segPx = (e, seg) => { const rc = el.getBoundingClientRect(), pr = map.getProjection(), P = pr.containerPointFromCoords(new kakao.maps.LatLng(seg[0].lat, seg[0].lng)), Q = pr.containerPointFromCoords(new kakao.maps.LatLng(seg[1].lat, seg[1].lng)), x = e.clientX - rc.left, y = e.clientY - rc.top, vx = Q.x - P.x, vy = Q.y - P.y, l2 = vx * vx + vy * vy || 1, t = Math.max(0, Math.min(1, ((x - P.x) * vx + (y - P.y) * vy) / l2)); return Math.hypot(x - (P.x + t * vx), y - (P.y + t * vy)); };
-        for (const r of roofs) { if (r.type !== 'multi') continue; (r.splits || []).forEach((s, i) => { if (!s.__mid) return; const d = Math.min(pxDist(e, s.__mid), s.__seg ? segPx(e, s.__seg) + 4 : 99); if (d <= 18 && (!best || d < best.d)) best = { roof: r, idx: i, d }; }); }
-        if (best) { e.preventDefault(); const s = best.roof.splits[best.idx], ll = toLL(e); moving = { split: best, start: ll, last: ll, orig: { a: Object.assign({}, s.a), b: Object.assign({}, s.b) }, immediate: true, started: false, downX: e.clientX, downY: e.clientY }; try { el.setPointerCapture(e.pointerId); } catch (x) {} map.setDraggable(false); map.setZoomable(false); return; } }
+        for (const r of roofs) { if (r.type !== 'multi') continue; (r.splits || []).forEach((s, i) => { if (!s.__mid) return; const dh = pxDist(e, s.__mid); let db = 99; if (s.__seg) for (let k = 0; k + 1 < s.__seg.length; k++) db = Math.min(db, segPx(e, [s.__seg[k], s.__seg[k + 1]])); const bend = dh <= 18; const d = bend ? dh : db + 4; if ((bend || db <= 14) && (!best || d < best.d)) best = { roof: r, idx: i, d, bend }; }); }
+        if (best) { e.preventDefault(); const s = best.roof.splits[best.idx], ll = toLL(e); const mid0 = s.m || { lat: (s.a.lat + s.b.lat) / 2, lng: (s.a.lng + s.b.lng) / 2 }; moving = { split: best, bend: best.bend, start: ll, last: ll, orig: { a: Object.assign({}, s.a), b: Object.assign({}, s.b), m: Object.assign({}, mid0) }, immediate: true, started: false, downX: e.clientX, downY: e.clientY }; try { el.setPointerCapture(e.pointerId); } catch (x) {} map.setDraggable(false); map.setZoomable(false); return; } }
       // 모양 편집 중인 주차장의 꼭짓점 손잡이(2.5m 안)가 제일 먼저
       let handle = (() => { const r = roofs.find(x => x.id === shapeEdit) || roofs.find(x => x.id === selectedId && x.rect); if (!r) return null; let best = null; for (let i = 0; i < r.points.length; i++) { const d = pxDist(e, r.points[i]); if (d <= 18 && (!best || d < best.d)) best = { roof: r, idx: i, d }; } return best; })();
       let cornerFromHandle = null;
@@ -1213,15 +1213,21 @@
       const ll = toLL(e);
       const dLat = ll.getLat() - moving.start.getLat(), dLng = ll.getLng() - moving.start.getLng();
       const sh = rg => rg.map(p => ({ lat: p.lat + dLat, lng: p.lng + dLng }));
-      if (moving.split) {   // 분할선 평행 이동 미리보기
+      if (moving.split) {   // 분할선: 손잡이 = 끝점 고정·가운데 꺾기, 몸통 = 평행 이동(끝점은 외곽선에 다시 붙임)
         const r = moving.split.roof, s = r.splits[moving.split.idx]; if (!s) return;
-        let mLat = dLat, mLng = dLng;
-        if (s.dir != null) {   // 좌우/상하 선: 선의 직각 방향으로만 (미터 평면에서 법선에 투영)
-          const cosL = Math.cos(moving.orig.a.lat * Math.PI / 180), dx = dLng * 111320 * cosL, dy = dLat * 110574, nx = -Math.sin(s.dir * Math.PI / 180), ny = Math.cos(s.dir * Math.PI / 180), t = dx * nx + dy * ny;
-          mLng = (t * nx) / (111320 * cosL); mLat = (t * ny) / 110574;
+        if (moving.bend) {
+          s.m = { lat: moving.orig.m.lat + dLat, lng: moving.orig.m.lng + dLng };
+        } else {
+          let mLat = dLat, mLng = dLng;
+          if (s.dir != null && !s.m) {   // 곧은 좌우/상하 선은 직각 방향으로만
+            const cosL = Math.cos(moving.orig.a.lat * Math.PI / 180), dx = dLng * 111320 * cosL, dy = dLat * 110574, nx = -Math.sin(s.dir * Math.PI / 180), ny = Math.cos(s.dir * Math.PI / 180), t = dx * nx + dy * ny;
+            mLng = (t * nx) / (111320 * cosL); mLat = (t * ny) / 110574;
+          }
+          const sh = p => ({ lat: p.lat + mLat, lng: p.lng + mLng });
+          if (s.m) { s.m = sh(moving.orig.m); s.a = Layout.snapToRing(r.points, sh(moving.orig.a)); s.b = Layout.snapToRing(r.points, sh(moving.orig.b)); }
+          else { const a2 = sh(moving.orig.a), b2 = sh(moving.orig.b), seg = Layout.lineClip(r.points, a2, b2); if (seg) { s.a = seg[0]; s.b = seg[1]; } }
         }
-        s.a = { lat: moving.orig.a.lat + mLat, lng: moving.orig.a.lng + mLng }; s.b = { lat: moving.orig.b.lat + mLat, lng: moving.orig.b.lng + mLng };
-        const seg = Layout.lineClip(r.points, s.a, s.b) || [s.a, s.b]; if (s.__pl) s.__pl.setPath(seg.map(p => new kakao.maps.LatLng(p.lat, p.lng)));
+        if (s.__pl) s.__pl.setPath(splitPath(s).map(p => new kakao.maps.LatLng(p.lat, p.lng)));
         moving.last = ll; return;
       }
       if (moving.fix) {
@@ -2370,6 +2376,7 @@
 
   // ------------------------------------------------------------ 복합 지붕 (2026-10-23 사용자 지시): 외곽선 하나 + 분할선 → 구역(자식 지붕)마다 형태 따로
   function zoneChildren(r) { return roofs.filter(x => x.parentId === r.id); }
+  const splitPath = s => [s.a].concat(s.m ? [s.m] : [], [s.b]);   // 끝점 고정 + (끌어 꺾은) 가운데 점
   function convertToMulti(r) {
     if (r.parentId) { hint('구역은 복합으로 바꿀 수 없습니다.'); return; }
     r.prevType = r.type; r.type = 'multi'; r.splits = r.splits || [];
@@ -2379,7 +2386,7 @@
   /** 외곽 + 분할선들 → 구역 다각형 → 자식 지붕을 만들거나(형태는 전 형태) 자리로 짝지어 유지 */
   function rebuildZones(r) {
     let zones = [r.points];
-    (r.splits || []).forEach(s => { const next = []; zones.forEach(z => { const cut = Layout.lineClip(z, s.a, s.b) ? Layout.splitPolygon(z, s.a, s.b) : null; if (cut) next.push(cut[0], cut[1]); else next.push(z); }); zones = next; });
+    (r.splits || []).forEach(s => { const next = []; zones.forEach(z => { const cut = Layout.splitByPath(z, splitPath(s)); if (cut) next.push(cut[0], cut[1]); else next.push(z); }); zones = next; });
     const cen = z => Layout.centroid(z);
     zones.sort((p, q) => { const a = cen(p), b = cen(q); return (a.lng - b.lng) || (a.lat - b.lat); });
     const old = zoneChildren(r), used = new Set(), kids = [];
@@ -2404,12 +2411,12 @@
     outline.setMap(map);
     const extra = [];
     (r.splits || []).forEach((s, i) => {
-      const seg = Layout.lineClip(r.points, s.a, s.b) || [s.a, s.b];
+      const seg = splitPath(s);
       const sel = (picked && picked.roofId === r.id && picked.kind === 'split' && picked.idx === i) || splitEdit === r.id;
       const pl = new kakao.maps.Polyline({ path: toLL(seg), strokeWeight: sel ? 8 : 5, strokeColor: sel ? '#00e5ff' : '#ffeb3b', strokeOpacity: 0.95, zIndex: 6 }); pl.setMap(map); extra.push(pl);
       kakao.maps.event.addListener(pl, 'click', () => { if (drawing || editing || Date.now() < lastPick) return; lastPick = Date.now() + 300; setPick({ roofId: r.id, kind: 'split', idx: i }); });
-      const mid = { lat: (seg[0].lat + seg[1].lat) / 2, lng: (seg[0].lng + seg[1].lng) / 2 };
-      const el = document.createElement('div'); el.className = 'splith' + (sel ? ' on' : ''); el.textContent = s.kind === 'lr' ? '⇔' : s.kind === 'ud' ? '⇕' : '✥'; el.title = '선을 눌러 끌면 ' + (s.kind === 'lr' ? '좌우로' : s.kind === 'ud' ? '위아래로' : '') + ' 이동 · 탭 후 Del 삭제';
+      const mid = s.m || { lat: (s.a.lat + s.b.lat) / 2, lng: (s.a.lng + s.b.lng) / 2 };
+      const el = document.createElement('div'); el.className = 'splith' + (sel ? ' on' : ''); el.textContent = '✥'; el.title = '꾹 눌러 끌면 끝점은 고정된 채 가운데가 꺾입니다 · 선 몸통을 끌면 선 전체 이동 · 탭 후 Del 삭제';
       const ov = new kakao.maps.CustomOverlay({ position: new kakao.maps.LatLng(mid.lat, mid.lng), content: el, xAnchor: 0.5, yAnchor: 0.5, zIndex: 31 }); ov.setMap(map); extra.push(ov);
       s.__mid = mid; s.__pl = pl; s.__seg = seg;
     });
@@ -2543,7 +2550,7 @@
   function addAxisSplit(r, kind) {
     const s = Layout.axisSplit(r.points, kind); r.splits = r.splits || []; r.splits.push(s);
     rebuildZones(r); renderList(); save();
-    hint(r.name + ' — ' + (kind === 'lr' ? '좌우' : '상하') + ' 나눔: 구역 ' + zoneChildren(r).length + '개. 노란 선을 눌러 끌면 ' + (kind === 'lr' ? '좌우로' : '위아래로') + ' 옮겨지고, 선 탭 후 Del 로 지웁니다.');
+    hint(r.name + ' — ' + (kind === 'lr' ? '좌우' : '상하') + ' 나눔: 구역 ' + zoneChildren(r).length + '개. ✥ 를 꾹 눌러 끌면 끝점은 고정된 채 선이 꺾이고, 선 몸통을 끌면 ' + (kind === 'lr' ? '좌우로' : '위아래로') + ' 옮겨집니다. 선 탭 후 Del 삭제.');
   }
   function toggleSplitAdd(r) {
     if (splitAdd === r.id) { splitAdd = null; splitFirst = null; recompute(r); renderList(); hint('분할선 긋기 끝'); return; }
@@ -2860,7 +2867,7 @@
       del.className = 'btn danger'; del.textContent = '삭제';
       del.onclick = e => { e.stopPropagation(); remove(r.id); };
       d.appendChild(del);
-      d.onclick = () => { select(r.id); fitRoof(r); };
+      d.onclick = () => { select(r.id); };   // 선택만, 화면은 그대로 (2026-10-23 사용자 지시: 확대 상태에서 다른 지붕 골라도 안 움직이게)
       box.appendChild(d);
     });
   }
@@ -2911,7 +2918,7 @@
         curType, settings, siteName, siteAddr, siteRoad, shade, moduleCfg, edits, structure,
         roofs: roofs.map(r => ({ id: r.id, name: r.name, type: r.type, points: r.points, src: r.src, floors: r.floors, floorsManual: r.floorsManual, spans: r.spans, vent: r.vent,
           parcels: r.parcels, extra: r.extra, review: r.review && !r.review.pending ? r.review : undefined, force: r.force,
-          azimuth: r.azimuth, margin: r.margin, tiers: r.tiers, terrain: r.terrain, moved: r.moved, flip: r.flip, rowAngle: r.rowAngle, frontTiers: r.frontTiers, backTiers: r.backTiers, parentId: r.parentId, splits: (r.splits || []).map(s => ({ a: s.a, b: s.b, kind: s.kind, dir: s.dir })), prevType: r.prevType, ventN: r.ventN, ventPos: r.ventPos, ridgeOff: r.ridgeOff, ridgeExt: r.ridgeExt, ridgeOn: r.ridgeOn, attach: r.attach, ventExtra: r.ventExtra, ventH: r.ventH, rect: r.rect })),
+          azimuth: r.azimuth, margin: r.margin, tiers: r.tiers, terrain: r.terrain, moved: r.moved, flip: r.flip, rowAngle: r.rowAngle, frontTiers: r.frontTiers, backTiers: r.backTiers, parentId: r.parentId, splits: (r.splits || []).map(s => ({ a: s.a, b: s.b, m: s.m, kind: s.kind, dir: s.dir })), prevType: r.prevType, ventN: r.ventN, ventPos: r.ventPos, ridgeOff: r.ridgeOff, ridgeExt: r.ridgeExt, ridgeOn: r.ridgeOn, attach: r.attach, ventExtra: r.ventExtra, ventH: r.ventH, rect: r.rect })),
         // 음영 장애물로 다시 쓰려고 주변 건물도 남긴다 (그림은 다시 그리지 않는다)
         buildings: buildings.map(b => ({ id: b.id, name: b.name, ring: b.ring, floors: b.floors })),
         fixtures: fixtures.map(f => ({ id: f.id, kind: f.kind, c: f.c, w: f.w, h: f.h, ang: f.ang, manual: f.manual })),

@@ -606,7 +606,29 @@ const Layout = (() => {
       if (Math.sign(cr) === -sgn) { const dd = Math.hypot(Q.x, Q.y); if (dd < bestD) { bestD = dd; anchor = Q; } }   // 오목 꼭짓점
     }
     const g = toGeo([anchor, { x: anchor.x + 10 * Math.cos(d * D2R), y: anchor.y + 10 * Math.sin(d * D2R) }], c);
-    return { a: g[0], b: g[1], dir: d, kind };
+    const seg = lineClip(ptsGeo, g[0], g[1]) || g;                  // 끝점 = 외곽선과 만나는 두 점(고정점)
+    return { a: seg[0], b: seg[1], dir: d, kind };
+  }
+  /**
+   * 끝점이 외곽선 위에 있는 꺾은선(a → m… → b)으로 외곽을 둘로 나눈다 (2026-10-23 사용자 지시: 끝점 고정, 가운데를 끌어 꺾음).
+   * 끝점이 외곽선에서 1.5m 넘게 떨어져 있으면 null(그 구역은 이 선과 무관).
+   */
+  function splitByPath(ptsGeo, pathGeo) {
+    const c = centroid(ptsGeo), ring = toLocal(ptsGeo, c), path = toLocal(pathGeo, c);
+    const onEdge = P => { let best = null; for (let i = 0; i < ring.length; i++) { const A = ring[i], B = ring[(i + 1) % ring.length], vx = B.x - A.x, vy = B.y - A.y, l2 = vx * vx + vy * vy || 1, t = Math.max(0, Math.min(1, ((P.x - A.x) * vx + (P.y - A.y) * vy) / l2)), X = { x: A.x + t * vx, y: A.y + t * vy }, d = Math.hypot(P.x - X.x, P.y - X.y); if (!best || d < best.d) best = { i, t, X, d }; } return best; };
+    const ea = onEdge(path[0]), eb = onEdge(path[path.length - 1]);
+    if (!ea || !eb || ea.d > 1.5 || eb.d > 1.5) return null;
+    // 끝점을 외곽 꼭짓점 목록에 끼워 넣는다(같은 변이면 t 순서대로)
+    const ins = [{ e: ea, tag: 'a' }, { e: eb, tag: 'b' }].sort((p, q) => (p.e.i - q.e.i) || (p.e.t - q.e.t));
+    const R2 = []; let ia = -1, ib = -1;
+    for (let i = 0; i < ring.length; i++) { R2.push(ring[i]); ins.filter(x => x.e.i === i).forEach(x => { if (x.tag === 'a') ia = R2.length; else ib = R2.length; R2.push(x.e.X); }); }
+    if (ia < 0 || ib < 0 || ia === ib) return null;
+    const mids = path.slice(1, -1);
+    const walk = (from, to) => { const out = []; let i = from; while (true) { out.push(R2[i]); if (i === to) break; i = (i + 1) % R2.length; } return out; };
+    const P1 = walk(ia, ib).concat(mids.slice().reverse());          // a → 외곽 따라 → b → (꺾임점 거꾸로) → a
+    const P2 = walk(ib, ia).concat(mids);                             // b → 외곽 따라 → a → (꺾임점) → b
+    if (P1.length < 3 || P2.length < 3 || Math.abs(area(P1)) < 1 || Math.abs(area(P2)) < 1) return null;
+    return [toGeo(P1, c), toGeo(P2, c)];
   }
   /** 점 p 를 외곽선 위 가장 가까운 자리로 */
   function snapToRing(ptsGeo, pGeo) {
@@ -614,5 +636,5 @@ const Layout = (() => {
     for (let i = 0; i < loc.length; i++) { const P = loc[i], Q = loc[(i + 1) % loc.length], vx = Q.x - P.x, vy = Q.y - P.y, l2 = vx * vx + vy * vy || 1, t = Math.max(0, Math.min(1, -(P.x * vx + P.y * vy) / l2)), X = { x: P.x + t * vx, y: P.y + t * vy }, d = Math.hypot(X.x, X.y); if (!best || d < best.d) best = { d, X }; }
     return best ? toGeo([best.X], pGeo)[0] : pGeo;
   }
-  return { compute, guessType, guessSpans, containsGeo, sunPositions, PRESETS, DEFAULTS, centroid, toLocal, toGeo, area, minRect, rotate, empty, splitPolygon, lineClip, snapToRing, axisSplit };
+  return { compute, guessType, guessSpans, containsGeo, sunPositions, PRESETS, DEFAULTS, centroid, toLocal, toGeo, area, minRect, rotate, empty, splitPolygon, lineClip, snapToRing, axisSplit, splitByPath };
 })();
