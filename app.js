@@ -1273,8 +1273,13 @@
       stopHold();
       if (!moving) return;
       if (moving.split) {
-        const r = moving.split.roof; moving = null;
-        map.setDraggable(true); map.setZoomable(true); lastPick = Date.now() + 700;
+        const r = moving.split.roof, idx = moving.split.idx, started = moving.started; moving = null;
+        map.setDraggable(true); map.setZoomable(true);
+        if (!started) {   // 움직이지 않고 뗐으면 '탭' = 분할선 선택(하늘색) → Del 로 삭제 (2026-10-23)
+          lastPick = 0; setPick({ roofId: r.id, kind: 'split', idx }); hint(r.name + ' 분할선 ' + (idx + 1) + ' 선택 — Del 키로 지웁니다. ✥ 를 꾹 눌러 끌면 꺾이고, 몸통을 끌면 옮겨집니다.');
+          return;
+        }
+        lastPick = Date.now() + 700;
         rebuildZones(r); renderList(); save();
         hint(r.name + ' — 분할선을 옮기고 구역을 다시 나눴습니다.');
         return;
@@ -2543,6 +2548,7 @@
     const prev = picked; picked = p;
     [prev, p].filter(Boolean).forEach(q => { const r = roofs.find(x => x.id === q.roofId); if (r) recompute(r); });
     if ((prev && prev.kind === 'fix') || (p && p.kind === 'fix')) drawFixtures();
+    if (p && p.kind === 'split') { const r = roofs.find(x => x.id === p.roofId); hint((r ? r.name + ' ' : '') + '분할선 ' + (p.idx + 1) + ' 선택 — Del 키로 지웁니다. ✥ 를 꾹 눌러 끌면 꺾이고, 몸통을 끌면 옮겨집니다.'); return; }
     if (p && p.kind === 'fix') { const f = fixtures[p.idx]; if (f) openElec(f); hint((f ? fixLabel(f) : '') + ' 선택 — 창에서 크기·각도, Del 키로 삭제, 꾹 눌러 끌면 이동.'); return; }
     if (p) { const r = roofs.find(x => x.id === p.roofId); hint((r ? r.name + ' ' : '') + (p.kind === 'ridge' ? '용마루 ' : '벤츄레이터 ') + (p.idx + 1) + ' 선택 — Del 키로 지웁니다. 꾹 눌러 끌면 옮기고, 용마루는 끝을 끌면 길이가 바뀝니다.'); }
   }
