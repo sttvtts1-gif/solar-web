@@ -151,16 +151,37 @@ const Proposal = (() => {
       g.font = 'bold ' + (size || 40) + 'px ' + FONT; g.textAlign = 'center'; g.textBaseline = 'bottom'; g.fillText(text, 0, 0); g.restore();
       g.strokeStyle = BLK; g.fillStyle = BLK;
     };
-    const mod = (x1, y1, x2, y2) => { g.strokeStyle = MAG; g.lineWidth = 7; g.beginPath(); g.moveTo(X(x1), Y(y1)); g.lineTo(X(x2), Y(y2)); g.stroke(); g.strokeStyle = BLK; g.lineWidth = 2.5; };
-    const post = (x, y1, y2) => { g.strokeStyle = '#4a2a8a'; g.lineWidth = 2; g.beginPath(); g.moveTo(X(x), Y(y1)); g.lineTo(X(x), Y(y2)); g.stroke(); g.strokeStyle = BLK; g.lineWidth = 2.5; };
+    // 실제 설계도 꼴 (2026-10-23 사용자 지시): 모듈 = 두께 0.12m 사각형 + 모듈 칸 구분선 + 아래 레일(청록), 기둥 = 폭 0.08m 기둥 + 받침판, 벤츄레이터 = 용마루 위 박스
+    const mod = (x1, y1, x2, y2, nSeg) => {
+      const dx = x2 - x1, dy = y2 - y1, Lm = Math.hypot(dx, dy) || 1, nx = -dy / Lm * 0.12, ny = dx / Lm * 0.12;
+      g.fillStyle = 'rgba(208,32,144,.22)'; g.strokeStyle = MAG; g.lineWidth = 2;
+      g.beginPath(); g.moveTo(X(x1), Y(y1)); g.lineTo(X(x2), Y(y2)); g.lineTo(X(x2 + nx), Y(y2 + ny)); g.lineTo(X(x1 + nx), Y(y1 + ny)); g.closePath(); g.fill(); g.stroke();
+      const n = nSeg || Math.max(1, Math.round(Lm / 2.465));
+      for (let k = 1; k < n; k++) { const u = k / n; g.beginPath(); g.moveTo(X(x1 + dx * u), Y(y1 + dy * u)); g.lineTo(X(x1 + dx * u + nx), Y(y1 + dy * u + ny)); g.stroke(); }
+      g.strokeStyle = '#1aa'; g.lineWidth = 2; g.beginPath(); g.moveTo(X(x1), Y(y1 - 0.06)); g.lineTo(X(x2), Y(y2 - 0.06)); g.stroke();   // 레일
+      g.strokeStyle = BLK; g.lineWidth = 2.5;
+    };
+    const post = (x, y1, y2, color) => {
+      const lo = Math.min(y1, y2), hi = Math.max(y1, y2), hw = 0.04; if (hi - lo < 0.02) return;
+      g.fillStyle = color || '#4a2a8a'; g.strokeStyle = color || '#4a2a8a'; g.lineWidth = 1;
+      g.beginPath(); g.rect(X(x - hw), Y(hi), X(x + hw) - X(x - hw), Y(lo) - Y(hi)); g.fill();
+      g.lineWidth = 2.5; g.beginPath(); g.moveTo(X(x - 0.16), Y(lo)); g.lineTo(X(x + 0.16), Y(lo)); g.stroke();   // 받침판
+      g.strokeStyle = BLK; g.lineWidth = 2.5;
+    };
+    const vent = (x, z) => {
+      g.strokeStyle = BLK; g.lineWidth = 1.5;
+      g.strokeRect(X(x - 0.35), Y(z + 0.6), X(x + 0.35) - X(x - 0.35), Y(z + 0.12) - Y(z + 0.6));
+      g.beginPath(); g.moveTo(X(x - 0.5), Y(z + 0.6)); g.lineTo(X(x + 0.5), Y(z + 0.6)); g.moveTo(X(x - 0.14), Y(z)); g.lineTo(X(x - 0.14), Y(z + 0.12)); g.moveTo(X(x + 0.14), Y(z)); g.lineTo(X(x + 0.14), Y(z + 0.12)); g.stroke();
+      g.lineWidth = 2.5;
+    };
     const lift = r.frontLift != null ? r.frontLift : 0.5;
     /** 인삼밭 거치대: 지붕면 높이 roofZ(x) 위에 다리(앞 lift, 뒤 lift+arrayH)로 띄운 경사 모듈을 pitch 간격으로 (2026-10-23 사용자 지시: 용마루 위 수평틀 X, 지붕면 따라감) */
     const racks = (roofZ, from, to, legH) => {
       const aw = r.arrayDepth, ah = r.arrayH;
       for (let x = from; x + aw <= to + 1e-9; x += r.pitch) {
         const zf = roofZ(x) + legH, zb = zf + ah;
-        mod(x, zf, x + aw, zb);
-        post(x + 0.05, roofZ(x + 0.05), zf); post(x + aw - 0.05, roofZ(x + aw - 0.05), zb);
+        mod(x, zf, x + aw, zb, r.tiers || 2);
+        post(x + 0.05, roofZ(x + 0.05), zf, '#1a4fd6'); post(x + aw - 0.05, roofZ(x + aw - 0.05), zb, '#e0251f');
         if (aw > 3) post(x + aw / 2, roofZ(x + aw / 2), zf + ah / 2);
       }
     };
@@ -173,13 +194,14 @@ const Proposal = (() => {
       for (let i = 0; i < n; i++) {
         const y0 = i * D, yc = y0 + rc(i), y1 = y0 + D;
         g.beginPath(); g.moveTo(X(y0), Y(eave)); g.lineTo(X(yc), Y(eave + rc(i) * t)); g.lineTo(X(y1), Y(eave)); g.stroke();
+        vent(yc, eave + rc(i) * t);
       }
       if (r.type === 'ginseng') {
         racks(roofZ, 0.5, depth - 0.5, r.attach ? 0.12 : lift);                   // 인삼밭 부착(플랫): 지붕면 따라 거치대
       } else if (r.blocks && r.blocks.length) {
         // 배치 계산이 준 블록 그대로: 남면 밀착(앞다리), 북면은 블록마다 지붕+앞다리에서 남향으로 올라가다 최대 높이에서 끊김
         r.blocks.forEach(bk => {
-          mod(bk.from, eave + bk.zf, bk.to, eave + bk.zb);
+          mod(bk.from, eave + bk.zf, bk.to, eave + bk.zb, bk.rows);
           const nPost = Math.max(2, Math.round((bk.to - bk.from) / 3));
           for (let k = 0; k <= nPost; k++) { const y = bk.from + (bk.to - bk.from) * k / nPost; post(y, roofZ(y), eave + bk.zf + (bk.zb - bk.zf) * k / nPost); }
         });
@@ -202,7 +224,7 @@ const Proposal = (() => {
       // 동서지붕: 박공 위 수평 프레임에 2단 거치 (A-A 원본 꼴)
       const n = r.spans, Wd = depth / n, t = Math.tan(r.roofSlope * Math.PI / 180);
       const rpn = Array.isArray(r.ridgePos) && r.ridgePos.length === n ? r.ridgePos : null;
-      for (let i = 0; i < n; i++) { const x0 = i * Wd, c = Math.min(Wd - 0.5, Math.max(0.5, rpn ? rpn[i] - i * Wd : Wd / 2)), xc = x0 + c; g.beginPath(); g.moveTo(X(x0), Y(eave)); g.lineTo(X(xc), Y(eave + c * t)); g.lineTo(X(x0 + Wd), Y(eave)); g.stroke(); }
+      for (let i = 0; i < n; i++) { const x0 = i * Wd, c = Math.min(Wd - 0.5, Math.max(0.5, rpn ? rpn[i] - i * Wd : Wd / 2)), xc = x0 + c; g.beginPath(); g.moveTo(X(x0), Y(eave)); g.lineTo(X(xc), Y(eave + c * t)); g.lineTo(X(x0 + Wd), Y(eave)); g.stroke(); vent(xc, eave + c * t); }
       // 지붕면 높이: 경간마다 처마→용마루(옮긴 자리 반영)→처마
       const roofZ = x => { const i = Math.min(n - 1, Math.max(0, Math.floor(x / Wd))), u = x - i * Wd, c = Math.min(Wd - 0.5, Math.max(0.5, rpn ? rpn[i] - i * Wd : Wd / 2)); return eave + (u <= c ? u * t : c * t * Math.max(0, Wd - u) / Math.max(0.5, Wd - c)); };
       // 플랫 인삼밭: 용마루 위 수평 프레임(용마루+0.3)에 거치대를 얹고, 프레임에서 지붕면까지 다리를 내린다 (2026-10-23 사용자 CAD 그림)
@@ -210,12 +232,12 @@ const Proposal = (() => {
       g.strokeStyle = '#1aa'; g.lineWidth = 3; g.beginPath(); g.moveTo(X(0.5), Y(base)); g.lineTo(X(depth - 0.5), Y(base)); g.stroke(); g.strokeStyle = BLK;
       const legXs = [0.5, depth - 0.5];
       for (let x = 0.5; x + aw <= depth - 0.5 + 1e-9; x += r.pitch) {
-        mod(x, base, x + aw, base + ah);
+        mod(x, base, x + aw, base + ah, r.tiers || 2);
         const nt = Math.max(2, Math.round(aw / 1.2));
         for (let k = 1; k <= nt; k++) { const u = x + aw * k / nt; post(u, base, base + ah * k / nt); }   // 거치대 잔다리(빨간 눈금)
         legXs.push(x, x + aw);
       }
-      [...new Set(legXs.map(v => Math.round(v * 100) / 100))].forEach(x => { if (x >= 0.3 && x <= depth - 0.3) { g.strokeStyle = '#1aa'; g.lineWidth = 2.5; g.beginPath(); g.moveTo(X(x), Y(roofZ(x))); g.lineTo(X(x), Y(base)); g.stroke(); g.strokeStyle = BLK; } });   // 프레임 다리
+      [...new Set(legXs.map(v => Math.round(v * 100) / 100))].forEach((x, k) => { if (x >= 0.3 && x <= depth - 0.3) post(x, roofZ(x), base, ['#1a4fd6', '#e0251f', '#1a9a4a'][k % 3]); });   // 프레임 기둥(샘플처럼 색 구분)
       dim(X(0) - 20, roofZ(0.5), base, mm(base - roofZ(0.5)), 26);               // 처마 쪽 다리 높이
       dim(X(depth) + 34, ridge, base + ah, mm(base + ah - ridge), 26);          // 용마루 위 높이
       dim(X(0) - 150, 0, eave, mm(eave));
@@ -227,7 +249,7 @@ const Proposal = (() => {
       if (r.type === 'parking') { for (let x = 2; x < depth; x += 6) post(x, 0, base); g.beginPath(); g.moveTo(X(0), Y(base)); g.lineTo(X(depth), Y(base)); g.stroke(); }
       if (r.type !== 'ground' && r.type !== 'parking') { g.beginPath(); g.moveTo(X(0), Y(eave)); g.lineTo(X(depth), Y(eave)); g.stroke(); }
       const aw = r.arrayDepth, ah = r.arrayH;
-      for (let x = (r.type === 'ground' ? r.margin : 0.5); x + aw <= depth - 0.5; x += r.pitch) { mod(x, base + 0.3, x + aw, base + 0.3 + ah); post(x + aw, base, base + 0.3 + ah); post(x, base, base + 0.3); }
+      for (let x = (r.type === 'ground' ? r.margin : 0.5); x + aw <= depth - 0.5; x += r.pitch) { mod(x, base + 0.3, x + aw, base + 0.3 + ah, r.tiers || 1); post(x + aw, base, base + 0.3 + ah, '#e0251f'); post(x, base, base + 0.3, '#1a4fd6'); }
       if (clipDepth < r.depthM) { g.fillStyle = '#666'; g.font = '22px ' + FONT; g.textAlign = 'right'; g.textBaseline = 'top'; g.fillText('(전체 ' + Math.round(r.depthM) + 'm 중 ' + Math.round(depth) + 'm 구간)', X(depth) + 60, 20); g.fillStyle = BLK; }
       if (base > 0) dim(X(0) - 150, 0, base, mm(base));
       dim(X(depth) + 90, 0, base + 0.3 + ah, mm(base + 0.3 + ah));

@@ -14,6 +14,10 @@ const Cad = (() => {
   function writer() {
     const e = [];
     // R12 꼴 POLYLINE/VERTEX/SEQEND (LWPOLYLINE + AC1015 머리는 이 PC AutoCAD 2021 이 거부 — 2026-10-08 확인)
+    /** 모듈: 두께 0.12m 닫힌 사각형(MODULE) + 칸 구분선 + 아래 레일(FRAME) · 기둥: 폭 0.08m 사각형(FRAME) + 받침판 · 벤츄레이터: 용마루 위 박스(BLDG) (2026-10-23) */
+    const modRect = (a, b, nSeg) => { const dx = b.x - a.x, dy = b.y - a.y, L = Math.hypot(dx, dy) || 1, nx = -dy / L * 0.12, ny = dx / L * 0.12; poly('MODULE', [a, b, { x: b.x + nx, y: b.y + ny }, { x: a.x + nx, y: a.y + ny }], true); const n = nSeg || Math.max(1, Math.round(L / 2.465)); for (let k = 1; k < n; k++) { const u = k / n, p = { x: a.x + dx * u, y: a.y + dy * u }; line('MODULE', p, { x: p.x + nx, y: p.y + ny }); } line('FRAME', { x: a.x, y: a.y - 0.06 }, { x: b.x, y: b.y - 0.06 }); };
+    const postRect = (a, b) => { const lo = Math.min(a.y, b.y), hi = Math.max(a.y, b.y); if (hi - lo < 0.02) return; const x = a.x; poly('FRAME', [{ x: x - 0.04, y: lo }, { x: x + 0.04, y: lo }, { x: x + 0.04, y: hi }, { x: x - 0.04, y: hi }], true); line('FRAME', { x: x - 0.16, y: lo }, { x: x + 0.16, y: lo }); };
+    const ventBox = p => { poly('BLDG', [{ x: p.x - 0.35, y: p.y + 0.12 }, { x: p.x + 0.35, y: p.y + 0.12 }, { x: p.x + 0.35, y: p.y + 0.6 }, { x: p.x - 0.35, y: p.y + 0.6 }], true); line('BLDG', { x: p.x - 0.5, y: p.y + 0.6 }, { x: p.x + 0.5, y: p.y + 0.6 }); line('BLDG', { x: p.x - 0.14, y: p.y }, { x: p.x - 0.14, y: p.y + 0.12 }); line('BLDG', { x: p.x + 0.14, y: p.y }, { x: p.x + 0.14, y: p.y + 0.12 }); };
     const poly = (layer, pts, closed) => { e.push('0', 'POLYLINE', '8', layer, '66', '1', '70', closed ? '1' : '0'); pts.forEach(p => e.push('0', 'VERTEX', '8', layer, '10', f(p.x), '20', f(p.y), '30', '0')); e.push('0', 'SEQEND', '8', layer); };
     // 한글은 그대로 두고, 파일로 낼 때 CP949 바이트로 바꾼다(cp949.js). R12 DXF 는 ANSI 코드페이지로 읽혀 UTF-8·\U+ 둘 다 안 된다(2026-10-08 확인).
     const uesc = s => String(s).replace(/[\r\n]/g, ' ');
@@ -33,7 +37,7 @@ const Cad = (() => {
       out.push('0', 'ENDSEC', '0', 'EOF');
       return out.join('\r\n') + '\r\n';
     }
-    return { poly, line, text, circle, vdim, hdim, dump };
+    return { poly, line, text, circle, vdim, hdim, dump, mod: (a, b, nSeg) => modRect(a, b, nSeg), post: (a, b) => postRect(a, b), vent: p => ventBox(p) };
   }
 
   /**
@@ -77,23 +81,23 @@ const Cad = (() => {
         const roofZ = y => { const k = Math.min(n - 1, Math.max(0, Math.floor(y / D))), u = y - k * D, c = rc(k); return eave + (u <= c ? u * t : c * t * Math.max(0, D - u) / Math.max(0.5, D - c)); };
         for (let k = 0; k < n; k++) {
           const y0 = k * D, yc = y0 + rc(k), y1 = y0 + D, hr = eave + rc(k) * t;
-          w.line('BLDG', P(y0, eave), P(yc, hr)); w.line('BLDG', P(yc, hr), P(y1, eave));
+          w.line('BLDG', P(y0, eave), P(yc, hr)); w.line('BLDG', P(yc, hr), P(y1, eave)); w.vent(P(yc, hr));
         }
-        const racks = (rz, from, to, legH) => { const aw = r.arrayDepth, ah = r.arrayH; for (let x = from; x + aw <= to + 1e-9; x += r.pitch) { const zf = rz(x) + legH, zb = zf + ah; w.line('MODULE', P(x, zf), P(x + aw, zb)); w.line('DIM', P(x + 0.05, rz(x + 0.05)), P(x + 0.05, zf)); w.line('DIM', P(x + aw - 0.05, rz(x + aw - 0.05)), P(x + aw - 0.05, zb)); } };
+        const racks = (rz, from, to, legH) => { const aw = r.arrayDepth, ah = r.arrayH; for (let x = from; x + aw <= to + 1e-9; x += r.pitch) { const zf = rz(x) + legH, zb = zf + ah; w.mod(P(x, zf), P(x + aw, zb), r.tiers || 2); w.post(P(x + 0.05, rz(x + 0.05)), P(x + 0.05, zf)); w.post(P(x + aw - 0.05, rz(x + aw - 0.05)), P(x + aw - 0.05, zb)); } };
         if (r.type === 'ginseng') {
           racks(roofZ, 0.5, depth - 0.5, r.attach ? 0.12 : lift);                 // 인삼밭 부착: 지붕면 따라 거치대 (2026-10-23)
         } else if (r.blocks && r.blocks.length) {
           r.blocks.forEach(bk => {
-            w.line('MODULE', P(bk.from, eave + bk.zf), P(bk.to, eave + bk.zb));
+            w.mod(P(bk.from, eave + bk.zf), P(bk.to, eave + bk.zb));
             const nPost = Math.max(2, Math.round((bk.to - bk.from) / 3));
-            for (let s = 0; s <= nPost; s++) { const y = bk.from + (bk.to - bk.from) * s / nPost; w.line('DIM', P(y, roofZ(y)), P(y, eave + bk.zf + (bk.zb - bk.zf) * s / nPost)); }
+            for (let s = 0; s <= nPost; s++) { const y = bk.from + (bk.to - bk.from) * s / nPost; w.post(P(y, roofZ(y)), P(y, eave + bk.zf + (bk.zb - bk.zf) * s / nPost)); }
           });
         } else {
           for (let k = 0; k < n; k++) {
             const y0 = k * D, yc = y0 + D / 2, y1 = y0 + D;
-            w.line('MODULE', P(y0 + 0.5, eave + 0.5 * t + lift), P(yc - 0.3, eave + (D / 2 - 0.3) * t + lift));
-            w.line('MODULE', P(yc + 0.3, eave + (D / 2 + 0.3) * t + lift), P(y1 - 0.5, eave + (D - 0.5) * t + lift));
-            for (let s = 1; s <= 3; s++) { const u = D / 2 + 0.3 + (D / 2 - 0.8) * s / 3; w.line('DIM', P(y0 + u, eave + (D - u) * t), P(y0 + u, eave + u * t + lift)); }
+            w.mod(P(y0 + 0.5, eave + 0.5 * t + lift), P(yc - 0.3, eave + (D / 2 - 0.3) * t + lift));
+            w.mod(P(yc + 0.3, eave + (D / 2 + 0.3) * t + lift), P(y1 - 0.5, eave + (D - 0.5) * t + lift));
+            for (let s = 1; s <= 3; s++) { const u = D / 2 + 0.3 + (D / 2 - 0.8) * s / 3; w.post(P(y0 + u, eave + (D - u) * t), P(y0 + u, eave + u * t + lift)); }
           }
         }
         w.vdim(ox - 4, oy, oy + eave, mm(eave)); w.vdim(ox - 2.5, oy, oy + ridge, mm(ridge)); w.vdim(ox + depth + 2.5, oy, oy + top, mm(top)); w.vdim(ox + depth + 1.2, oy + eave, oy + top, mm(top - eave), 0.5);
@@ -101,12 +105,12 @@ const Cad = (() => {
       } else if (r.kind === 'gable-ns') {
         const n = r.spans, Wd = depth / n, t = Math.tan(r.roofSlope * Math.PI / 180), base = ridge + 0.3;
         const rpn = Array.isArray(r.ridgePos) && r.ridgePos.length === n ? r.ridgePos : null;
-        for (let k = 0; k < n; k++) { const x0 = k * Wd, c = Math.min(Wd - 0.5, Math.max(0.5, rpn ? rpn[k] - k * Wd : Wd / 2)), xc = x0 + c, hr = eave + c * t; w.line('BLDG', P(x0, eave), P(xc, hr)); w.line('BLDG', P(xc, hr), P(x0 + Wd, eave)); }
+        for (let k = 0; k < n; k++) { const x0 = k * Wd, c = Math.min(Wd - 0.5, Math.max(0.5, rpn ? rpn[k] - k * Wd : Wd / 2)), xc = x0 + c, hr = eave + c * t; w.line('BLDG', P(x0, eave), P(xc, hr)); w.line('BLDG', P(xc, hr), P(x0 + Wd, eave)); w.vent(P(xc, hr)); }
         const rz = x => { const i = Math.min(n - 1, Math.max(0, Math.floor(x / Wd))), u = x - i * Wd, c = Math.min(Wd - 0.5, Math.max(0.5, rpn ? rpn[i] - i * Wd : Wd / 2)); return eave + (u <= c ? u * t : c * t * Math.max(0, Wd - u) / Math.max(0.5, Wd - c)); };
         // 플랫 인삼밭: 용마루 위 수평 프레임(+0.3) + 거치대 + 지붕면까지 다리 (2026-10-23 사용자 CAD 그림)
         const fb = ridge + 0.3, aw = r.arrayDepth, ah = r.arrayH, legs = [0.5, depth - 0.5];
         w.line('BLDG', P(0.5, fb), P(depth - 0.5, fb));
-        for (let x = 0.5; x + aw <= depth - 0.5 + 1e-9; x += r.pitch) { w.line('MODULE', P(x, fb), P(x + aw, fb + ah)); const nt = Math.max(2, Math.round(aw / 1.2)); for (let k = 1; k <= nt; k++) { const u = x + aw * k / nt; w.line('DIM', P(u, fb), P(u, fb + ah * k / nt)); } legs.push(x, x + aw); }
+        for (let x = 0.5; x + aw <= depth - 0.5 + 1e-9; x += r.pitch) { w.mod(P(x, fb), P(x + aw, fb + ah), r.tiers || 2); const nt = Math.max(2, Math.round(aw / 1.2)); for (let k = 1; k <= nt; k++) { const u = x + aw * k / nt; w.post(P(u, fb), P(u, fb + ah * k / nt)); } legs.push(x, x + aw); }
         [...new Set(legs.map(v => Math.round(v * 100) / 100))].forEach(x => { if (x >= 0.3 && x <= depth - 0.3) w.line('BLDG', P(x, rz(x)), P(x, fb)); });
         w.vdim(ox - 1.2, oy + rz(0.5), oy + fb, mm(fb - rz(0.5)), 0.45); w.vdim(ox + depth + 1.2, oy + ridge, oy + fb + ah, mm(fb + ah - ridge), 0.45);
         w.vdim(ox - 4, oy, oy + eave, mm(eave)); w.vdim(ox - 2.5, oy, oy + ridge, mm(ridge)); w.vdim(ox + depth + 2.5, oy, oy + top, mm(top));
@@ -114,7 +118,7 @@ const Cad = (() => {
         const base = r.type === 'parking' ? 2.5 : r.type === 'ground' ? 0.5 : eave;
         const dep = Math.min(depth, 3 * r.pitch + r.arrayDepth + 4);
         if (base > 0 && r.type !== 'ground') w.line('BLDG', P(0, base), P(dep, base));
-        for (let x = (r.type === 'ground' ? r.margin : 0.5); x + r.arrayDepth <= dep - 0.5; x += r.pitch) { w.line('MODULE', P(x, base + 0.3), P(x + r.arrayDepth, base + 0.3 + r.arrayH)); w.line('DIM', P(x + r.arrayDepth, base), P(x + r.arrayDepth, base + 0.3 + r.arrayH)); w.line('DIM', P(x, base), P(x, base + 0.3)); }
+        for (let x = (r.type === 'ground' ? r.margin : 0.5); x + r.arrayDepth <= dep - 0.5; x += r.pitch) { w.mod(P(x, base + 0.3), P(x + r.arrayDepth, base + 0.3 + r.arrayH)); w.post(P(x + r.arrayDepth, base), P(x + r.arrayDepth, base + 0.3 + r.arrayH)); w.post(P(x, base), P(x, base + 0.3)); }
         if (base > 0) w.vdim(ox - 2.5, oy, oy + base, mm(base)); w.vdim(ox + dep + 2.5, oy, oy + base + 0.3 + r.arrayH, mm(base + 0.3 + r.arrayH));
       }
       w.text('DIM', { x: ox, y: oy - 1.2 }, 0.6, '남'); w.text('DIM', { x: ox + depth - 0.5, y: oy - 1.2 }, 0.6, '북');
@@ -128,14 +132,15 @@ const Cad = (() => {
       if (r.kind === 'gable-ns') {
         // 플랫 인삼밭을 길이 방향(C 방향)에서 본 입면 (2026-10-23 사용자 지시): 용마루는 길이 방향이라 처마선·용마루선이 수평, 그 위 프레임(용마루+0.3)에 거치대가 줄 간격(pitch)으로 톱니처럼
         w.line('BLDG', B(0, eave), B(wd, eave)); w.line('BLDG', B(0, ridge), B(wd, ridge)); w.line('BLDG', B(0, eave), B(0, ridge)); w.line('BLDG', B(wd, eave), B(wd, ridge));
+        for (let x = 4; x < wd - 2; x += 8) w.vent(B(x, ridge));
         const fb = ridge + 0.3, aw = r.arrayDepth, ah = r.arrayH;
         w.line('BLDG', B(0.5, fb), B(wd - 0.5, fb));
-        for (let x = 0.5; x + aw <= wd - 0.5 + 1e-9; x += r.pitch) { w.line('MODULE', B(x, fb), B(x + aw, fb + ah)); w.line('DIM', B(x + aw, fb), B(x + aw, fb + ah)); w.line('DIM', B(x + aw / 2, fb), B(x + aw / 2, fb + ah / 2)); w.line('BLDG', B(x, ridge), B(x, fb)); w.line('BLDG', B(x + aw, ridge), B(x + aw, fb)); }
+        for (let x = 0.5; x + aw <= wd - 0.5 + 1e-9; x += r.pitch) { w.mod(B(x, fb), B(x + aw, fb + ah), r.tiers || 2); w.post(B(x + aw, fb), B(x + aw, fb + ah)); w.post(B(x + aw / 2, fb), B(x + aw / 2, fb + ah / 2)); w.line('BLDG', B(x, ridge), B(x, fb)); w.line('BLDG', B(x + aw, ridge), B(x + aw, fb)); }
       } else {
         if (r.kind === 'gable-ew') { w.line('BLDG', B(0, eave), B(wd, eave)); }
-        w.line('MODULE', B(0.3, top), B(wd - 0.3, top)); w.line('MODULE', B(0.3, top - 0.05), B(wd - 0.3, top - 0.05));
+        w.mod(B(0.3, top), B(wd - 0.3, top)); w.mod(B(0.3, top - 0.05), B(wd - 0.3, top - 0.05));
       }
-      if (r.kind !== 'gable-ns') for (let x = 0.5; x < wd; x += 4) w.line('DIM', B(x, eave), B(x, top));   // 플랫 인삼밭은 위에서 거치대마다 다리를 그렸다
+      if (r.kind !== 'gable-ns') for (let x = 0.5; x < wd; x += 4) w.post(B(x, eave), B(x, top));   // 플랫 인삼밭은 위에서 거치대마다 다리를 그렸다
       w.vdim(ox - 2.5, by, by + eave, mm(eave)); w.vdim(ox + wd + 2.5, by, by + top, mm(top));
       w.hdim(by - 1.5, ox, ox + wd, mm(wd));
       ox += depth + 30;
