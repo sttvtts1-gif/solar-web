@@ -943,6 +943,7 @@ const Proposal = (() => {
     g.fillText('1 : none', 815, y0 + 38);
     g.textAlign = 'left'; ['책임기술자', '설 계 자', '제 도 자'].forEach((t, i) => { g.fillText(t, 878, y0 + 14 + i * 24); g.beginPath(); g.moveTo(870, y0 + 25 + i * 24); g.lineTo(1180, y0 + 25 + i * 24); g.stroke(); });
     g.beginPath(); g.moveTo(960, y0); g.lineTo(960, y0 + h); g.stroke();
+    g.font = '14px ' + FONT; g.textAlign = 'center'; g.fillText('그랜드썬AI', 1070, y0 + 38);   // 설계자 (2026-10-23 사용자 지시)
     small('도 면 명', 1188, y0 + 20); small('T I T L E', 1188, y0 + 38);
     g.font = '16px ' + FONT; g.textAlign = 'center'; g.fillText(titleName, 1340, y0 + 40);
     small('도면번호', 1508, y0 + 20);
@@ -971,7 +972,7 @@ const Proposal = (() => {
     const cv = document.createElement('canvas'); cv.width = W; cv.height = H;
     const g = cv.getContext('2d');
     sheetFrame(g, W, H, d, '모듈배치평면도');
-    const area = { x: 120, y: 60, w: W - 150, h: H - 60 - 88 - 160 };
+    const area = { x: 120, y: 60, w: W - 170, h: H - 60 - 88 - 160 };   // 오른쪽 끝 = 안쪽 테두리(W-40) 안 (2026-10-23)
     g.strokeStyle = '#d33'; g.lineWidth = 1; g.strokeRect(area.x, area.y, area.w, area.h);
     const o = d.origin, all = [];
     d.roofs.forEach(r => r.rings.forEach(rg => all.push(...toXY(rg, o))));   // 주변 건물은 범위에 넣지 않는다(현장만 확대)
@@ -1045,14 +1046,14 @@ const Proposal = (() => {
     const ty = area.y + area.h + 20;
     g.strokeStyle = '#e08a1f'; g.lineWidth = 2; g.beginPath(); g.arc(area.x + 50, ty + 55, 22, 0, Math.PI * 2); g.stroke(); g.beginPath(); g.moveTo(area.x + 20, ty + 55); g.lineTo(area.x + 300, ty + 55); g.stroke();
     g.fillStyle = '#1a2fd6'; g.font = 'bold 20px ' + FONT; g.textAlign = 'left'; g.fillText('모 듈 배 치 도', area.x + 90, ty + 40); g.font = '12px ' + FONT; g.fillText('SCALE: N/S', area.x + 180, ty + 72);
-    const tx = W - 30 - 760, tw = [280, 130, 170, 180], th = 56;
+    const tx = W - 50 - 760, tw = [280, 130, 170, 180], th = 56;   // 표도 안쪽 테두리 안
     const total = d.roofs.reduce((a, r) => a + r.count, 0);
     const tilts = [...new Set(d.roofs.map(r => r.tilt))].sort((a, b) => a - b);
     const cells = [['모     듈', '', '', '설치각도'], [d.module.maker + ' ' + d.module.w + 'Wp(양면)|' + d.module.L.toLocaleString() + ' x ' + d.module.S.toLocaleString(), total.toLocaleString() + '장', d.kw.toFixed(3) + 'kW', (tilts.length > 1 ? tilts[0] + '~' + tilts[tilts.length - 1] : tilts[0]) + '도']];
     g.strokeStyle = '#000'; g.lineWidth = 1.5; g.fillStyle = '#000'; g.textAlign = 'center';
-    let x = tx; tw.forEach((w, j) => { g.strokeRect(x, ty, w, th); g.strokeRect(x, ty + th, w, th + 18); x += w; });
-    g.strokeRect(tx, ty, tw[0] + tw[1] + tw[2], th);
-    g.font = 'bold 26px ' + FONT; g.fillText('모     듈', tx + (tw[0] + tw[1] + tw[2]) / 2, ty + th / 2); g.fillText('설치각도', tx + tw[0] + tw[1] + tw[2] + tw[3] / 2, ty + th / 2);
+    let x = tx; tw.forEach((w, j) => { g.strokeRect(x, ty + th, w, th + 18); x += w; });   // 몸통 칸
+    g.strokeRect(tx, ty, tw[0] + tw[1], th); g.strokeRect(tx + tw[0] + tw[1], ty, tw[2], th); g.strokeRect(tx + tw[0] + tw[1] + tw[2], ty, tw[3], th);   // 머리: 모듈(2칸 합침) · 용량 · 설치각도
+    g.font = 'bold 26px ' + FONT; g.fillText('모     듈', tx + (tw[0] + tw[1]) / 2, ty + th / 2); g.fillText('용량', tx + tw[0] + tw[1] + tw[2] / 2, ty + th / 2); g.fillText('설치각도', tx + tw[0] + tw[1] + tw[2] + tw[3] / 2, ty + th / 2);
     g.font = '22px ' + FONT; x = tx;
     cells[1].forEach((t, j) => { const ls = t.split('|'); ls.forEach((l, k) => g.fillText(l, x + tw[j] / 2, ty + th + (th + 18) / 2 + (k - (ls.length - 1) / 2) * 26)); x += tw[j]; });
     if (opt.satellite) { g.font = '12px ' + FONT; g.textAlign = 'right'; g.fillStyle = '#444'; g.fillText('위성 © V-World', area.x + area.w - 6, area.y + area.h + 14); }
