@@ -23,7 +23,7 @@
   let picked = null;        // 지도에서 탭해 고른 부속물 { roofId, kind:'ridge'|'vent', idx } — Del 키로 지운다
   let ventAdd = null;     // 「벤츄 추가」 켜진 지붕 id — 지도 탭마다 그 자리에 벤츄레이터를 놓는다(다시 누르거나 Esc 로 끔)
   let shapeEdit = null;
-  let splitAdd = null, splitFirst = null;
+  let splitAdd = null, splitFirst = null, splitEdit = null;   // splitEdit: 복합 「모양」= 분할선 편집 모드인 지붕 id
   let lastRealType = 'flush';               // 복합이 아닌 마지막 형태 — 새 지붕(건물·토지 가져오기, 직접 그리기)은 이걸로 (2026-10-23: 복합 상태에서 가져온 건물이 구역 없는 복합이 되던 문제)
   function newRoofType() { return curType === 'multi' ? lastRealType : curType; }   // 복합 지붕 분할선 긋는 중인 지붕 id · 첫 점 (2026-10-23)   // 「주차장」을 다시 눌러 모양 편집 중인 주차장 id — 꼭짓점 손잡이를 끌고, 변을 탭해 꼭짓점을 더한다
   let siteName = '';
@@ -163,7 +163,7 @@
     document.addEventListener('keydown', e => {
       const tag = (e.target && e.target.tagName) || '';
       if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || e.target.isContentEditable) return;
-      if (e.key === 'Escape') { if (splitAdd) { const r = roofs.find(x => x.id === splitAdd); splitAdd = null; splitFirst = null; if (r) recompute(r); renderList(); hint('분할선 긋기 끝'); } if (picked) setPick(null); if (ventAdd) { ventAdd = null; renderList(); hint('벤츄레이터 추가 끝.'); } if (shapeEdit) { const r = roofs.find(x => x.id === shapeEdit); shapeEdit = null; if (r) recompute(r); renderList(); hint('모양 편집 끝.'); } return; }
+      if (e.key === 'Escape') { if (splitEdit) { const r = roofs.find(x => x.id === splitEdit); splitEdit = null; if (r) recompute(r); renderList(); } if (splitAdd) { const r = roofs.find(x => x.id === splitAdd); splitAdd = null; splitFirst = null; if (r) recompute(r); renderList(); hint('분할선 긋기 끝'); } if (picked) setPick(null); if (ventAdd) { ventAdd = null; renderList(); hint('벤츄레이터 추가 끝.'); } if (shapeEdit) { const r = roofs.find(x => x.id === shapeEdit); shapeEdit = null; if (r) recompute(r); renderList(); hint('모양 편집 끝.'); } return; }
       if ((e.ctrlKey || e.metaKey) && !e.shiftKey && (e.key === 'z' || e.key === 'Z')) { e.preventDefault(); undo(); return; }
       if (e.key !== 'Delete') return;
       if (deletePick()) { e.preventDefault(); return; }
@@ -434,7 +434,7 @@
       d.innerHTML = typeIcon(t) + '<b>' + p.label.split(' · ')[0] + '</b>' + p.label.split(' · ')[1];
       d.onclick = () => {
         const r = roofs.find(x => x.id === selectedId);
-        if (t === 'multi') { if (!r) { hint('먼저 지붕을 고르세요(복합으로 바꿀 지붕).'); return; } if (r.type === 'multi') { toggleSplitAdd(r); return; } convertToMulti(r); return; }
+        if (t === 'multi') { if (!r) { hint('먼저 지붕을 고르세요(복합으로 바꿀 지붕).'); return; } if (r.type === 'multi') { hint('카드의 「좌우 나눔」「상하 나눔」으로 구역을 나누고, 노란 선을 눌러 끌어 옮기세요.'); return; } convertToMulti(r); return; }
         if (t === curType) {
           // 이미 켜진 형태를 한 번 더 누르면 줄 방향을 뒤집는다: 남서향 배치 ↔ 남동향 배치 (건물맞춤이면 다른 축, 토지·주차장은 방위각 부호 반전)
           const targets = r ? [r] : roofs.filter(x => x.type === t);
@@ -1119,7 +1119,9 @@
       if (drawing || editing || !e.isPrimary) return;
       down = { x: e.clientX, y: e.clientY, id: e.pointerId };
       // 복합 지붕 분할선 손잡이(18px 안): 바로 끌린다
-      { let best = null; for (const r of roofs) { if (r.type !== 'multi') continue; (r.splits || []).forEach((s, i) => { if (!s.__mid) return; const d = pxDist(e, s.__mid); if (d <= 18 && (!best || d < best.d)) best = { roof: r, idx: i, d }; }); }
+      { let best = null;
+        const segPx = (e, seg) => { const rc = el.getBoundingClientRect(), pr = map.getProjection(), P = pr.containerPointFromCoords(new kakao.maps.LatLng(seg[0].lat, seg[0].lng)), Q = pr.containerPointFromCoords(new kakao.maps.LatLng(seg[1].lat, seg[1].lng)), x = e.clientX - rc.left, y = e.clientY - rc.top, vx = Q.x - P.x, vy = Q.y - P.y, l2 = vx * vx + vy * vy || 1, t = Math.max(0, Math.min(1, ((x - P.x) * vx + (y - P.y) * vy) / l2)); return Math.hypot(x - (P.x + t * vx), y - (P.y + t * vy)); };
+        for (const r of roofs) { if (r.type !== 'multi') continue; (r.splits || []).forEach((s, i) => { if (!s.__mid) return; const d = Math.min(pxDist(e, s.__mid), s.__seg ? segPx(e, s.__seg) + 4 : 99); if (d <= 18 && (!best || d < best.d)) best = { roof: r, idx: i, d }; }); }
         if (best) { e.preventDefault(); const s = best.roof.splits[best.idx], ll = toLL(e); moving = { split: best, start: ll, last: ll, orig: { a: Object.assign({}, s.a), b: Object.assign({}, s.b) }, immediate: true, started: false, downX: e.clientX, downY: e.clientY }; try { el.setPointerCapture(e.pointerId); } catch (x) {} map.setDraggable(false); map.setZoomable(false); return; } }
       // 모양 편집 중인 주차장의 꼭짓점 손잡이(2.5m 안)가 제일 먼저
       let handle = (() => { const r = roofs.find(x => x.id === shapeEdit) || roofs.find(x => x.id === selectedId && x.rect); if (!r) return null; let best = null; for (let i = 0; i < r.points.length; i++) { const d = pxDist(e, r.points[i]); if (d <= 18 && (!best || d < best.d)) best = { roof: r, idx: i, d }; } return best; })();
@@ -1213,7 +1215,12 @@
       const sh = rg => rg.map(p => ({ lat: p.lat + dLat, lng: p.lng + dLng }));
       if (moving.split) {   // 분할선 평행 이동 미리보기
         const r = moving.split.roof, s = r.splits[moving.split.idx]; if (!s) return;
-        s.a = { lat: moving.orig.a.lat + dLat, lng: moving.orig.a.lng + dLng }; s.b = { lat: moving.orig.b.lat + dLat, lng: moving.orig.b.lng + dLng };
+        let mLat = dLat, mLng = dLng;
+        if (s.dir != null) {   // 좌우/상하 선: 선의 직각 방향으로만 (미터 평면에서 법선에 투영)
+          const cosL = Math.cos(moving.orig.a.lat * Math.PI / 180), dx = dLng * 111320 * cosL, dy = dLat * 110574, nx = -Math.sin(s.dir * Math.PI / 180), ny = Math.cos(s.dir * Math.PI / 180), t = dx * nx + dy * ny;
+          mLng = (t * nx) / (111320 * cosL); mLat = (t * ny) / 110574;
+        }
+        s.a = { lat: moving.orig.a.lat + mLat, lng: moving.orig.a.lng + mLng }; s.b = { lat: moving.orig.b.lat + mLat, lng: moving.orig.b.lng + mLng };
         const seg = Layout.lineClip(r.points, s.a, s.b) || [s.a, s.b]; if (s.__pl) s.__pl.setPath(seg.map(p => new kakao.maps.LatLng(p.lat, p.lng)));
         moving.last = ll; return;
       }
@@ -2398,16 +2405,16 @@
     const extra = [];
     (r.splits || []).forEach((s, i) => {
       const seg = Layout.lineClip(r.points, s.a, s.b) || [s.a, s.b];
-      const sel = picked && picked.roofId === r.id && picked.kind === 'split' && picked.idx === i;
-      const pl = new kakao.maps.Polyline({ path: toLL(seg), strokeWeight: sel ? 7 : 5, strokeColor: sel ? '#00e5ff' : '#ffeb3b', strokeOpacity: 0.95, zIndex: 6 }); pl.setMap(map); extra.push(pl);
+      const sel = (picked && picked.roofId === r.id && picked.kind === 'split' && picked.idx === i) || splitEdit === r.id;
+      const pl = new kakao.maps.Polyline({ path: toLL(seg), strokeWeight: sel ? 8 : 5, strokeColor: sel ? '#00e5ff' : '#ffeb3b', strokeOpacity: 0.95, zIndex: 6 }); pl.setMap(map); extra.push(pl);
       kakao.maps.event.addListener(pl, 'click', () => { if (drawing || editing || Date.now() < lastPick) return; lastPick = Date.now() + 300; setPick({ roofId: r.id, kind: 'split', idx: i }); });
       const mid = { lat: (seg[0].lat + seg[1].lat) / 2, lng: (seg[0].lng + seg[1].lng) / 2 };
-      const el = document.createElement('div'); el.className = 'splith' + (sel ? ' on' : ''); el.textContent = '⇕'; el.title = '끌어서 분할선 이동 · 탭 후 Del 삭제';
+      const el = document.createElement('div'); el.className = 'splith' + (sel ? ' on' : ''); el.textContent = s.kind === 'lr' ? '⇔' : s.kind === 'ud' ? '⇕' : '✥'; el.title = '선을 눌러 끌면 ' + (s.kind === 'lr' ? '좌우로' : s.kind === 'ud' ? '위아래로' : '') + ' 이동 · 탭 후 Del 삭제';
       const ov = new kakao.maps.CustomOverlay({ position: new kakao.maps.LatLng(mid.lat, mid.lng), content: el, xAnchor: 0.5, yAnchor: 0.5, zIndex: 31 }); ov.setMap(map); extra.push(ov);
       s.__mid = mid; s.__pl = pl; s.__seg = seg;
     });
     if (splitFirst && splitAdd === r.id) { const el = document.createElement('div'); el.className = 'splith on'; el.textContent = '1'; const ov = new kakao.maps.CustomOverlay({ position: new kakao.maps.LatLng(splitFirst.lat, splitFirst.lng), content: el, xAnchor: 0.5, yAnchor: 0.5, zIndex: 31 }); ov.setMap(map); extra.push(ov); }
-    const handles = (shapeEdit === r.id) ? r.points.map((p, i) => { const m = 0.8 / 111320, mx = 0.8 / (111320 * Math.cos(p.lat * Math.PI / 180)); const pg = new kakao.maps.Polygon({ path: [[p.lat - m, p.lng - mx], [p.lat - m, p.lng + mx], [p.lat + m, p.lng + mx], [p.lat + m, p.lng - mx]].map(q => new kakao.maps.LatLng(q[0], q[1])), strokeWeight: 2, strokeColor: '#00e5ff', fillColor: '#00e5ff', fillOpacity: 0.8, zIndex: 7 }); pg.setMap(map); return pg; }) : [];
+    const handles = (shapeEdit === r.id && false) ? r.points.map((p, i) => { const m = 0.8 / 111320, mx = 0.8 / (111320 * Math.cos(p.lat * Math.PI / 180)); const pg = new kakao.maps.Polygon({ path: [[p.lat - m, p.lng - mx], [p.lat - m, p.lng + mx], [p.lat + m, p.lng + mx], [p.lat + m, p.lng - mx]].map(q => new kakao.maps.LatLng(q[0], q[1])), strokeWeight: 2, strokeColor: '#00e5ff', fillColor: '#00e5ff', fillOpacity: 0.8, zIndex: 7 }); pg.setMap(map); return pg; }) : [];
     const lel = document.createElement('div'); lel.className = 'lbl'; lel.style.display = 'none';
     const label = new kakao.maps.CustomOverlay({ position: new kakao.maps.LatLng(r.points[0].lat, r.points[0].lng), content: lel, zIndex: 20 }); label.setMap(map);
     r.gfx = { outline, mods: [], label, vents: [], ridges: [], handles, extraLines: extra };
@@ -2532,6 +2539,12 @@
     if (p && p.kind === 'fix') { const f = fixtures[p.idx]; if (f) openElec(f); hint((f ? fixLabel(f) : '') + ' 선택 — 창에서 크기·각도, Del 키로 삭제, 꾹 눌러 끌면 이동.'); return; }
     if (p) { const r = roofs.find(x => x.id === p.roofId); hint((r ? r.name + ' ' : '') + (p.kind === 'ridge' ? '용마루 ' : '벤츄레이터 ') + (p.idx + 1) + ' 선택 — Del 키로 지웁니다. 꾹 눌러 끌면 옮기고, 용마루는 끝을 끌면 길이가 바뀝니다.'); }
   }
+  /** 좌우/상하 분할선 추가 — 건물 축 기준, 안쪽 모서리에 자동. 선을 눌러 끌면 그 방향으로만 움직인다 */
+  function addAxisSplit(r, kind) {
+    const s = Layout.axisSplit(r.points, kind); r.splits = r.splits || []; r.splits.push(s);
+    rebuildZones(r); renderList(); save();
+    hint(r.name + ' — ' + (kind === 'lr' ? '좌우' : '상하') + ' 나눔: 구역 ' + zoneChildren(r).length + '개. 노란 선을 눌러 끌면 ' + (kind === 'lr' ? '좌우로' : '위아래로') + ' 옮겨지고, 선 탭 후 Del 로 지웁니다.');
+  }
   function toggleSplitAdd(r) {
     if (splitAdd === r.id) { splitAdd = null; splitFirst = null; recompute(r); renderList(); hint('분할선 긋기 끝'); return; }
     splitAdd = r.id; splitFirst = null; shapeEdit = null; recompute(r); renderList();
@@ -2646,9 +2659,9 @@
         d.className = 'roof' + (r.id === selectedId ? ' sel' : ''); d.onclick = () => select(r.id);
         const kids = zoneChildren(r), kw = kids.reduce((a, k) => a + (k.result ? k.result.kw : 0), 0);
         d.innerHTML = '<span class="nm">' + r.name + ' · 복합 (구역 ' + kids.length + '개 · ' + kw.toFixed(2) + 'kW)<br><small style="color:var(--muted)">분할선 ' + (r.splits || []).length + '개 · 구역마다 형태를 따로 고릅니다</small></span>';
-        const sp = document.createElement('button'); sp.className = 'btn ' + (splitAdd === r.id ? 'accent' : 'ghost'); sp.textContent = splitAdd === r.id ? '분할선 긋는 중' : '분할선'; sp.title = '외곽선 위 두 점을 탭해 구역을 나눈다';
-        sp.onclick = e => { e.stopPropagation(); toggleSplitAdd(r); }; d.appendChild(sp);
-        const sh = document.createElement('button'); sh.className = 'btn ' + (shapeEdit === r.id ? 'accent' : 'ghost'); sh.textContent = shapeEdit === r.id ? '모양 편집 중' : '모양'; sh.onclick = e => { e.stopPropagation(); toggleShapeEdit(r); }; d.appendChild(sh);
+        [['lr', '좌우 나눔', '세로 분할선(건물 축 기준)을 안쪽 모서리에 놓는다 — 선을 눌러 끌면 좌우로 이동'], ['ud', '상하 나눔', '가로 분할선을 안쪽 모서리에 놓는다 — 선을 눌러 끌면 위아래로 이동']].forEach(([k, t, tt]) => { const b = document.createElement('button'); b.className = 'btn ghost'; b.textContent = t; b.title = tt; b.onclick = e => { e.stopPropagation(); addAxisSplit(r, k); }; d.appendChild(b); });
+        const sh = document.createElement('button'); sh.className = 'btn ' + (splitEdit === r.id ? 'accent' : 'ghost'); sh.textContent = splitEdit === r.id ? '분할선 편집 중' : '모양'; sh.title = '외곽선은 그대로 두고 안쪽 분할선을 눌러 끌어 옮긴다';
+        sh.onclick = e => { e.stopPropagation(); splitEdit = splitEdit === r.id ? null : r.id; recompute(r); renderList(); hint(splitEdit ? r.name + ' — 노란 분할선을 눌러 끌면 그 방향으로 옮겨집니다(외곽선은 고정). 선 탭 후 Del 삭제. 다시 「모양」으로 끝.' : '분할선 편집 끝'); }; d.appendChild(sh);
         const un = document.createElement('button'); un.className = 'btn ghost'; un.textContent = '복합 해제'; un.title = '구역을 없애고 하나의 지붕으로'; un.onclick = e => { e.stopPropagation(); zoneChildren(r).forEach(k => { clearGfx(k); roofs.splice(roofs.indexOf(k), 1); }); r.type = r.prevType && r.prevType !== 'multi' ? r.prevType : 'flush'; r.splits = []; recompute(r); select(r.id); save(); }; d.appendChild(un);
         const del = document.createElement('button'); del.className = 'btn danger'; del.textContent = '삭제'; del.onclick = e => { e.stopPropagation(); remove(r.id); }; d.appendChild(del);
         box.appendChild(d); return;
@@ -2898,7 +2911,7 @@
         curType, settings, siteName, siteAddr, siteRoad, shade, moduleCfg, edits, structure,
         roofs: roofs.map(r => ({ id: r.id, name: r.name, type: r.type, points: r.points, src: r.src, floors: r.floors, floorsManual: r.floorsManual, spans: r.spans, vent: r.vent,
           parcels: r.parcels, extra: r.extra, review: r.review && !r.review.pending ? r.review : undefined, force: r.force,
-          azimuth: r.azimuth, margin: r.margin, tiers: r.tiers, terrain: r.terrain, moved: r.moved, flip: r.flip, rowAngle: r.rowAngle, frontTiers: r.frontTiers, backTiers: r.backTiers, parentId: r.parentId, splits: (r.splits || []).map(s => ({ a: s.a, b: s.b })), prevType: r.prevType, ventN: r.ventN, ventPos: r.ventPos, ridgeOff: r.ridgeOff, ridgeExt: r.ridgeExt, ridgeOn: r.ridgeOn, attach: r.attach, ventExtra: r.ventExtra, ventH: r.ventH, rect: r.rect })),
+          azimuth: r.azimuth, margin: r.margin, tiers: r.tiers, terrain: r.terrain, moved: r.moved, flip: r.flip, rowAngle: r.rowAngle, frontTiers: r.frontTiers, backTiers: r.backTiers, parentId: r.parentId, splits: (r.splits || []).map(s => ({ a: s.a, b: s.b, kind: s.kind, dir: s.dir })), prevType: r.prevType, ventN: r.ventN, ventPos: r.ventPos, ridgeOff: r.ridgeOff, ridgeExt: r.ridgeExt, ridgeOn: r.ridgeOn, attach: r.attach, ventExtra: r.ventExtra, ventH: r.ventH, rect: r.rect })),
         // 음영 장애물로 다시 쓰려고 주변 건물도 남긴다 (그림은 다시 그리지 않는다)
         buildings: buildings.map(b => ({ id: b.id, name: b.name, ring: b.ring, floors: b.floors })),
         fixtures: fixtures.map(f => ({ id: f.id, kind: f.kind, c: f.c, w: f.w, h: f.h, ang: f.ang, manual: f.manual })),

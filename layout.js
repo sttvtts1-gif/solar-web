@@ -587,11 +587,32 @@ const Layout = (() => {
     const t0 = Math.min(...ts), t1 = Math.max(...ts);
     return toGeo([{ x: ux * t0, y: uy * t0 }, { x: ux * t1, y: uy * t1 }], aGeo);
   }
+  /**
+   * 좌우('lr') / 상하('ud') 분할선 (2026-10-23 사용자 지시): 건물 외접사각형 축에 맞춰 세로선(좌우 나눔) 또는 가로선(상하 나눔).
+   * 자리는 외곽선의 안쪽 모서리(ㄱ·ㄴ자 꺾이는 오목 꼭짓점, 중심에 가장 가까운 것)를 지나게, 없으면 중심.
+   * @returns { a, b, dir }  a–b 지리좌표(직선 정의), dir 수학각(°, 동쪽 0)
+   */
+  function axisSplit(ptsGeo, kind) {
+    const c = centroid(ptsGeo), loc = toLocal(ptsGeo, c), rect = minRect(loc);
+    const A = rect ? rect.angle : 0, cands = [fold(A), fold(A + 90)];
+    const horiz = cands.reduce((p, q) => Math.abs(Math.sin(q * D2R)) <= Math.abs(Math.sin(p * D2R)) ? q : p);   // 동서에 가까운 축
+    const vert = cands.find(q => q !== horiz) ?? fold(horiz + 90);
+    const d = kind === 'ud' ? horiz : vert;
+    let s2 = 0; for (let i = 0; i < loc.length; i++) { const P = loc[i], Q = loc[(i + 1) % loc.length]; s2 += P.x * Q.y - Q.x * P.y; }   // 반시계면 +
+    const sgn = Math.sign(s2) || 1; let anchor = { x: 0, y: 0 }, bestD = Infinity;
+    for (let i = 0; i < loc.length; i++) {
+      const P = loc[(i + loc.length - 1) % loc.length], Q = loc[i], S = loc[(i + 1) % loc.length];
+      const cr = (Q.x - P.x) * (S.y - Q.y) - (Q.y - P.y) * (S.x - Q.x);
+      if (Math.sign(cr) === -sgn) { const dd = Math.hypot(Q.x, Q.y); if (dd < bestD) { bestD = dd; anchor = Q; } }   // 오목 꼭짓점
+    }
+    const g = toGeo([anchor, { x: anchor.x + 10 * Math.cos(d * D2R), y: anchor.y + 10 * Math.sin(d * D2R) }], c);
+    return { a: g[0], b: g[1], dir: d, kind };
+  }
   /** 점 p 를 외곽선 위 가장 가까운 자리로 */
   function snapToRing(ptsGeo, pGeo) {
     const loc = toLocal(ptsGeo, pGeo); let best = null;
     for (let i = 0; i < loc.length; i++) { const P = loc[i], Q = loc[(i + 1) % loc.length], vx = Q.x - P.x, vy = Q.y - P.y, l2 = vx * vx + vy * vy || 1, t = Math.max(0, Math.min(1, -(P.x * vx + P.y * vy) / l2)), X = { x: P.x + t * vx, y: P.y + t * vy }, d = Math.hypot(X.x, X.y); if (!best || d < best.d) best = { d, X }; }
     return best ? toGeo([best.X], pGeo)[0] : pGeo;
   }
-  return { compute, guessType, guessSpans, containsGeo, sunPositions, PRESETS, DEFAULTS, centroid, toLocal, toGeo, area, minRect, rotate, empty, splitPolygon, lineClip, snapToRing };
+  return { compute, guessType, guessSpans, containsGeo, sunPositions, PRESETS, DEFAULTS, centroid, toLocal, toGeo, area, minRect, rotate, empty, splitPolygon, lineClip, snapToRing, axisSplit };
 })();
