@@ -1780,7 +1780,8 @@
       const arrayH = r.type === 'flush' ? 0.15 : arraySlope * Math.sin(tilt * Math.PI / 180);
       const arrayDepth = r.type === 'flush' ? dSlope : arraySlope * Math.cos(tilt * Math.PI / 180);
       const blocks = res.blocks || [];
-      const topH = kind === 'gable-ew' ? (blocks.length ? eaveH + Math.max(...blocks.map(bk => bk.zb || 0)) : eaveH + span * Math.tan(roofSlope * Math.PI / 180) + 0.15)
+      const topH = (kind === 'gable-ew' && r.type !== 'ginseng') ? (blocks.length ? eaveH + Math.max(...blocks.map(bk => bk.zb || 0)) : eaveH + span * Math.tan(roofSlope * Math.PI / 180) + 0.15)
+        : r.type === 'ginseng' ? ridgeH + (r.attach ? 0.12 : (Number(opt.frontLift) || 0.5)) + arrayH
         : kind === 'gable-ns' ? ridgeH + 0.3 + arrayH
         : (r.type === 'parking' ? 2.5 : r.type === 'ground' ? 0.5 : eaveH) + 0.3 + arrayH;
       const ridges = res.ridges || [];          // 용마루 선(배치 계산이 준 것 — 옮긴 자리 반영)
@@ -1792,7 +1793,7 @@
         tilt: r.type === 'flush' ? (Number(opt.tilt) || 0) : tilt, tiers, dir: res.aligned ? '건물맞춤 ' + res.rowAngle + '°' : (az ? '방위 ' + az + '°' : '정남'),
         pitch: res.pitch, gap: res.arrayGap, margin: Number(opt.margin) || 0,
         kind, spans, roofSlope, eaveH, ridgeH, topH, arrayH, arrayDepth, depthM: kind === 'gable-ns' ? res.widthM : res.depthM, widthM: kind === 'gable-ns' ? res.depthM : res.widthM, ridges,
-        frontLift: Number(opt.frontLift) || 0,
+        frontLift: Number(opt.frontLift) || 0, attach: !!r.attach,
         blocks, maxLiftH: Number(opt.maxLiftH) || 3.5,   // 원단: 블록마다 {from,to,zf,zb,lifted} (처마 기준 m, 남쪽 끝 0)
         ridgePos,                                       // 동마다 용마루 자리(남쪽/서쪽 끝 0 기준 m) — 옮긴 것 반영
         dims: roofDims(r),                              // 처마·옆·용마루 이격 치수선 [{a,b,text(mm)}] (지자체 제출용)

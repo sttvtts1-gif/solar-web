@@ -154,6 +154,16 @@ const Proposal = (() => {
     const mod = (x1, y1, x2, y2) => { g.strokeStyle = MAG; g.lineWidth = 7; g.beginPath(); g.moveTo(X(x1), Y(y1)); g.lineTo(X(x2), Y(y2)); g.stroke(); g.strokeStyle = BLK; g.lineWidth = 2.5; };
     const post = (x, y1, y2) => { g.strokeStyle = '#4a2a8a'; g.lineWidth = 2; g.beginPath(); g.moveTo(X(x), Y(y1)); g.lineTo(X(x), Y(y2)); g.stroke(); g.strokeStyle = BLK; g.lineWidth = 2.5; };
     const lift = r.frontLift != null ? r.frontLift : 0.5;
+    /** 인삼밭 거치대: 지붕면 높이 roofZ(x) 위에 다리(앞 lift, 뒤 lift+arrayH)로 띄운 경사 모듈을 pitch 간격으로 (2026-10-23 사용자 지시: 용마루 위 수평틀 X, 지붕면 따라감) */
+    const racks = (roofZ, from, to, legH) => {
+      const aw = r.arrayDepth, ah = r.arrayH;
+      for (let x = from; x + aw <= to + 1e-9; x += r.pitch) {
+        const zf = roofZ(x) + legH, zb = zf + ah;
+        mod(x, zf, x + aw, zb);
+        post(x + 0.05, roofZ(x + 0.05), zf); post(x + aw - 0.05, roofZ(x + aw - 0.05), zb);
+        if (aw > 3) post(x + aw / 2, roofZ(x + aw / 2), zf + ah / 2);
+      }
+    };
     if (r.kind === 'gable-ew') {
       // 원단: 경간마다 남쪽 면은 지붕에서 앞다리만큼 띄워 평행, 북쪽 블록은 같은 면으로 이어 올림
       const n = r.spans, D = depth / n, t = Math.tan(r.roofSlope * Math.PI / 180);
@@ -164,7 +174,9 @@ const Proposal = (() => {
         const y0 = i * D, yc = y0 + rc(i), y1 = y0 + D;
         g.beginPath(); g.moveTo(X(y0), Y(eave)); g.lineTo(X(yc), Y(eave + rc(i) * t)); g.lineTo(X(y1), Y(eave)); g.stroke();
       }
-      if (r.blocks && r.blocks.length) {
+      if (r.type === 'ginseng') {
+        racks(roofZ, 0.5, depth - 0.5, r.attach ? 0.12 : lift);                   // 인삼밭 부착(플랫): 지붕면 따라 거치대
+      } else if (r.blocks && r.blocks.length) {
         // 배치 계산이 준 블록 그대로: 남면 밀착(앞다리), 북면은 블록마다 지붕+앞다리에서 남향으로 올라가다 최대 높이에서 끊김
         r.blocks.forEach(bk => {
           mod(bk.from, eave + bk.zf, bk.to, eave + bk.zb);
@@ -191,9 +203,9 @@ const Proposal = (() => {
       const n = r.spans, Wd = depth / n, t = Math.tan(r.roofSlope * Math.PI / 180);
       const rpn = Array.isArray(r.ridgePos) && r.ridgePos.length === n ? r.ridgePos : null;
       for (let i = 0; i < n; i++) { const x0 = i * Wd, c = Math.min(Wd - 0.5, Math.max(0.5, rpn ? rpn[i] - i * Wd : Wd / 2)), xc = x0 + c; g.beginPath(); g.moveTo(X(x0), Y(eave)); g.lineTo(X(xc), Y(eave + c * t)); g.lineTo(X(x0 + Wd), Y(eave)); g.stroke(); }
-      const base = ridge + 0.3, aw = r.arrayDepth, ah = r.arrayH;
-      g.strokeStyle = '#3aa'; g.lineWidth = 2; g.beginPath(); g.moveTo(X(0.5), Y(base)); g.lineTo(X(depth - 0.5), Y(base)); g.stroke(); g.strokeStyle = BLK;
-      for (let x = 1; x + aw <= depth - 1; x += r.pitch) { mod(x, base, x + aw, base + ah); post(x + aw, base, base + ah); post(x + aw / 2, ridge - (Wd / 2) * t * 0.5, base); }
+      // 지붕면 높이: 경간마다 처마→용마루(옮긴 자리 반영)→처마
+      const roofZ = x => { const i = Math.min(n - 1, Math.max(0, Math.floor(x / Wd))), u = x - i * Wd, c = Math.min(Wd - 0.5, Math.max(0.5, rpn ? rpn[i] - i * Wd : Wd / 2)); return eave + (u <= c ? u * t : c * t * Math.max(0, Wd - u) / Math.max(0.5, Wd - c)); };
+      racks(roofZ, 0.5, depth - 0.5, lift);                                       // 인삼밭: 지붕면을 따라 거치대 반복(앞다리 lift)
       dim(X(0) - 150, 0, eave, mm(eave));
       dim(X(0) - 70, 0, ridge, mm(ridge));
       dim(X(depth) + 90, 0, top, mm(top));

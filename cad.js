@@ -79,7 +79,10 @@ const Cad = (() => {
           const y0 = k * D, yc = y0 + rc(k), y1 = y0 + D, hr = eave + rc(k) * t;
           w.line('BLDG', P(y0, eave), P(yc, hr)); w.line('BLDG', P(yc, hr), P(y1, eave));
         }
-        if (r.blocks && r.blocks.length) {
+        const racks = (rz, from, to, legH) => { const aw = r.arrayDepth, ah = r.arrayH; for (let x = from; x + aw <= to + 1e-9; x += r.pitch) { const zf = rz(x) + legH, zb = zf + ah; w.line('MODULE', P(x, zf), P(x + aw, zb)); w.line('DIM', P(x + 0.05, rz(x + 0.05)), P(x + 0.05, zf)); w.line('DIM', P(x + aw - 0.05, rz(x + aw - 0.05)), P(x + aw - 0.05, zb)); } };
+        if (r.type === 'ginseng') {
+          racks(roofZ, 0.5, depth - 0.5, r.attach ? 0.12 : lift);                 // 인삼밭 부착: 지붕면 따라 거치대 (2026-10-23)
+        } else if (r.blocks && r.blocks.length) {
           r.blocks.forEach(bk => {
             w.line('MODULE', P(bk.from, eave + bk.zf), P(bk.to, eave + bk.zb));
             const nPost = Math.max(2, Math.round((bk.to - bk.from) / 3));
@@ -99,8 +102,9 @@ const Cad = (() => {
         const n = r.spans, Wd = depth / n, t = Math.tan(r.roofSlope * Math.PI / 180), base = ridge + 0.3;
         const rpn = Array.isArray(r.ridgePos) && r.ridgePos.length === n ? r.ridgePos : null;
         for (let k = 0; k < n; k++) { const x0 = k * Wd, c = Math.min(Wd - 0.5, Math.max(0.5, rpn ? rpn[k] - k * Wd : Wd / 2)), xc = x0 + c, hr = eave + c * t; w.line('BLDG', P(x0, eave), P(xc, hr)); w.line('BLDG', P(xc, hr), P(x0 + Wd, eave)); }
-        w.line('DIM', P(0.5, base), P(depth - 0.5, base));
-        for (let x = 1; x + r.arrayDepth <= depth - 1; x += r.pitch) { w.line('MODULE', P(x, base), P(x + r.arrayDepth, base + r.arrayH)); w.line('DIM', P(x + r.arrayDepth, base), P(x + r.arrayDepth, base + r.arrayH)); }
+        const rz = x => { const i = Math.min(n - 1, Math.max(0, Math.floor(x / Wd))), u = x - i * Wd, c = Math.min(Wd - 0.5, Math.max(0.5, rpn ? rpn[i] - i * Wd : Wd / 2)); return eave + (u <= c ? u * t : c * t * Math.max(0, Wd - u) / Math.max(0.5, Wd - c)); };
+        const lift2 = r.frontLift != null ? r.frontLift : 0.5, aw = r.arrayDepth, ah = r.arrayH;
+        for (let x = 0.5; x + aw <= depth - 0.5 + 1e-9; x += r.pitch) { const zf = rz(x) + lift2, zb = zf + ah; w.line('MODULE', P(x, zf), P(x + aw, zb)); w.line('DIM', P(x + 0.05, rz(x + 0.05)), P(x + 0.05, zf)); w.line('DIM', P(x + aw - 0.05, rz(x + aw - 0.05)), P(x + aw - 0.05, zb)); }   // 인삼밭: 지붕면 따라 거치대 (2026-10-23)
         w.vdim(ox - 4, oy, oy + eave, mm(eave)); w.vdim(ox - 2.5, oy, oy + ridge, mm(ridge)); w.vdim(ox + depth + 2.5, oy, oy + top, mm(top));
       } else {
         const base = r.type === 'parking' ? 2.5 : r.type === 'ground' ? 0.5 : eave;
